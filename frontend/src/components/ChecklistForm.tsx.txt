@@ -1,0 +1,183 @@
+import React from "react";
+import { styles } from "../styles/appStyles";
+
+type AnswerValue = "YES" | "NO" | "N/A" | "";
+
+type Assignment = {
+  id: number | string;
+  checklistTitle: string;
+  assignedToName: string;
+  assignedByName: string;
+};
+
+type ChecklistItem = {
+  id: number | string;
+  question: string;
+};
+
+type ChecklistTemplate = {
+  id: number | string;
+  title: string;
+  items: ChecklistItem[];
+};
+
+type CompletedChecklistItem = {
+  itemId: number | string;
+  question: string;
+  answer: AnswerValue;
+  comment: string;
+  photos: string[];
+};
+
+type Props = {
+  activeAssignment: Assignment;
+  activeTemplate: ChecklistTemplate;
+  formState: Record<string | number, CompletedChecklistItem>;
+  updateAnswer: (itemId: string | number, answer: AnswerValue) => void;
+  updateComment: (itemId: string | number, comment: string) => void;
+  handleAddPhotos: (itemId: string | number, files: FileList | null) => void;
+  removePhoto: (itemId: string | number, photoIndex: number) => void;
+  cancel: () => void;
+  submitChecklist: () => void;
+};
+
+function getAnswerButtonStyle(option: "YES" | "NO" | "N/A", selected: string): React.CSSProperties {
+  const base: React.CSSProperties = {
+    padding: "8px 14px",
+    borderRadius: 10,
+    border: "1px solid #cbd5e1",
+    background: "#fff",
+    cursor: "pointer",
+    fontWeight: 700,
+    minWidth: 72,
+    transition: "all 0.15s ease",
+  };
+
+  if (selected !== option) return base;
+
+  if (option === "YES") {
+    return {
+      ...base,
+      background: "#16a34a",
+      color: "#fff",
+      border: "1px solid #16a34a",
+    };
+  }
+
+  if (option === "NO") {
+    return {
+      ...base,
+      background: "#dc2626",
+      color: "#fff",
+      border: "1px solid #dc2626",
+    };
+  }
+
+  return {
+    ...base,
+    background: "#2563eb",
+    color: "#fff",
+    border: "1px solid #2563eb",
+  };
+}
+
+export default function ChecklistForm({
+  activeAssignment,
+  activeTemplate,
+  formState,
+  updateAnswer,
+  updateComment,
+  handleAddPhotos,
+  removePhoto,
+  cancel,
+  submitChecklist,
+}: Props) {
+  return (
+    <>
+      <h2 style={styles.cardTitle}>Complete Checklist</h2>
+
+      <div style={styles.formInfo}>
+        <div>
+          <strong>Checklist:</strong> {activeAssignment.checklistTitle}
+        </div>
+        <div>
+          <strong>Assigned To:</strong> {activeAssignment.assignedToName}
+        </div>
+        <div>
+          <strong>Assigned By:</strong> {activeAssignment.assignedByName}
+        </div>
+      </div>
+
+      {activeTemplate.items.map((item, index) => {
+        const current = formState[item.id];
+
+        return (
+          <div key={item.id} style={styles.formBlock}>
+            <div style={styles.questionTitle}>
+              {index + 1}. {item.question}
+            </div>
+
+            <div style={styles.answerRow}>
+              {(["YES", "NO", "N/A"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => updateAnswer(item.id, option)}
+                  style={getAnswerButtonStyle(option, current?.answer || "")}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Comment</label>
+              <textarea
+                value={current?.comment || ""}
+                onChange={(e) => updateComment(item.id, e.target.value)}
+                style={styles.textarea}
+                placeholder="Write your note here"
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Add Photos</label>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => handleAddPhotos(item.id, e.target.files)}
+              />
+            </div>
+
+            {current?.photos?.length > 0 && (
+              <div style={styles.photoGrid}>
+                {current.photos.map((photo, idx) => (
+                  <div key={idx} style={styles.photoCard}>
+                    <img src={photo} alt={`uploaded-${idx}`} style={styles.photoPreview} />
+                    <button
+                      type="button"
+                      style={styles.removeButton}
+                      onClick={() => removePhoto(item.id, idx)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div style={styles.bottomActions}>
+        <button style={styles.secondaryButton} onClick={cancel}>
+          Cancel
+        </button>
+        <button style={styles.primaryButton} onClick={submitChecklist}>
+          Save / Complete
+        </button>
+      </div>
+    </>
+  );
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Inspectria",
+  "short_name": "Inspectria",
+  "description": "Digital inspection software for checklists, reports, photo evidence, and AI action plans.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f8f7",
+  "theme_color": "#0e716b",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/inspectra-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/inspectra-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

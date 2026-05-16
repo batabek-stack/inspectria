@@ -1,0 +1,19 @@
+{
+  "name": "inspectra-backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "cleanup:uploads": "node scripts/cleanupUploads.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^8.0.7",
+    "pg": "^8.20.0",
+    "sharp": "^0.34.5"
+  }
+}

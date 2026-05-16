@@ -1,0 +1,548 @@
+import jsPDF from "jspdf";
+import { FILE_BASE } from "../services/api";
+
+type AnswerValue = "YES" | "NO" | "N/A" | "";
+
+type ChecklistPdfItem = {
+  title?: string;
+  question?: string;
+  answer?: AnswerValue | string;
+  answerType?: "FORMAT1" | "DATE" | "TEXT" | "MULTIPLE_CHOICE";
+  answer_type?: "FORMAT1" | "DATE" | "TEXT" | "MULTIPLE_CHOICE";
+  comment?: string;
+  photos?: string[];
+};
+
+type ChecklistPdfReport = {
+  hotelName?: string;
+  reportTitle?: string;
+  checklistTitle?: string;
+  assignedToName?: string;
+  assignedByName?: string;
+  completedByName?: string;
+  completedAt?: string | Date;
+  status?: string;
+  items: ChecklistPdfItem[];
+};
+
+type ChecklistPdfOutput = {
+  fileName: string;
+  dataUri?: string;
+};
+
+type ChecklistPdfOptions = {
+  output?: "save" | "dataUri";
+};
+
+type PdfPhotoData = {
+  dataUrl: string;
+  width: number;
+  height: number;
+};
+
+const PAGE = {
+  width: 210,
+  height: 297,
+  marginX: 14,
+  top: 18,
+  bottom: 16,
+};
+
+const COLORS = {
+  text: [33, 37, 41] as [number, number, number],
+  muted: [108, 117, 125] as [number, number, number],
+  line: [210, 210, 210] as [number, number, number],
+  headerBg: [245, 247, 250] as [number, number, number],
+  yes: [22, 163, 74] as [number, number, number],
+  no: [220, 38, 38] as [number, number, number],
+  na: [37, 99, 235] as [number, number, number],
+  white: [255, 255, 255] as [number, number, number],
+};
+
+const PDF_SIZE_TARGET_BYTES = 7 * 1024 * 1024;
+const PDF_NON_IMAGE_BUDGET_BYTES = 700 * 1024;
+const MAX_PHOTO_LONG_EDGE_PX = 1100;
+const MIN_PHOTO_LONG_EDGE_PX = 520;
+const MAX_PHOTO_QUALITY = 0.72;
+const MIN_PHOTO_QUALITY = 0.38;
+
+function sanitizeText(value?: string | null) {
+  const text = value && value.trim() ? value.trim() : "-";
+
+  // jsPDF varsayılan fontları Türkçe karakterleri tam desteklemediği için
+  // geçici güvenli dönüşüm yapıyoruz.
+  // Tam çözüm için Unicode font gömülmeli.
+  return text
+    .replace(/ı/g, "i")
+    .replace(/İ/g, "I")
+    .replace(/ş/g, "s")
+    .replace(/Ş/g, "S")
+    .replace(/ğ/g, "g")
+    .replace(/Ğ/g, "G")
+    .replace(/ü/g, "u")
+    .replace(/Ü/g, "U")
+    .replace(/ö/g, "o")
+    .replace(/Ö/g, "O")
+    .replace(/ç/g, "c")
+    .replace(/Ç/g, "C");
+}
+
+function formatDate(value?: string | Date) {
+  if (!value) return "-";
+  try {
+    const d = typeof value === "string" ? new Date(value) : value;
+    if (Number.isNaN(d.getTime())) return "-";
+    return sanitizeText(d.toLocaleString("tr-TR"));
+  } catch {
+    return "-";
+  }
+}
+
+function normalizeAnswer(answer?: string) {
+  if (!answer) return "-";
+  return answer;
+}
+
+function answerColor(answer?: string): [number, number, number] {
+  const normalized = normalizeAnswer(answer);
+  if (normalized === "YES") return COLORS.yes;
+  if (normalized === "NO") return COLORS.no;
+  return COLORS.na;
+}
+
+function isServerFile(path: string) {
+  return path.startsWith("/uploads/") || path.startsWith("uploads/");
+}
+
+function estimateDataUrlBytes(dataUrl: string) {
+  const base64 = dataUrl.split(",")[1] || "";
+  return Math.floor((base64.length * 3) / 4);
+}
+
+function getPhotoBudgetBytes(totalPhotos: number) {
+  if (totalPhotos <= 0) return PDF_SIZE_TARGET_BYTES;
+
+  const available = Math.max(
+    2 * 1024 * 1024,
+    PDF_SIZE_TARGET_BYTES - PDF_NON_IMAGE_BUDGET_BYTES
+  );
+
+  return Math.max(42 * 1024, Math.floor(available / totalPhotos));
+}
+
+function getInitialPhotoQuality(totalPhotos: number) {
+  if (totalPhotos >= 60) return 0.46;
+  if (totalPhotos >= 35) return 0.52;
+  if (totalPhotos >= 20) return 0.58;
+  if (totalPhotos >= 10) return 0.64;
+  return MAX_PHOTO_QUALITY;
+}
+
+function getInitialLongEdge(totalPhotos: number) {
+  if (totalPhotos >= 60) return 680;
+  if (totalPhotos >= 35) return 760;
+  if (totalPhotos >= 20) return 860;
+  if (totalPhotos >= 10) return 980;
+  return MAX_PHOTO_LONG_EDGE_PX;
+}
+
+async function readImageAsDataUrl(blob: Blob): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ""));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function createImageElement(dataUrl: string): Promise<HTMLImageElement> {
+  return await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+
+async function compressImageForPdf(
+  sourceDataUrl: string,
+  totalPhotos: number
+): Promise<PdfPhotoData> {
+  const image = await createImageElement(sourceDataUrl);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  if (!context || !image.naturalWidth || !image.naturalHeight) {
+    return {
+      dataUrl: sourceDataUrl,
+      width: image.naturalWidth || 1,
+      height: image.naturalHeight || 1,
+    };
+  }
+
+  const targetBytes = getPhotoBudgetBytes(totalPhotos);
+  let longEdge = getInitialLongEdge(totalPhotos);
+  let quality = getInitialPhotoQuality(totalPhotos);
+  let bestDataUrl = sourceDataUrl;
+
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const scale = Math.min(1, longEdge / Math.max(image.naturalWidth, image.naturalHeight));
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    bestDataUrl = canvas.toDataURL("image/jpeg", quality);
+    if (estimateDataUrlBytes(bestDataUrl) <= targetBytes) {
+      break;
+    }
+
+    if (quality > MIN_PHOTO_QUALITY) {
+      quality = Math.max(MIN_PHOTO_QUALITY, quality - 0.08);
+    } else if (longEdge > MIN_PHOTO_LONG_EDGE_PX) {
+      longEdge = Math.max(MIN_PHOTO_LONG_EDGE_PX, Math.round(longEdge * 0.82));
+    } else {
+      break;
+    }
+  }
+
+  return {
+    dataUrl: bestDataUrl,
+    width: canvas.width,
+    height: canvas.height,
+  };
+}
+
+async function loadImageAsDataUrl(src: string, totalPhotos: number): Promise<PdfPhotoData | null> {
+  try {
+    let dataUrl = src;
+
+    if (!src.startsWith("data:image/")) {
+      const fullSrc = isServerFile(src)
+        ? `${FILE_BASE}${src.startsWith("/") ? "" : "/"}${src}`
+        : src;
+
+      const response = await fetch(fullSrc);
+      const blob = await response.blob();
+      dataUrl = await readImageAsDataUrl(blob);
+    }
+
+    return await compressImageForPdf(dataUrl, totalPhotos);
+  } catch {
+    return null;
+  }
+}
+
+function getPhotoDrawSize(photo: PdfPhotoData, maxWidth: number) {
+  const aspectRatio = photo.width / photo.height;
+  const isPortrait = photo.height > photo.width * 1.08;
+  const maxHeight = isPortrait ? 84 : 52;
+
+  let width = maxWidth;
+  let height = width / aspectRatio;
+
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * aspectRatio;
+  }
+
+  return {
+    width: Math.max(1, width),
+    height: Math.max(1, height),
+  };
+}
+
+export async function generateChecklistPdf(
+  report: ChecklistPdfReport,
+  options: ChecklistPdfOptions = {}
+): Promise<ChecklistPdfOutput> {
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+
+  const contentWidth = PAGE.width - PAGE.marginX * 2;
+  const totalPhotos = report.items.reduce((total, item) => total + (item.photos?.length || 0), 0);
+  let cursorY = PAGE.top;
+  let pageNumber = 1;
+
+  const scoredItems = report.items.filter(
+    (x) => (x.answerType || x.answer_type || "FORMAT1") === "FORMAT1"
+  );
+  const totalQuestions = scoredItems.length;
+  const yesCount = scoredItems.filter((x) => x.answer === "YES").length;
+  const noItems = scoredItems.filter((x) => x.answer === "NO");
+  const successRate =
+    totalQuestions > 0 ? Math.round((yesCount / totalQuestions) * 100) : 0;
+
+  const drawPageHeader = (isFirstPage = false) => {
+    doc.setFillColor(...COLORS.headerBg);
+    doc.rect(0, 0, PAGE.width, 24, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(isFirstPage ? 16 : 12);
+    doc.setTextColor(...COLORS.text);
+    doc.text(sanitizeText(report.hotelName || "Inspectria Report"), PAGE.marginX, 11);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...COLORS.muted);
+    doc.text(
+      sanitizeText(report.reportTitle || report.checklistTitle || "Checklist Completion Report"),
+      PAGE.marginX,
+      17
+    );
+
+    doc.setDrawColor(...COLORS.line);
+    doc.line(PAGE.marginX, 24, PAGE.width - PAGE.marginX, 24);
+
+    cursorY = 30;
+  };
+
+  const drawPageFooter = () => {
+    doc.setDrawColor(...COLORS.line);
+    doc.line(PAGE.marginX, PAGE.height - 12, PAGE.width - PAGE.marginX, PAGE.height - 12);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.muted);
+    doc.text(`Generated: ${formatDate(new Date())}`, PAGE.marginX, PAGE.height - 7);
+    doc.text(`Page ${pageNumber}`, PAGE.width - PAGE.marginX - 14, PAGE.height - 7);
+  };
+
+  const addNewPage = () => {
+    drawPageFooter();
+    doc.addPage();
+    pageNumber += 1;
+    drawPageHeader(false);
+  };
+
+  const ensureSpace = (neededHeight: number) => {
+    if (cursorY + neededHeight > PAGE.height - PAGE.bottom - 12) {
+      addNewPage();
+    }
+  };
+
+  const drawSectionTitle = (title: string) => {
+    ensureSpace(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.text);
+    doc.text(sanitizeText(title), PAGE.marginX, cursorY);
+    cursorY += 2;
+
+    doc.setDrawColor(...COLORS.line);
+    doc.line(PAGE.marginX, cursorY + 2, PAGE.width - PAGE.marginX, cursorY + 2);
+    cursorY += 7;
+  };
+
+  const drawLabelValue = (label: string, value: string) => {
+    const labelWidth = 36;
+    const x = PAGE.marginX;
+    const safeValue = sanitizeText(value);
+    const safeLabel = sanitizeText(label);
+
+    const lines = doc.splitTextToSize(safeValue, contentWidth - labelWidth);
+    const lineHeight = 5;
+    const blockHeight = Math.max(6, lines.length * lineHeight);
+
+    ensureSpace(blockHeight + 2);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...COLORS.text);
+    doc.text(safeLabel, x, cursorY);
+
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...COLORS.text);
+    doc.text(lines, x + labelWidth, cursorY);
+
+    cursorY += blockHeight + 1;
+  };
+
+  const drawAnswerBadge = (answer?: string) => {
+    const text = normalizeAnswer(answer);
+    const color = answerColor(answer);
+
+    doc.setFillColor(...color);
+    doc.roundedRect(PAGE.marginX, cursorY - 4, 24, 7, 1.5, 1.5, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.white);
+    doc.text(text, PAGE.marginX + 12, cursorY + 0.8, { align: "center" });
+  };
+
+  const drawWrappedText = (label: string, value?: string) => {
+    const text = `${sanitizeText(label)}: ${sanitizeText(value)}`;
+    const lines = doc.splitTextToSize(text, contentWidth);
+    const blockHeight = lines.length * 5 + 1;
+
+    ensureSpace(blockHeight + 2);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...COLORS.text);
+    doc.text(lines, PAGE.marginX, cursorY);
+
+    cursorY += blockHeight;
+  };
+
+  const drawPhotos = async (photos: string[] = []) => {
+    if (!photos.length) return;
+
+    drawWrappedText("Photos", `${photos.length} attached`);
+
+    const gap = 6;
+    const columnWidth = (contentWidth - gap) / 2;
+
+    for (let i = 0; i < photos.length; i += 2) {
+      const leftRaw = photos[i];
+      const rightRaw = photos[i + 1];
+
+      const left = leftRaw ? await loadImageAsDataUrl(leftRaw, totalPhotos) : null;
+      const right = rightRaw ? await loadImageAsDataUrl(rightRaw, totalPhotos) : null;
+      const leftSize = left ? getPhotoDrawSize(left, columnWidth) : null;
+      const rightSize = right ? getPhotoDrawSize(right, columnWidth) : null;
+      const rowHeight = Math.max(leftSize?.height || 0, rightSize?.height || 0, 52);
+
+      ensureSpace(rowHeight + 8);
+
+      if (left) {
+        const size = leftSize || getPhotoDrawSize(left, columnWidth);
+        const x = PAGE.marginX + (columnWidth - size.width) / 2;
+        doc.setDrawColor(...COLORS.line);
+        doc.rect(x, cursorY, size.width, size.height);
+        doc.addImage(left.dataUrl, "JPEG", x, cursorY, size.width, size.height, undefined, "FAST");
+      }
+
+      if (right) {
+        const size = rightSize || getPhotoDrawSize(right, columnWidth);
+        const columnX = PAGE.marginX + columnWidth + gap;
+        const x = columnX + (columnWidth - size.width) / 2;
+        doc.setDrawColor(...COLORS.line);
+        doc.rect(x, cursorY, size.width, size.height);
+        doc.addImage(
+          right.dataUrl,
+          "JPEG",
+          x,
+          cursorY,
+          size.width,
+          size.height,
+          undefined,
+          "FAST"
+        );
+      }
+
+      cursorY += rowHeight + 6;
+    }
+  };
+
+  const drawItemBlock = async (item: ChecklistPdfItem, index: number) => {
+    const title = sanitizeText(item.title || item.question);
+    const answer = normalizeAnswer(item.answer);
+    const noteText = sanitizeText(item.comment || "");
+
+    const questionLines = doc.splitTextToSize(`${index + 1}. ${title}`, contentWidth - 30);
+    const questionHeight = questionLines.length * 5;
+
+    ensureSpace(questionHeight + 20);
+
+    doc.setFillColor(250, 250, 250);
+    doc.roundedRect(PAGE.marginX, cursorY - 4, contentWidth, 12 + questionHeight, 2, 2, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.text);
+    doc.text(questionLines, PAGE.marginX + 28, cursorY + 1);
+
+    if ((item.answerType || item.answer_type || "FORMAT1") === "FORMAT1") {
+      drawAnswerBadge(item.answer);
+    }
+
+    cursorY += questionHeight + 10;
+
+    drawWrappedText("Answer", answer);
+    drawWrappedText("Comment", noteText);
+
+    if (item.photos?.length) {
+      await drawPhotos(item.photos);
+    }
+
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.5);
+    doc.line(PAGE.marginX, cursorY, PAGE.width - PAGE.marginX, cursorY);
+
+    cursorY += 6;
+  };
+
+  drawPageHeader(true);
+
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(PAGE.marginX, cursorY - 2, contentWidth, 44, 2, 2, "S");
+
+  cursorY += 4;
+  drawLabelValue("Checklist", report.checklistTitle || "-");
+  drawLabelValue("Status", report.status || "-");
+  drawLabelValue("Assigned To", report.assignedToName || "-");
+  drawLabelValue("Assigned By", report.assignedByName || "-");
+  drawLabelValue("Completed By", report.completedByName || "-");
+  drawLabelValue("Completed At", formatDate(report.completedAt));
+
+  ensureSpace(18);
+  doc.setFillColor(37, 99, 235);
+  doc.roundedRect(PAGE.marginX, cursorY, 78, 14, 3, 3, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(255, 255, 255);
+  doc.text(`Basari Orani: %${successRate}`, PAGE.marginX + 39, cursorY + 9.2, {
+    align: "center",
+  });
+  cursorY += 18;
+
+  if (noItems.length > 0) {
+    drawSectionTitle("No Olarak Isaretlenen Maddeler");
+
+    noItems.forEach((item, index) => {
+      const lines = doc.splitTextToSize(
+        `${index + 1}. ${sanitizeText(item.question)} | Aciklama: ${sanitizeText(item.comment)}`,
+        contentWidth
+      );
+      const blockHeight = lines.length * 5 + 3;
+
+      ensureSpace(blockHeight);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(120, 0, 0);
+      doc.text(lines, PAGE.marginX, cursorY);
+
+      cursorY += blockHeight;
+    });
+
+    cursorY += 3;
+  }
+
+  drawSectionTitle("Checklist Details");
+
+  for (let i = 0; i < report.items.length; i++) {
+    await drawItemBlock(report.items[i], i);
+  }
+
+  drawPageFooter();
+
+  const fileName = `${sanitizeText(report.checklistTitle || "Checklist_Report").replace(/[^\w\-]+/g, "_")}_${Date.now()}.pdf`;
+  if (options.output === "dataUri") {
+    return {
+      fileName,
+      dataUri: doc.output("datauristring"),
+    };
+  }
+
+  doc.save(fileName);
+  return { fileName };
+}

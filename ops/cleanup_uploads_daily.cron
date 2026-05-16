@@ -1,0 +1,3 @@
+# Run once daily at 03:15. Update APP_DIR to the production install path.
+APP_DIR=/var/www/inspectria
+15 3 * * * cd "$APP_DIR/backend" && npm run cleanup:uploads >> "$APP_DIR/logs/cleanup-uploads.log" 2>> "$APP_DIR/logs/cleanup-uploads.err.log"
