@@ -85,6 +85,75 @@ textarea {
   font: inherit;
 }
 
+.password-input {
+  position: relative;
+  flex: 1 1 180px;
+  min-width: 0;
+  width: 100%;
+}
+
+.password-input input {
+  display: block;
+}
+
+.password-input-toggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #244a54;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.password-input-toggle:hover,
+.password-input-toggle:focus-visible {
+  background: #e6f3f1;
+  color: #0f766e;
+}
+
+.password-input-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .manager-summary-print-area,
+  .manager-summary-print-area * {
+    visibility: visible !important;
+  }
+
+  .manager-summary-print-area {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .manager-summary-actions {
+    display: none !important;
+  }
+}
+
 .marketing-page {
   min-height: 100vh;
   background: #f4f8f7;

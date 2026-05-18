@@ -1,13 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AnswerType, Assignment, Checklist, Report, User, Walkthrough, WalkthroughSection } from "../types";
+import {
+  AnswerType,
+  Assignment,
+  Checklist,
+  ManagerSummaryResponse,
+  Report,
+  User,
+  Walkthrough,
+  WalkthroughSection,
+} from "../types";
 import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
 import DesktopFilePicker from "../components/DesktopFilePicker";
+import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import ReportDetail from "../components/ReportDetail";
 import WalkthroughDetail from "../components/WalkthroughDetail";
 import { getAssignments } from "../services/assignmentService";
 import { getChecklists } from "../services/checklistService";
-import { apiPost, copyLocalImageToUploads, FILE_BASE, uploadPhotos } from "../services/api";
+import {
+  apiPost,
+  createServerDownload,
+  copyLocalImageToUploads,
+  FILE_BASE,
+  uploadPhotos,
+} from "../services/api";
 import {
   deleteDraft,
   getDraft,
@@ -22,7 +38,14 @@ import {
   updateWalkthrough,
 } from "../services/walkthroughService";
 import { emailReport } from "../services/emailService";
+import { generateManagerSummary, getReportFailedItems } from "../services/aiActionPlanService";
 import { generateChecklistPdf } from "../utils/generateChecklistPdf";
+import {
+  createDownloadFromUrl,
+  GeneratedDownload,
+  openDownload,
+  revokeDownload,
+} from "../utils/downloadFile";
 
 type FillItem = {
   itemId: number;
@@ -140,6 +163,12 @@ export default function UserPage({ user, onLogout }: Props) {
   const [selectedWalkthrough, setSelectedWalkthrough] = useState<Walkthrough | null>(null);
   const [form, setForm] = useState<Record<number, FillItem>>({});
   const [message, setMessage] = useState("");
+  const [managerSummaryReportId, setManagerSummaryReportId] = useState<number | null>(null);
+  const [generatedDownload, setGeneratedDownload] = useState<GeneratedDownload | null>(null);
+  const [managerSummaryPreview, setManagerSummaryPreview] = useState<{
+    report: Report;
+    summary: ManagerSummaryResponse;
+  } | null>(null);
   const [uploadingItemId, setUploadingItemId] = useState<number | null>(null);
   const [isRestoringDraft, setIsRestoringDraft] = useState(false);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
@@ -556,9 +585,62 @@ export default function UserPage({ user, onLogout }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      revokeDownload(generatedDownload);
+    };
+  }, [generatedDownload]);
+
+  const publishGeneratedDownload = async (
+    blob: Blob,
+    fileName: string,
+    label: string,
+    mimeType: string
+  ) => {
+    const serverDownload = await createServerDownload(blob, fileName, mimeType);
+    const isPdf = mimeType === "application/pdf";
+    const download = createDownloadFromUrl(
+      isPdf ? `${serverDownload.url}?view=1` : serverDownload.url,
+      serverDownload.fileName,
+      label,
+      isPdf
+    );
+    setGeneratedDownload((previous) => {
+      revokeDownload(previous);
+      return download;
+    });
+    openDownload(download);
+  };
+
   const handleDownloadPdf = async (report: Report) => {
     const pdfPayload = mapReportToPdfPayload(report);
     await generateChecklistPdf(pdfPayload as any);
+  };
+
+  const handleDownloadManagerSummary = async (report: Report) => {
+    const failedItems = getReportFailedItems(report);
+
+    if (failedItems.length === 0) {
+      alert("This report has no negative YES/NO items to summarize.");
+      return;
+    }
+
+    try {
+      setManagerSummaryReportId(report.id);
+      setMessage("Preparing manager summary...");
+      const result = await generateManagerSummary(report);
+      setManagerSummaryPreview({ report, summary: result });
+      setMessage(
+        result.provider === "azure-openai" || result.provider === "openai"
+          ? "Manager summary is ready. Use Print / Save as PDF to export it."
+          : "Manager summary is ready with local fallback text. Use Print / Save as PDF to export it."
+      );
+    } catch (err) {
+      setMessage("");
+      alert(err instanceof Error ? err.message : "Manager summary could not be generated.");
+    } finally {
+      setManagerSummaryReportId(null);
+    }
   };
 
   const handleEmailReport = async (report: Report) => {
@@ -835,7 +917,33 @@ export default function UserPage({ user, onLogout }: Props) {
   return (
     <DashboardShell user={user} onLogout={onLogout}>
       {message ? (
-        <div style={{ ...styles.section, background: "#e6f7f5" }}>{message}</div>
+        <div style={{ ...styles.section, background: "#e6f7f5" }}>
+          <div>{message}</div>
+          {generatedDownload ? (
+            <a
+              href={generatedDownload.url}
+              download={generatedDownload.preview ? undefined : generatedDownload.fileName}
+              target={generatedDownload.preview ? "_blank" : undefined}
+              rel={generatedDownload.preview ? "noopener" : undefined}
+              style={{
+                ...styles.button,
+                display: "inline-block",
+                marginTop: 10,
+                textDecoration: "none",
+              }}
+            >
+              {generatedDownload.label}
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
+      {managerSummaryPreview ? (
+        <ManagerSummaryPanel
+          report={managerSummaryPreview.report}
+          summary={managerSummaryPreview.summary}
+          onClose={() => setManagerSummaryPreview(null)}
+        />
       ) : null}
 
       {selectedWalkthrough ? (
@@ -852,6 +960,8 @@ export default function UserPage({ user, onLogout }: Props) {
           onDownloadPdf={handleDownloadPdf}
           onEmailReport={handleEmailReport}
           onDeleteReport={handleDeleteReport}
+          onDownloadManagerSummary={handleDownloadManagerSummary}
+          managerSummaryLoading={managerSummaryReportId === selectedReport.id}
         />
       ) : !activeAssignment || !activeChecklist ? (
         <>
@@ -1125,6 +1235,13 @@ export default function UserPage({ user, onLogout }: Props) {
                       onClick={() => handleDownloadPdf(r)}
                     >
                       Download PDF
+                    </button>
+                    <button
+                      style={styles.button}
+                      onClick={() => handleDownloadManagerSummary(r)}
+                      disabled={managerSummaryReportId === r.id}
+                    >
+                      {managerSummaryReportId === r.id ? "Preparing Summary..." : "Manager Summary"}
                     </button>
                     <button
                       style={styles.secondaryButton}

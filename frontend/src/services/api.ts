@@ -105,6 +105,57 @@ export async function apiDelete<T>(path: string): Promise<T> {
   return data as T;
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const value = String(reader.result || "");
+      resolve(value.split(",")[1] || "");
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function createServerDownload(
+  blob: Blob,
+  fileName: string,
+  mimeType: string
+): Promise<{ url: string; fileName: string }> {
+  const base64 = await blobToBase64(blob);
+  const payload = {
+    fileName,
+    mimeType,
+    base64,
+  };
+
+  try {
+    return await apiPost<{ url: string; fileName: string }>("/downloads", payload);
+  } catch {
+    const candidates = [`${FILE_BASE}/api/downloads`, `${FILE_BASE}/downloads`];
+    let lastError: unknown;
+
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) return data as { url: string; fileName: string };
+        lastError = new Error((data as { message?: string }).message || `POST ${url} failed`);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Download could not be prepared");
+  }
+}
+
 export async function uploadPhotos(files: FileList | null): Promise<string[]> {
   if (!files || files.length === 0) return [];
 

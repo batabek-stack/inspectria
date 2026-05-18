@@ -22,6 +22,7 @@ logs/
 backend/pgdata/
 backend/data/
 backend/uploads/
+backend/generated-downloads/
 
 # OS/editor files
 .DS_Store

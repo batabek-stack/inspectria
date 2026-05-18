@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { styles } from "../styles/appStyles";
 import { register as registerUser } from "../services/authService";
+import PasswordInput from "../components/PasswordInput";
 
 type Props = {
   onLogin: (
@@ -109,9 +110,7 @@ export default function LoginPage({ onLogin }: Props) {
 
           <div style={{ marginBottom: 12 }}>
             <label>Password</label>
-            <input
-              type="password"
-              style={styles.input}
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

@@ -211,6 +211,13 @@ export type AiActionPlanResponse = {
   actionPlans: AiActionPlan[];
 };
 
+export type ManagerSummaryResponse = {
+  provider: "azure-openai" | "openai" | "fallback" | "none";
+  industry?: string;
+  summaryTitle: string;
+  summaryText: string;
+};
+
 export type DraftChecklist = {
   assignmentId: number;
   userId: number;

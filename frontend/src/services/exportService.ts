@@ -37,6 +37,22 @@ export function exportReportsToExcel(reports: Report[]) {
 }
 
 export function exportActionPlansToExcel(actionPlans: AiActionPlan[], report: Report) {
+  const { workbook, fileName } = buildActionPlanWorkbook(actionPlans, report);
+  XLSX.writeFile(workbook, fileName);
+}
+
+export function createActionPlanExcelBlob(actionPlans: AiActionPlan[], report: Report) {
+  const { workbook, fileName } = buildActionPlanWorkbook(actionPlans, report);
+  const array = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+  return {
+    fileName,
+    blob: new Blob([array], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  };
+}
+
+function buildActionPlanWorkbook(actionPlans: AiActionPlan[], report: Report) {
   const rows = actionPlans.map((plan) => ({
     "Section": plan.sectionTitle,
     "Issue": plan.issue,
@@ -85,5 +101,8 @@ export function exportActionPlansToExcel(actionPlans: AiActionPlan[], report: Re
 
   XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
   XLSX.utils.book_append_sheet(workbook, actionSheet, "AI Action Plan");
-  XLSX.writeFile(workbook, `MOD_AI_Action_Plan_${report.id}_${Date.now()}.xlsx`);
+  return {
+    workbook,
+    fileName: `MOD_AI_Action_Plan_${report.id}_${Date.now()}.xlsx`,
+  };
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Assignment, Checklist, Report, User } from "../types";
 import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
+import PasswordInput from "../components/PasswordInput";
 import ReportDetail from "../components/ReportDetail";
 import { createAssignment, getAssignments } from "../services/assignmentService";
 import {
@@ -422,10 +423,8 @@ export default function AdminPage({ user, onLogout }: Props) {
                 value={newUsername}
                 onChange={(e) => setNewUsername(e.target.value)}
               />
-              <input
-                style={styles.input}
+              <PasswordInput
                 placeholder="Password"
-                type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
               />

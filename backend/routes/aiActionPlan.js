@@ -1,4 +1,5 @@
 const express = require("express");
+const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
@@ -354,6 +355,52 @@ function buildAiPayload(report, failedItems, profile) {
   };
 }
 
+function buildManagerSummaryPayload(report, failedItems, profile) {
+  return {
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You are an executive operations reporting assistant.",
+          "Write a concise manager summary from failed checklist items.",
+          "Interpret the negative findings, explain operational risk, and group related issues when useful.",
+          "Do not create an action-plan table.",
+          "Use clear management language and the same language as the checklist content when practical.",
+          "Return only valid JSON with summaryTitle and summaryText strings.",
+        ].join(" "),
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          task: "Create a manager-facing narrative summary of the failed checklist items.",
+          constraints: [
+            "summaryText should be plain paragraphs, not markdown",
+            "mention the most important risk patterns",
+            "include practical interpretation of what the negative items may mean for operations",
+            "avoid inventing facts that are not implied by the report",
+            "do not list every item mechanically unless the report is very short",
+          ],
+          expectedShape: {
+            summaryTitle: "string",
+            summaryText: "string",
+          },
+          industryProfile: profile,
+          report: {
+            id: report.id,
+            checklistTitle: report.checklistTitle,
+            completedAt: report.completed_at || report.completedAt,
+            completedByName: report.completedByName,
+            assignedToName: report.assignedToName,
+            assignedByName: report.assignedByName,
+          },
+          failedItems,
+        }),
+      },
+    ],
+  };
+}
+
 async function callAzureOpenAi(report, failedItems, profile) {
   const apiKey = process.env.AZURE_OPENAI_API_KEY;
   const endpoint = normalizeText(process.env.AZURE_OPENAI_ENDPOINT).replace(/\/$/, "");
@@ -363,6 +410,36 @@ async function callAzureOpenAi(report, failedItems, profile) {
 
   const apiVersion = process.env.AZURE_OPENAI_API_VERSION || DEFAULT_AZURE_API_VERSION;
   const payload = buildAiPayload(report, failedItems, profile);
+  const response = await fetch(
+    `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`,
+    {
+      method: "POST",
+      headers: {
+        "api-key": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = data?.error?.message || "Azure OpenAI request failed";
+    throw new Error(message);
+  }
+
+  return extractJson(data.choices?.[0]?.message?.content);
+}
+
+async function callAzureOpenAiWithPayload(payload) {
+  const apiKey = process.env.AZURE_OPENAI_API_KEY;
+  const endpoint = normalizeText(process.env.AZURE_OPENAI_ENDPOINT).replace(/\/$/, "");
+  const deployment = normalizeText(process.env.AZURE_OPENAI_DEPLOYMENT);
+
+  if (!apiKey || !endpoint || !deployment) return null;
+
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || DEFAULT_AZURE_API_VERSION;
   const response = await fetch(
     `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`,
     {
@@ -414,6 +491,33 @@ async function callOpenAi(report, failedItems, profile) {
   return extractJson(data.choices?.[0]?.message?.content);
 }
 
+async function callOpenAiWithPayload(payload) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
+  const response = await fetch(OPENAI_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      ...payload,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = data?.error?.message || "OpenAI request failed";
+    throw new Error(message);
+  }
+
+  return extractJson(data.choices?.[0]?.message?.content);
+}
+
 async function callAiProvider(report, failedItems, profile) {
   const azureResult = await callAzureOpenAi(report, failedItems, profile);
   if (azureResult) return { provider: "azure-openai", result: azureResult };
@@ -422,6 +526,285 @@ async function callAiProvider(report, failedItems, profile) {
   if (openAiResult) return { provider: "openai", result: openAiResult };
 
   return { provider: "fallback", result: null };
+}
+
+async function callAiProviderWithPayload(payload) {
+  const azureResult = await callAzureOpenAiWithPayload(payload);
+  if (azureResult) return { provider: "azure-openai", result: azureResult };
+
+  const openAiResult = await callOpenAiWithPayload(payload);
+  if (openAiResult) return { provider: "openai", result: openAiResult };
+
+  return { provider: "fallback", result: null };
+}
+
+function fallbackManagerSummary(report, failedItems, profile) {
+  const checklistTitle = normalizeText(report.checklistTitle) || "Selected checklist";
+  const sections = [...new Set(failedItems.map((item) => normalizeText(item.sectionTitle || item.section_title)).filter(Boolean))];
+  const comments = failedItems.map((item) => normalizeText(item.comment)).filter(Boolean);
+  const examples = failedItems
+    .slice(0, 5)
+    .map((item) => normalizeText(item.question))
+    .filter(Boolean);
+
+  const sectionText = sections.length
+    ? `The negative findings are concentrated around ${sections.join(", ")}.`
+    : "The negative findings are spread across the completed checklist.";
+  const commentText = comments.length
+    ? `Inspector comments indicate: ${comments.slice(0, 4).join("; ")}.`
+    : "No detailed inspector comments were provided for these negative findings.";
+  const exampleText = examples.length
+    ? `Key examples include ${examples.join("; ")}.`
+    : "The failed items should be reviewed with the responsible operational owners.";
+
+  return {
+    summaryTitle: `Manager Summary - ${checklistTitle}`,
+    summaryText: [
+      `${checklistTitle} includes ${failedItems.length} negative checklist item${failedItems.length === 1 ? "" : "s"} requiring management attention.`,
+      `${sectionText} ${exampleText}`,
+      `${commentText} These items suggest that the expected operating standard was not fully met and should be reviewed for immediate correction, ownership, and follow-up evidence.`,
+      `This summary was generated with local fallback logic for the ${profile.industry || "configured"} profile. Add Azure OpenAI or OpenAI credentials on the backend for AI-written narrative analysis.`,
+    ].join("\n\n"),
+  };
+}
+
+function normalizeManagerSummary(report, failedItems, summary, profile) {
+  const fallback = fallbackManagerSummary(report, failedItems, profile);
+  const summaryTitle = normalizeText(summary?.summaryTitle) || fallback.summaryTitle;
+  const summaryText = normalizeText(summary?.summaryText) || fallback.summaryText;
+
+  return {
+    summaryTitle,
+    summaryText,
+  };
+}
+
+function parseMaybeJson(value, fallback) {
+  if (typeof value !== "string") return value || fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function buildExcelHtml(actionPlans, report, provider, industry) {
+  const columns = [
+    ["sectionTitle", "Section"],
+    ["issue", "Issue"],
+    ["comment", "Comment"],
+    ["department", "Department"],
+    ["estimatedDurationMinutes", "Estimated Duration (min)"],
+    ["correctiveAction", "Corrective Action"],
+    ["preventiveAction", "Preventive Action"],
+    ["priority", "Priority"],
+    ["owner", "Owner"],
+    ["dueDate", "Due Date"],
+    ["status", "Status"],
+    ["confidence", "Confidence"],
+    ["followUpNotes", "Follow-up Notes"],
+  ];
+
+  const summaryRows = [
+    ["Checklist", report.checklistTitle],
+    ["Completed By", report.completedByName],
+    ["Assigned To", report.assignedToName],
+    ["Completed At", report.completed_at || report.completedAt],
+    ["Failed Items", actionPlans.length],
+    ["AI Provider", provider],
+    ["Industry", industry],
+  ];
+
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          table { border-collapse: collapse; font-family: Arial, sans-serif; }
+          th { background: #0f766e; color: #ffffff; font-weight: bold; }
+          th, td { border: 1px solid #b9d3d1; padding: 8px; vertical-align: top; }
+          .summary th { background: #e6f3f1; color: #06323f; }
+        </style>
+      </head>
+      <body>
+        <table class="summary">
+          <tr><th>Metric</th><th>Value</th></tr>
+          ${summaryRows
+            .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+            .join("")}
+        </table>
+        <br />
+        <table>
+          <tr>${columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr>
+          ${actionPlans
+            .map(
+              (plan) =>
+                `<tr>${columns
+                  .map(([key]) => `<td>${escapeHtml(plan[key])}</td>`)
+                  .join("")}</tr>`
+            )
+            .join("")}
+        </table>
+      </body>
+    </html>
+  `;
+}
+
+function safeDownloadName(value, suffix) {
+  const clean = normalizeText(value || "Inspectria")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 120);
+  return `${clean || "Inspectria"}_${suffix}`;
+}
+
+function isNegativeAnswer(answer) {
+  const normalized = normalizeText(answer)
+    .toLowerCase()
+    .replace(/ı/g, "i")
+    .replace(/ş/g, "s")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c");
+  return ["no", "hayir", "hayır", "fail", "failed", "false", "olumsuz"].includes(normalized);
+}
+
+async function getReportForAiDownload(reportId, user) {
+  const params = [reportId];
+  const where = ["r.id = $1"];
+
+  if (user && !db.isPlatformAdmin(user)) {
+    params.push(user.organizationId);
+    where.push(`r.organization_id = $${params.length}`);
+  }
+
+  if (user && user.role === "user") {
+    params.push(user.id);
+    where.push(`a.assigned_to_user_id = $${params.length}`);
+  }
+
+  const report = await db.one(
+    `
+      SELECT
+        r.id,
+        r.assignment_id,
+        r.completed_by_user_id,
+        r.completed_at,
+        r.status,
+        c.title AS "checklistTitle",
+        u1.name AS "completedByName",
+        u2.name AS "assignedToName",
+        u3.name AS "assignedByName"
+      FROM reports r
+      JOIN assignments a ON r.assignment_id = a.id
+      JOIN checklists c ON a.checklist_id = c.id
+      JOIN users u1 ON r.completed_by_user_id = u1.id
+      JOIN users u2 ON a.assigned_to_user_id = u2.id
+      JOIN users u3 ON a.assigned_by_user_id = u3.id
+      WHERE ${where.join(" AND ")}
+    `,
+    params
+  );
+
+  if (!report) return null;
+
+  const items = await db.many(
+    `
+      SELECT
+        id,
+        checklist_item_id,
+        question,
+        answer,
+        answer_type AS "answerType",
+        comment,
+        section_title AS "sectionTitle"
+      FROM report_items
+      WHERE report_id = $1
+      ORDER BY id ASC
+    `,
+    [report.id]
+  );
+
+  return {
+    ...report,
+    items,
+  };
+}
+
+async function getUserFromDownloadToken(req) {
+  const authHeader = req.headers.authorization || "";
+  const headerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  const token = headerToken || normalizeText(req.query.token);
+
+  if (!token) return null;
+
+  const session = await db.one(
+    `
+      SELECT
+        s.*,
+        u.id AS user_id,
+        u.organization_id,
+        u.username,
+        u.name,
+        u.role,
+        u.active,
+        u.approval_status,
+        o.name AS organization_name,
+        COALESCE(o.active, TRUE) AS organization_active
+      FROM sessions s
+      JOIN users u ON u.id = s.user_id
+      LEFT JOIN organizations o ON o.id = u.organization_id
+      WHERE s.token = $1
+    `,
+    [token]
+  );
+
+  if (!session) return null;
+  if (!session.active || !session.organization_active) return null;
+  if (new Date(session.expires_at).getTime() < Date.now()) return null;
+
+  return {
+    id: session.user_id,
+    organizationId: session.organization_id,
+    organizationName: session.organization_name,
+    username: session.username,
+    name: session.name,
+    role: session.role,
+    active: Boolean(session.active),
+    approvalStatus: session.approval_status,
+  };
+}
+
+async function sendActionPlanExcel(res, report, failedItems) {
+  const profile = getIndustryProfile();
+  const ai = await callAiProvider(report, failedItems, profile);
+  const actionPlans = normalizeActionPlans(
+    report,
+    failedItems,
+    ai.result?.actionPlans,
+    profile
+  );
+  const html = buildExcelHtml(actionPlans, report, ai.provider, profile.industry);
+  const fileName = safeDownloadName(report.checklistTitle, "AI_Action_Plan.xls");
+
+  res.setHeader("Content-Type", "application/vnd.ms-excel; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+  );
+  res.setHeader("Cache-Control", "no-store");
+  return res.send(html);
 }
 
 router.post("/action-plan", authRequired, adminOnly, async (req, res) => {
@@ -456,6 +839,86 @@ router.post("/action-plan", authRequired, adminOnly, async (req, res) => {
   } catch (err) {
     return res.status(502).json({
       message: err instanceof Error ? err.message : "AI action plan could not be generated",
+    });
+  }
+});
+
+router.post("/action-plan-excel", async (req, res) => {
+  const report = parseMaybeJson(req.body?.report, null);
+  const failedItems = parseMaybeJson(req.body?.failedItems, []);
+
+  if (!report || !Array.isArray(failedItems)) {
+    return res.status(400).send("report and failedItems are required");
+  }
+
+  if (failedItems.length === 0) {
+    return res.status(400).send("No negative YES/NO checklist items found");
+  }
+
+  try {
+    return await sendActionPlanExcel(res, report, failedItems);
+  } catch (err) {
+    return res.status(502).send(
+      err instanceof Error ? err.message : "AI action plan Excel could not be generated"
+    );
+  }
+});
+
+router.get("/reports/:id/action-plan-excel", async (req, res) => {
+  const reportId = Number(req.params.id);
+  if (!reportId) return res.status(400).send("Invalid report id");
+
+  try {
+    const user = await getUserFromDownloadToken(req);
+    const report = await getReportForAiDownload(reportId, user);
+    if (!report) return res.status(404).send("Report not found");
+
+    const failedItems = (report.items || []).filter((item) => {
+      const answerType = item.answerType || item.answer_type || "FORMAT1";
+      return answerType === "FORMAT1" && isNegativeAnswer(item.answer);
+    });
+
+    if (failedItems.length === 0) {
+      return res.status(400).send("No negative YES/NO checklist items found");
+    }
+
+    return await sendActionPlanExcel(res, report, failedItems);
+  } catch (err) {
+    return res.status(502).send(
+      err instanceof Error ? err.message : "AI action plan Excel could not be generated"
+    );
+  }
+});
+
+router.post("/manager-summary", authRequired, async (req, res) => {
+  const { report, failedItems } = req.body || {};
+
+  if (!report || !Array.isArray(failedItems)) {
+    return res.status(400).json({ message: "report and failedItems are required" });
+  }
+
+  if (failedItems.length === 0) {
+    return res.json({
+      provider: "none",
+      summaryTitle: "Manager Summary",
+      summaryText: "No negative YES/NO checklist items were found in this report.",
+    });
+  }
+
+  try {
+    const profile = getIndustryProfile();
+    const payload = buildManagerSummaryPayload(report, failedItems, profile);
+    const ai = await callAiProviderWithPayload(payload);
+    const summary = normalizeManagerSummary(report, failedItems, ai.result, profile);
+
+    return res.json({
+      provider: ai.provider,
+      industry: profile.industry,
+      ...summary,
+    });
+  } catch (err) {
+    return res.status(502).json({
+      message: err instanceof Error ? err.message : "Manager summary could not be generated",
     });
   }
 });

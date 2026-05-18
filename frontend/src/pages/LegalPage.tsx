@@ -317,10 +317,6 @@ export default function LegalPage({ page }: Props) {
         <h1>{document.title}</h1>
         <p className="legal-updated">Last updated: {lastUpdated}</p>
         <p className="legal-intro">{document.intro}</p>
-        <p className="legal-note">
-          This page is a general template for Inspectria and is not legal advice. Please
-          review it with qualified legal counsel before public launch.
-        </p>
 
         {document.sections.map((section) => (
           <section className="legal-section" key={section.title}>

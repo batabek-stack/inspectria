@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { completePasswordReset } from "../services/authService";
 import { styles } from "../styles/appStyles";
+import PasswordInput from "../components/PasswordInput";
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
@@ -67,9 +68,7 @@ export default function ResetPasswordPage() {
         <form onSubmit={submit}>
           <div style={{ marginBottom: 12 }}>
             <label>New Password</label>
-            <input
-              type="password"
-              style={styles.input}
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -77,9 +76,7 @@ export default function ResetPasswordPage() {
 
           <div style={{ marginBottom: 12 }}>
             <label>Confirm Password</label>
-            <input
-              type="password"
-              style={styles.input}
+            <PasswordInput
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />

@@ -17,6 +17,7 @@ const uploadRoutes = require("./routes/uploads");
 const localFileRoutes = require("./routes/localFiles");
 const aiActionPlanRoutes = require("./routes/aiActionPlan");
 const billingRoutes = require("./routes/billing");
+const downloadRoutes = require("./routes/downloads");
 
 const app = express();
 const frontendDistPath = path.join(__dirname, "..", "frontend", "dist");
@@ -24,7 +25,7 @@ const hasBuiltFrontend = fs.existsSync(path.join(frontendDistPath, "index.html")
 
 app.use(cors());
 app.use(express.json({ limit: "25mb" }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "25mb" }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.get("/api/health", (_, res) => res.json({ ok: true, app: "Inspectria" }));
@@ -41,6 +42,8 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/local-files", localFileRoutes);
 app.use("/api/ai", aiActionPlanRoutes);
 app.use("/api/billing", billingRoutes);
+app.use("/api/downloads", downloadRoutes);
+app.use("/downloads", downloadRoutes);
 
 if (hasBuiltFrontend) {
   app.use(

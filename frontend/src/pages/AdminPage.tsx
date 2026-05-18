@@ -8,6 +8,7 @@ import {
   Checklist,
   Organization,
   Report,
+  ManagerSummaryResponse,
   User,
   Walkthrough,
   WalkthroughSection,
@@ -15,7 +16,9 @@ import {
 import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
 import DesktopFilePicker from "../components/DesktopFilePicker";
+import PasswordInput from "../components/PasswordInput";
 import ReportDetail from "../components/ReportDetail";
+import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import WalkthroughDetail from "../components/WalkthroughDetail";
 import { createAssignment, getAssignments } from "../services/assignmentService";
 import {
@@ -53,14 +56,24 @@ import {
   initializeIyzicoCheckout,
 } from "../services/billingService";
 import { generateChecklistPdf } from "../utils/generateChecklistPdf";
-import { generateAiActionPlan } from "../services/aiActionPlanService";
-import { exportActionPlansToExcel } from "../services/exportService";
 import {
+  generateManagerSummary,
+  getActionPlanExcelDownloadUrl,
+  getReportFailedItems,
+} from "../services/aiActionPlanService";
+import {
+  createServerDownload,
   copyLocalImageToUploads,
   FILE_BASE,
   getLocalFileBlob,
   uploadPhotos,
 } from "../services/api";
+import {
+  createDownloadFromUrl,
+  GeneratedDownload,
+  openDownload,
+  revokeDownload,
+} from "../utils/downloadFile";
 
 type Props = {
   user: User;
@@ -387,7 +400,12 @@ export default function AdminPage({ user, onLogout }: Props) {
   const [selectedUserId, setSelectedUserId] = useState<number>(0);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [actionPlanReportId, setActionPlanReportId] = useState<number | null>(null);
+  const [managerSummaryReportId, setManagerSummaryReportId] = useState<number | null>(null);
+  const [generatedDownload, setGeneratedDownload] = useState<GeneratedDownload | null>(null);
+  const [managerSummaryPreview, setManagerSummaryPreview] = useState<{
+    report: Report;
+    summary: ManagerSummaryResponse;
+  } | null>(null);
 
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgPlan, setNewOrgPlan] = useState("standard");
@@ -504,6 +522,33 @@ export default function AdminPage({ user, onLogout }: Props) {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    return () => {
+      revokeDownload(generatedDownload);
+    };
+  }, [generatedDownload]);
+
+  const publishGeneratedDownload = async (
+    blob: Blob,
+    fileName: string,
+    label: string,
+    mimeType: string
+  ) => {
+    const serverDownload = await createServerDownload(blob, fileName, mimeType);
+    const isPdf = mimeType === "application/pdf";
+    const download = createDownloadFromUrl(
+      isPdf ? `${serverDownload.url}?view=1` : serverDownload.url,
+      serverDownload.fileName,
+      label,
+      isPdf
+    );
+    setGeneratedDownload((previous) => {
+      revokeDownload(previous);
+      return download;
+    });
+    openDownload(download);
+  };
 
   const resetTemplateForm = () => {
     setEditingId(null);
@@ -972,32 +1017,30 @@ export default function AdminPage({ user, onLogout }: Props) {
     }
   };
 
-  const handleDownloadActionPlanExcel = async (report: Report) => {
+  const handleDownloadManagerSummary = async (report: Report) => {
     setMessage("");
     setError("");
 
-    const failedItems = (report.items || []).filter(
-      (item) => (item.answerType || item.answer_type || "FORMAT1") === "FORMAT1" && item.answer === "NO"
-    );
+    const failedItems = getReportFailedItems(report);
 
     if (failedItems.length === 0) {
-      setError("This report has no failed YES/NO items to convert into an action plan.");
+      setError("This report has no negative YES/NO items to summarize.");
       return;
     }
 
     try {
-      setActionPlanReportId(report.id);
-      const result = await generateAiActionPlan(report);
-      exportActionPlansToExcel(result.actionPlans, report);
+      setManagerSummaryReportId(report.id);
+      const result = await generateManagerSummary(report);
+      setManagerSummaryPreview({ report, summary: result });
       setMessage(
         result.provider === "azure-openai" || result.provider === "openai"
-          ? `AI action plan Excel generated for ${result.industry || "the selected profile"}.`
-          : "Action plan Excel generated with local fallback classification. Add Azure OpenAI or OpenAI credentials on the backend for AI-generated analysis."
+          ? "Manager summary is ready. Use Print / Save as PDF to export it."
+          : "Manager summary is ready with local fallback text. Use Print / Save as PDF to export it."
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI action plan Excel could not be generated");
+      setError(err instanceof Error ? err.message : "Manager summary could not be generated");
     } finally {
-      setActionPlanReportId(null);
+      setManagerSummaryReportId(null);
     }
   };
 
@@ -1617,6 +1660,42 @@ export default function AdminPage({ user, onLogout }: Props) {
         />
       ) : selectedReport ? (
         <div>
+          {message ? (
+            <div style={{ ...styles.section, background: "#e6f7f5", color: "#06323f", marginTop: 0 }}>
+              <div>{message}</div>
+              {generatedDownload ? (
+                <a
+                  href={generatedDownload.url}
+                  download={generatedDownload.preview ? undefined : generatedDownload.fileName}
+                  target={generatedDownload.preview ? "_blank" : undefined}
+                  rel={generatedDownload.preview ? "noopener" : undefined}
+                  style={{
+                    ...styles.button,
+                    display: "inline-block",
+                    marginTop: 10,
+                    textDecoration: "none",
+                  }}
+                >
+                  {generatedDownload.label}
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+
+          {error ? (
+            <div style={{ ...styles.section, background: "#fef2f2", color: "#991b1b", marginTop: 0 }}>
+              {error}
+            </div>
+          ) : null}
+
+          {managerSummaryPreview ? (
+            <ManagerSummaryPanel
+              report={managerSummaryPreview.report}
+              summary={managerSummaryPreview.summary}
+              onClose={() => setManagerSummaryPreview(null)}
+            />
+          ) : null}
+
           <div
             className="responsive-report-top"
             style={{ ...styles.row, justifyContent: "space-between", marginBottom: 14 }}
@@ -1641,14 +1720,20 @@ export default function AdminPage({ user, onLogout }: Props) {
               >
                 Email Report
               </button>
+              <a
+                style={{ ...styles.button, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                href={getActionPlanExcelDownloadUrl(selectedReport.id)}
+              >
+                AI Action Plan Excel
+              </a>
               <button
                 style={styles.button}
-                onClick={() => handleDownloadActionPlanExcel(selectedReport)}
-                disabled={actionPlanReportId === selectedReport.id}
+                onClick={() => handleDownloadManagerSummary(selectedReport)}
+                disabled={managerSummaryReportId === selectedReport.id}
               >
-                {actionPlanReportId === selectedReport.id
-                  ? "Preparing Excel..."
-                  : "AI Action Plan Excel"}
+                {managerSummaryReportId === selectedReport.id
+                  ? "Preparing Summary..."
+                  : "Manager Summary"}
               </button>
               <button
                 style={styles.button}
@@ -1665,8 +1750,8 @@ export default function AdminPage({ user, onLogout }: Props) {
             onDownloadPdf={handleDownloadPdf}
             onEmailReport={handleEmailReport}
             onDeleteReport={(report) => handleDeleteReport(Number(report.id))}
-            onDownloadActionPlan={handleDownloadActionPlanExcel}
-            actionPlanLoading={actionPlanReportId === selectedReport.id}
+            onDownloadManagerSummary={handleDownloadManagerSummary}
+            managerSummaryLoading={managerSummaryReportId === selectedReport.id}
           />
         </div>
       ) : (
@@ -1715,7 +1800,23 @@ export default function AdminPage({ user, onLogout }: Props) {
 
           {message ? (
             <div style={{ ...styles.section, background: "#e6f7f5", color: "#06323f" }}>
-              {message}
+              <div>{message}</div>
+              {generatedDownload ? (
+                <a
+                  href={generatedDownload.url}
+                  download={generatedDownload.preview ? undefined : generatedDownload.fileName}
+                  target={generatedDownload.preview ? "_blank" : undefined}
+                  rel={generatedDownload.preview ? "noopener" : undefined}
+                  style={{
+                    ...styles.button,
+                    display: "inline-block",
+                    marginTop: 10,
+                    textDecoration: "none",
+                  }}
+                >
+                  {generatedDownload.label}
+                </a>
+              ) : null}
             </div>
           ) : null}
 
@@ -1723,6 +1824,14 @@ export default function AdminPage({ user, onLogout }: Props) {
             <div style={{ ...styles.section, background: "#fef2f2", color: "#991b1b" }}>
               {error}
             </div>
+          ) : null}
+
+          {managerSummaryPreview ? (
+            <ManagerSummaryPanel
+              report={managerSummaryPreview.report}
+              summary={managerSummaryPreview.summary}
+              onClose={() => setManagerSummaryPreview(null)}
+            />
           ) : null}
 
           {activeAdminPage === "account" ? (
@@ -1734,16 +1843,12 @@ export default function AdminPage({ user, onLogout }: Props) {
                   <div style={styles.small}>{user.role}</div>
                 </div>
                 <div style={{ ...styles.row, marginBottom: 12 }}>
-                  <input
-                    style={styles.input}
-                    type="password"
+                  <PasswordInput
                     placeholder="New Password"
                     value={accountPassword}
                     onChange={(e) => setAccountPassword(e.target.value)}
                   />
-                  <input
-                    style={styles.input}
-                    type="password"
+                  <PasswordInput
                     placeholder="Confirm New Password"
                     value={accountPasswordConfirm}
                     onChange={(e) => setAccountPasswordConfirm(e.target.value)}
@@ -1784,9 +1889,7 @@ export default function AdminPage({ user, onLogout }: Props) {
                     value={newOrgAdminUsername}
                     onChange={(e) => setNewOrgAdminUsername(e.target.value)}
                   />
-                  <input
-                    style={styles.input}
-                    type="password"
+                  <PasswordInput
                     placeholder="Admin password"
                     value={newOrgAdminPassword}
                     onChange={(e) => setNewOrgAdminPassword(e.target.value)}
@@ -2760,10 +2863,8 @@ export default function AdminPage({ user, onLogout }: Props) {
                 value={newUsername}
                 onChange={(e) => setNewUsername(e.target.value)}
               />
-              <input
-                style={styles.input}
+              <PasswordInput
                 placeholder="Password"
-                type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
               />
@@ -2815,10 +2916,8 @@ export default function AdminPage({ user, onLogout }: Props) {
                           value={editUsername}
                           onChange={(e) => setEditUsername(e.target.value)}
                         />
-                        <input
-                          style={styles.input}
+                        <PasswordInput
                           placeholder="New Password (optional)"
-                          type="password"
                           value={editPassword}
                           onChange={(e) => setEditPassword(e.target.value)}
                         />
@@ -3216,12 +3315,19 @@ export default function AdminPage({ user, onLogout }: Props) {
                       Download PDF
                     </button>
 
+                    <a
+                      style={{ ...styles.button, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                      href={getActionPlanExcelDownloadUrl(r.id)}
+                    >
+                      AI Action Plan Excel
+                    </a>
+
                     <button
                       style={styles.button}
-                      onClick={() => handleDownloadActionPlanExcel(r)}
-                      disabled={actionPlanReportId === r.id}
+                      onClick={() => handleDownloadManagerSummary(r)}
+                      disabled={managerSummaryReportId === r.id}
                     >
-                      {actionPlanReportId === r.id ? "Preparing Excel..." : "AI Action Plan Excel"}
+                      {managerSummaryReportId === r.id ? "Preparing Summary..." : "Manager Summary"}
                     </button>
 
                     <button

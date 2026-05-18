@@ -33,7 +33,9 @@ type Props = {
   onEmailReport?: (report: Report) => void;
   onDeleteReport?: (report: Report) => void;
   onDownloadActionPlan?: (report: Report) => void;
+  onDownloadManagerSummary?: (report: Report) => void;
   actionPlanLoading?: boolean;
+  managerSummaryLoading?: boolean;
 };
 
 function formatDate(value?: string) {
@@ -85,7 +87,9 @@ export default function ReportDetail({
   onEmailReport,
   onDeleteReport,
   onDownloadActionPlan,
+  onDownloadManagerSummary,
   actionPlanLoading = false,
+  managerSummaryLoading = false,
 }: Props) {
   const scoredItems = report.items.filter(
     (item) => (item.answerType || item.answer_type || "FORMAT1") === "FORMAT1"
@@ -149,6 +153,15 @@ export default function ReportDetail({
               disabled={actionPlanLoading}
             >
               {actionPlanLoading ? "Preparing Excel..." : "AI Action Plan Excel"}
+            </button>
+          ) : null}
+          {onDownloadManagerSummary ? (
+            <button
+              style={styles.button}
+              onClick={() => onDownloadManagerSummary(report)}
+              disabled={managerSummaryLoading}
+            >
+              {managerSummaryLoading ? "Preparing Summary..." : "Manager Summary"}
             </button>
           ) : null}
         </div>
