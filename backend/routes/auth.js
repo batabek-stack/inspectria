@@ -55,9 +55,15 @@ router.post("/login", async (req, res, next) => {
       LEFT JOIN organizations o ON o.id = u.organization_id
       WHERE LOWER(u.username) = LOWER($1)
         AND (
+          u.role = 'platform_admin'
+          OR
           ($2 = '' AND u.organization_id IS NULL)
           OR LOWER(o.name) = LOWER($2)
         )
+      ORDER BY
+        CASE WHEN u.role = 'platform_admin' THEN 0 ELSE 1 END,
+        u.id
+      LIMIT 1
     `,
       [String(username).trim(), cleanOrganizationName]
     );

@@ -3221,13 +3221,22 @@ export default function AdminPage({ user, onLogout }: Props) {
                             Continue Draft
                           </button>
                         ) : (
-                          <button
-                            type="button"
-                            style={styles.secondaryButton}
-                            onClick={() => setSelectedWalkthrough(walkthrough)}
-                          >
-                            View Walkthrough Report
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              style={styles.secondaryButton}
+                              onClick={() => setSelectedWalkthrough(walkthrough)}
+                            >
+                              View Walkthrough Report
+                            </button>
+                            <button
+                              type="button"
+                              style={styles.button}
+                              onClick={() => handleEmailWalkthrough(walkthrough)}
+                            >
+                              Email Report
+                            </button>
+                          </>
                         )}
                         <button
                           type="button"
@@ -3276,6 +3285,13 @@ export default function AdminPage({ user, onLogout }: Props) {
                         </button>
                         <button
                           type="button"
+                          style={styles.button}
+                          onClick={() => handleEmailWalkthrough(walkthrough)}
+                        >
+                          Email Report
+                        </button>
+                        <button
+                          type="button"
                           style={styles.secondaryButton}
                           onClick={() => handleDeleteWalkthrough(walkthrough.id)}
                         >
@@ -3313,6 +3329,12 @@ export default function AdminPage({ user, onLogout }: Props) {
                       onClick={() => handleDownloadPdf(r)}
                     >
                       Download PDF
+                    </button>
+                    <button
+                      style={styles.secondaryButton}
+                      onClick={() => handleEmailReport(r)}
+                    >
+                      Email Report
                     </button>
 
                     <a

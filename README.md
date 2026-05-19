@@ -52,6 +52,27 @@ export PGSSLMODE=require
 
 See [backend/.env.example](backend/.env.example) for the supported environment variables.
 
+## Email Delivery
+Report emails are sent through SMTP. For a Natro/XMail mailbox, add the mailbox
+settings to `backend/.env`:
+```bash
+SMTP_HOST=mail.yourdomain.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=reports@yourdomain.com
+SMTP_PASS=your-mailbox-password
+MAIL_FROM="Inspectria Reports <reports@yourdomain.com>"
+CONTACT_TO=info@yourdomain.com
+```
+
+Use the exact hostname, port, and security mode shown in the Natro control
+panel if they differ from this example. Restart the backend after changing
+these values. You can verify the SMTP connection with:
+```bash
+cd backend
+npm run email:verify
+```
+
 ## Backend
 ```bash
 cd backend

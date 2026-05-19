@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState } from "react";
+import { sendContactMessage } from "../services/emailService";
 
 type Props = {
   onSignIn: () => void;
@@ -123,6 +124,42 @@ const pricingPlans = [
 ];
 
 export default function LandingPage({ onSignIn }: Props) {
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactOrganization, setContactOrganization] = useState("");
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactWebsite, setContactWebsite] = useState("");
+  const [contactStatus, setContactStatus] = useState("");
+  const [contactError, setContactError] = useState("");
+  const [contactSending, setContactSending] = useState(false);
+
+  const submitContact = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setContactStatus("");
+    setContactError("");
+    setContactSending(true);
+
+    try {
+      await sendContactMessage({
+        name: contactName,
+        email: contactEmail,
+        organization: contactOrganization,
+        message: contactMessage,
+        website: contactWebsite,
+      });
+      setContactStatus("Thanks. Your message has been sent to info@inspectria.com.");
+      setContactName("");
+      setContactEmail("");
+      setContactOrganization("");
+      setContactMessage("");
+      setContactWebsite("");
+    } catch (error) {
+      setContactError(error instanceof Error ? error.message : "Message could not be sent.");
+    } finally {
+      setContactSending(false);
+    }
+  };
+
   return (
     <main className="marketing-page">
       <header className="marketing-nav" aria-label="Inspectria">
@@ -312,13 +349,55 @@ export default function LandingPage({ onSignIn }: Props) {
       </section>
 
       <section className="contact-section" id="contact">
-        <div>
+        <div className="contact-copy">
           <p>Ready when your team is.</p>
           <h2>Bring Inspectria into the daily rhythm of hotel quality.</h2>
+          <a href="mailto:info@inspectria.com">info@inspectria.com</a>
         </div>
-        <button className="primary-action" type="button" onClick={onSignIn}>
-          Continue to Inspectria
-        </button>
+        <form className="contact-form" onSubmit={submitContact}>
+          <input
+            value={contactName}
+            onChange={(event) => setContactName(event.target.value)}
+            placeholder="Name"
+            required
+          />
+          <input
+            value={contactEmail}
+            onChange={(event) => setContactEmail(event.target.value)}
+            placeholder="Email"
+            type="email"
+            required
+          />
+          <input
+            value={contactOrganization}
+            onChange={(event) => setContactOrganization(event.target.value)}
+            placeholder="Organization"
+          />
+          <input
+            className="contact-hidden"
+            value={contactWebsite}
+            onChange={(event) => setContactWebsite(event.target.value)}
+            tabIndex={-1}
+            autoComplete="off"
+          />
+          <textarea
+            value={contactMessage}
+            onChange={(event) => setContactMessage(event.target.value)}
+            placeholder="How can we help?"
+            rows={5}
+            required
+          />
+          {contactStatus ? <div className="contact-success">{contactStatus}</div> : null}
+          {contactError ? <div className="contact-error">{contactError}</div> : null}
+          <div className="contact-actions">
+            <button className="primary-action" type="submit" disabled={contactSending}>
+              {contactSending ? "Sending..." : "Send message"}
+            </button>
+            <button className="secondary-action" type="button" onClick={onSignIn}>
+              Continue to Inspectria
+            </button>
+          </div>
+        </form>
       </section>
 
       <footer className="marketing-footer">

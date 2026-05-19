@@ -11,6 +11,18 @@ export type EmailReportPayload = {
   attachmentFileName?: string;
 };
 
+export type ContactPayload = {
+  name: string;
+  email: string;
+  organization?: string;
+  message: string;
+  website?: string;
+};
+
 export function emailReport(payload: EmailReportPayload) {
   return apiPost<{ success: boolean }>("/emails/report", payload);
+}
+
+export function sendContactMessage(payload: ContactPayload) {
+  return apiPost<{ success: boolean }>("/emails/contact", payload);
 }

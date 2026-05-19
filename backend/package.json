@@ -4,7 +4,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "cleanup:uploads": "node scripts/cleanupUploads.js"
+    "cleanup:uploads": "node scripts/cleanupUploads.js",
+    "email:verify": "node scripts/verifyEmail.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

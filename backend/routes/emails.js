@@ -28,6 +28,14 @@ function validateOptionalRecipient(value, fieldName) {
   return email;
 }
 
+function getContactRecipient() {
+  return process.env.CONTACT_TO || process.env.SMTP_USER || "info@inspectria.com";
+}
+
+function cleanText(value, maxLength) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
 function sanitizeFileName(value) {
   return String(value || "Inspectria_Report")
     .replace(/[^\w.-]+/g, "_")
@@ -42,6 +50,18 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function decodePdfAttachment(value) {
+  const raw = String(value || "").trim();
+  const base64 = (raw.includes(",") ? raw.slice(raw.indexOf(",") + 1) : raw).replace(/\s/g, "");
+  const buffer = Buffer.from(base64, "base64");
+
+  if (buffer.length < 4 || buffer.slice(0, 4).toString("utf8") !== "%PDF") {
+    throw new Error("PDF attachment is invalid.");
+  }
+
+  return buffer;
 }
 
 function reportAccessWhere(user, params) {
@@ -131,6 +151,68 @@ async function logEmail({ organizationId, userId, reportType, reportId, to, cc, 
   );
 }
 
+router.post("/contact", async (req, res, next) => {
+  const {
+    name = "",
+    email = "",
+    organization = "",
+    message = "",
+    website = "",
+  } = req.body || {};
+
+  try {
+    if (website) {
+      return res.json({ success: true });
+    }
+
+    const cleanName = cleanText(name, 120);
+    const senderEmail = validateRecipient(email, "email");
+    const cleanOrganization = cleanText(organization, 160);
+    const cleanMessage = cleanText(message, 4000);
+
+    if (!cleanName || !cleanMessage) {
+      return res.status(400).json({ message: "Name, email, and message are required." });
+    }
+
+    const contactRecipient = validateRecipient(getContactRecipient(), "contact recipient");
+    const subject = `Inspectria contact request from ${cleanName}`;
+    const plainText = [
+      "New Inspectria contact message",
+      "",
+      `Name: ${cleanName}`,
+      `Email: ${senderEmail}`,
+      cleanOrganization ? `Organization: ${cleanOrganization}` : "",
+      "",
+      "Message:",
+      cleanMessage,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    await sendReportEmail({
+      to: contactRecipient,
+      subject,
+      replyTo: senderEmail,
+      text: plainText,
+      html: `<p>${escapeHtml(plainText).replace(/\n/g, "<br />")}</p>`,
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    if (error.message && error.message.includes("valid email")) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    if (error.message === "Email delivery is not configured.") {
+      return res.status(503).json({
+        message: "Email delivery is not configured. Please try again later.",
+      });
+    }
+
+    next(error);
+  }
+});
+
 router.post("/report", authRequired, async (req, res, next) => {
   const {
     reportType = "checklist",
@@ -185,10 +267,9 @@ router.post("/report", authRequired, async (req, res, next) => {
 
     const attachments = [];
     if (attachmentBase64) {
-      const base64 = String(attachmentBase64).replace(/^data:application\/pdf;base64,/, "");
       attachments.push({
         filename: sanitizeFileName(attachmentFileName || `${report.title}.pdf`),
-        content: Buffer.from(base64, "base64"),
+        content: decodePdfAttachment(attachmentBase64),
         contentType: "application/pdf",
       });
     }
@@ -236,6 +317,12 @@ router.post("/report", authRequired, async (req, res, next) => {
     if (error.message === "Email delivery is not configured.") {
       return res.status(503).json({
         message: "Email delivery is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and MAIL_FROM.",
+      });
+    }
+
+    if (error.message === "PDF attachment is invalid.") {
+      return res.status(400).json({
+        message: "PDF attachment could not be prepared. Please try generating the report again.",
       });
     }
 

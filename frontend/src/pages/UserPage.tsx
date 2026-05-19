@@ -1188,13 +1188,22 @@ export default function UserPage({ user, onLogout }: Props) {
                         Continue Draft
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        style={styles.secondaryButton}
-                        onClick={() => setSelectedWalkthrough(walkthrough)}
-                      >
-                        View Walkthrough Report
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          style={styles.secondaryButton}
+                          onClick={() => setSelectedWalkthrough(walkthrough)}
+                        >
+                          View Walkthrough Report
+                        </button>
+                        <button
+                          type="button"
+                          style={styles.button}
+                          onClick={() => handleEmailWalkthrough(walkthrough)}
+                        >
+                          Email Report
+                        </button>
+                      </>
                     )}
                     <button
                       type="button"
@@ -1235,6 +1244,12 @@ export default function UserPage({ user, onLogout }: Props) {
                       onClick={() => handleDownloadPdf(r)}
                     >
                       Download PDF
+                    </button>
+                    <button
+                      style={styles.secondaryButton}
+                      onClick={() => handleEmailReport(r)}
+                    >
+                      Email Report
                     </button>
                     <button
                       style={styles.button}

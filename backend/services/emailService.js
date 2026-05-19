@@ -14,11 +14,14 @@ function createTransporter() {
   }
 
   const port = Number(process.env.SMTP_PORT || 587);
+  const secure =
+    String(process.env.SMTP_SECURE || "").trim().toLowerCase() === "true" ||
+    (!process.env.SMTP_SECURE && port === 465);
 
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port,
-    secure: port === 465,
+    secure,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -26,13 +29,14 @@ function createTransporter() {
   });
 }
 
-async function sendReportEmail({ to, cc, subject, text, html, attachments = [] }) {
+async function sendReportEmail({ to, cc, subject, text, html, replyTo, attachments = [] }) {
   const transporter = createTransporter();
 
   return transporter.sendMail({
     from: getMailFrom(),
     to,
     cc: cc || undefined,
+    replyTo: replyTo || undefined,
     subject,
     text,
     html,
@@ -40,8 +44,14 @@ async function sendReportEmail({ to, cc, subject, text, html, attachments = [] }
   });
 }
 
+async function verifyEmailConnection() {
+  const transporter = createTransporter();
+  return transporter.verify();
+}
+
 module.exports = {
   getMailFrom,
   isEmailConfigured,
+  verifyEmailConnection,
   sendReportEmail,
 };

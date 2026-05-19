@@ -692,14 +692,93 @@ textarea {
 
 .contact-section {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
+  gap: 36px;
   border-top: 1px solid #dce9e7;
 }
 
-.contact-section > div {
-  max-width: 760px;
+.contact-copy {
+  max-width: 560px;
+}
+
+.contact-copy a {
+  display: inline-flex;
+  margin-top: 22px;
+  color: #0f766e;
+  font-size: 18px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.contact-copy a:hover {
+  text-decoration: underline;
+}
+
+.contact-form {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 460px);
+}
+
+.contact-form input,
+.contact-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #bfd5d2;
+  border-radius: 8px;
+  padding: 13px 14px;
+  color: #082a34;
+  background: #ffffff;
+  font: inherit;
+}
+
+.contact-form textarea {
+  resize: vertical;
+  min-height: 128px;
+}
+
+.contact-form input:focus,
+.contact-form textarea:focus {
+  outline: 3px solid rgba(15, 118, 110, 0.18);
+  border-color: #0f766e;
+}
+
+.contact-hidden {
+  position: absolute;
+  left: -9999px;
+  width: 1px !important;
+  height: 1px;
+  opacity: 0;
+}
+
+.contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.contact-actions .primary-action:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.contact-success,
+.contact-error {
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-weight: 800;
+}
+
+.contact-success {
+  background: #e6f7f5;
+  color: #075e57;
+}
+
+.contact-error {
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .marketing-footer {
