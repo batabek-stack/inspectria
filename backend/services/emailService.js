@@ -29,6 +29,15 @@ function createTransporter() {
   });
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function sendReportEmail({ to, cc, subject, text, html, replyTo, attachments = [] }) {
   const transporter = createTransporter();
 
@@ -44,6 +53,28 @@ async function sendReportEmail({ to, cc, subject, text, html, replyTo, attachmen
   });
 }
 
+async function sendPasswordResetCode({ to, username, code }) {
+  const safeUsername = escapeHtml(username);
+  const safeCode = escapeHtml(code);
+
+  return sendReportEmail({
+    to,
+    subject: "Inspectria password reset code",
+    text: [
+      `Hello ${username},`,
+      "",
+      `Your Inspectria password reset code is ${code}.`,
+      "This code expires in 10 minutes. If you did not request it, you can ignore this email.",
+    ].join("\n"),
+    html: `
+      <p>Hello ${safeUsername},</p>
+      <p>Your Inspectria password reset code is:</p>
+      <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${safeCode}</p>
+      <p>This code expires in 10 minutes. If you did not request it, you can ignore this email.</p>
+    `,
+  });
+}
+
 async function verifyEmailConnection() {
   const transporter = createTransporter();
   return transporter.verify();
@@ -52,6 +83,7 @@ async function verifyEmailConnection() {
 module.exports = {
   getMailFrom,
   isEmailConfigured,
+  sendPasswordResetCode,
   verifyEmailConnection,
   sendReportEmail,
 };

@@ -57,12 +57,19 @@ export default function App() {
   }
   if (!session && routeHash.startsWith("#reset-password")) return <ResetPasswordPage />;
   if (!session && routeHash === "#login") return <LoginPage onLogin={handleLogin} />;
+  if (!session && routeHash === "#register") {
+    return <LoginPage onLogin={handleLogin} initialMode="register" />;
+  }
   if (!session) {
     return (
       <LandingPage
         onSignIn={() => {
           window.location.hash = "login";
           setRouteHash("#login");
+        }}
+        onRegister={() => {
+          window.location.hash = "register";
+          setRouteHash("#register");
         }}
       />
     );

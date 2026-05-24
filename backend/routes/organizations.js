@@ -36,6 +36,7 @@ async function mapOrganization(org) {
     SELECT
       id,
       organization_id AS "organizationId",
+      email,
       username,
       name,
       role,
@@ -49,11 +50,35 @@ async function mapOrganization(org) {
     [org.id]
   );
 
+  const users = await db.many(
+    `
+    SELECT
+      id,
+      organization_id AS "organizationId",
+      email,
+      username,
+      name,
+      role,
+      active,
+      approval_status AS "approvalStatus",
+      created_at
+    FROM users
+    WHERE organization_id = $1
+      AND role IN ('admin', 'user')
+    ORDER BY
+      CASE role WHEN 'admin' THEN 0 ELSE 1 END,
+      CASE approval_status WHEN 'pending' THEN 0 ELSE 1 END,
+      id
+  `,
+    [org.id]
+  );
+
   return {
     ...org,
     ...counts,
     reportCount: reportCount.count,
     admins,
+    users,
   };
 }
 
@@ -83,6 +108,7 @@ router.post("/", authRequired, platformAdminOnly, async (req, res, next) => {
     const {
       name,
       plan = "standard",
+      adminEmail,
       adminUsername,
       adminPassword,
       adminName,
@@ -107,9 +133,16 @@ router.post("/", authRequired, platformAdminOnly, async (req, res, next) => {
 
       const organizationId = orgResult.rows[0].id;
 
-      if (adminUsername || adminPassword || adminName) {
-        if (!adminUsername || !adminPassword || !adminName) {
-          throw Object.assign(new Error("Admin username, password and name are required"), {
+      if (adminEmail || adminUsername || adminPassword || adminName) {
+        const cleanAdminEmail = String(adminEmail || "").trim().toLowerCase();
+        if (!cleanAdminEmail || !adminUsername || !adminPassword || !adminName) {
+          throw Object.assign(new Error("Admin email, username, password and name are required"), {
+            statusCode: 400,
+          });
+        }
+
+        if (!cleanAdminEmail.includes("@")) {
+          throw Object.assign(new Error("A valid admin email address is required"), {
             statusCode: 400,
           });
         }
@@ -118,11 +151,12 @@ router.post("/", authRequired, platformAdminOnly, async (req, res, next) => {
         await client.query(
           `
           INSERT INTO users
-            (organization_id, username, password_hash, name, role, active, approval_status, created_at)
-          VALUES ($1, $2, $3, $4, 'admin', TRUE, 'approved', NOW())
+            (organization_id, email, username, password_hash, name, role, active, approval_status, created_at)
+          VALUES ($1, $2, $3, $4, $5, 'admin', TRUE, 'approved', NOW())
         `,
           [
             organizationId,
+            cleanAdminEmail,
             String(adminUsername).trim(),
             passwordHash,
             String(adminName).trim(),
@@ -224,6 +258,7 @@ router.get("/:id/users", authRequired, platformAdminOnly, async (req, res, next)
       SELECT
         id,
         organization_id AS "organizationId",
+        email,
         username,
         name,
         role,

@@ -93,6 +93,7 @@ type QuestionForm = {
 
 type AdminSectionKey =
   | "organizations"
+  | "organizationUsers"
   | "billing"
   | "templates"
   | "assignments"
@@ -120,6 +121,11 @@ const ADMIN_SECTIONS: Array<{
     key: "organizations",
     label: "Organizations",
     description: "Manage SaaS tenants and admins",
+  },
+  {
+    key: "organizationUsers",
+    label: "User List",
+    description: "List organization users and email addresses",
   },
   {
     key: "billing",
@@ -252,18 +258,27 @@ function formatDateTime(value?: string | null) {
   }
 }
 
-function groupUsersByOrganization(users: User[], organizations: Organization[]) {
+type UserGroup = {
+  key: string;
+  organizationId: number | null;
+  organization?: Organization;
+  name: string;
+  users: User[];
+};
+
+function currentOrganizationUserGroup(users: User[]): UserGroup {
+  return {
+    key: "current",
+    organizationId: null,
+    organization: undefined,
+    name: "",
+    users,
+  };
+}
+
+function groupUsersByOrganization(users: User[], organizations: Organization[]): UserGroup[] {
   const organizationMap = new Map(organizations.map((organization) => [organization.id, organization]));
-  const grouped = new Map<
-    string,
-    {
-      key: string;
-      organizationId: number | null;
-      organization?: Organization;
-      name: string;
-      users: User[];
-    }
-  >();
+  const grouped = new Map<string, UserGroup>();
 
   users.forEach((candidate) => {
     const organizationId = candidate.organizationId || null;
@@ -363,7 +378,9 @@ export default function AdminPage({ user, onLogout }: Props) {
     isPlatformAdmin ? "organizations" : "templates"
   );
   const visibleAdminSections = ADMIN_SECTIONS.filter(
-    (section) => isPlatformAdmin || section.key !== "organizations"
+    (section) =>
+      isPlatformAdmin ||
+      (section.key !== "organizations" && section.key !== "organizationUsers")
   );
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -373,6 +390,7 @@ export default function AdminPage({ user, onLogout }: Props) {
   const [walkthroughs, setWalkthroughs] = useState<Walkthrough[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [selectedWalkthrough, setSelectedWalkthrough] = useState<Walkthrough | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [walkthroughTitle, setWalkthroughTitle] = useState("");
   const [walkthroughLocation, setWalkthroughLocation] = useState("");
   const [walkthroughSections, setWalkthroughSections] = useState<WalkthroughSection[]>([
@@ -409,6 +427,7 @@ export default function AdminPage({ user, onLogout }: Props) {
 
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgPlan, setNewOrgPlan] = useState("standard");
+  const [newOrgAdminEmail, setNewOrgAdminEmail] = useState("");
   const [newOrgAdminUsername, setNewOrgAdminUsername] = useState("");
   const [newOrgAdminPassword, setNewOrgAdminPassword] = useState("");
   const [newOrgAdminName, setNewOrgAdminName] = useState("");
@@ -428,6 +447,7 @@ export default function AdminPage({ user, onLogout }: Props) {
   const [iyzicoCheckoutToken, setIyzicoCheckoutToken] = useState("");
 
   const [newUsername, setNewUsername] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState<"admin" | "user">("user");
@@ -436,13 +456,14 @@ export default function AdminPage({ user, onLogout }: Props) {
   const [passwordResetLinks, setPasswordResetLinks] = useState<Record<number, string>>({});
   const [passwordResetLinkLoadingId, setPasswordResetLinkLoadingId] = useState<number | null>(null);
   const [editUsername, setEditUsername] = useState("");
+  const [editEmail, setEditEmail] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editName, setEditName] = useState("");
   const [editRole, setEditRole] = useState<"admin" | "user">("user");
   const [accountPassword, setAccountPassword] = useState("");
   const [accountPasswordConfirm, setAccountPasswordConfirm] = useState("");
   const [pendingUserForms, setPendingUserForms] = useState<
-    Record<number, { username: string; name: string }>
+    Record<number, { username: string; name: string; email: string }>
   >({});
   const pendingUsers = users.filter((u) => u.approvalStatus === "pending");
   const approvedUsers = users.filter(
@@ -476,6 +497,7 @@ export default function AdminPage({ user, onLogout }: Props) {
         next[candidate.id] = next[candidate.id] || {
           username: candidate.username,
           name: candidate.name,
+          email: candidate.email || "",
         };
       });
 
@@ -1054,17 +1076,24 @@ export default function AdminPage({ user, onLogout }: Props) {
     }
 
     const hasAdminInput =
+      newOrgAdminEmail.trim() ||
       newOrgAdminUsername.trim() ||
       newOrgAdminPassword.trim() ||
       newOrgAdminName.trim();
 
     if (
       hasAdminInput &&
-      (!newOrgAdminUsername.trim() ||
+      (!newOrgAdminEmail.trim() ||
+        !newOrgAdminUsername.trim() ||
         !newOrgAdminPassword.trim() ||
         !newOrgAdminName.trim())
     ) {
-      setError("Admin username, password and full name are required together.");
+      setError("Admin email, username, password and full name are required together.");
+      return;
+    }
+
+    if (hasAdminInput && !newOrgAdminEmail.includes("@")) {
+      setError("A valid admin email address is required.");
       return;
     }
 
@@ -1074,6 +1103,7 @@ export default function AdminPage({ user, onLogout }: Props) {
         plan: newOrgPlan.trim() || "standard",
         ...(hasAdminInput
           ? {
+              adminEmail: newOrgAdminEmail.trim(),
               adminUsername: newOrgAdminUsername.trim(),
               adminPassword: newOrgAdminPassword,
               adminName: newOrgAdminName.trim(),
@@ -1083,6 +1113,7 @@ export default function AdminPage({ user, onLogout }: Props) {
 
       setNewOrgName("");
       setNewOrgPlan("standard");
+      setNewOrgAdminEmail("");
       setNewOrgAdminUsername("");
       setNewOrgAdminPassword("");
       setNewOrgAdminName("");
@@ -1212,8 +1243,13 @@ export default function AdminPage({ user, onLogout }: Props) {
     setMessage("");
     setError("");
 
-    if (!newUsername.trim() || !newPassword.trim() || !newName.trim()) {
-      setError("Username, password and full name are required.");
+    if (!newEmail.trim() || !newUsername.trim() || !newPassword.trim() || !newName.trim()) {
+      setError("Email, username, password and full name are required.");
+      return;
+    }
+
+    if (!newEmail.includes("@")) {
+      setError("A valid email address is required.");
       return;
     }
 
@@ -1224,6 +1260,7 @@ export default function AdminPage({ user, onLogout }: Props) {
 
     try {
       await createUser({
+        email: newEmail.trim(),
         username: newUsername.trim(),
         password: newPassword,
         name: newName.trim(),
@@ -1232,6 +1269,7 @@ export default function AdminPage({ user, onLogout }: Props) {
       });
 
       setNewUsername("");
+      setNewEmail("");
       setNewPassword("");
       setNewName("");
       setNewRole("user");
@@ -1246,6 +1284,7 @@ export default function AdminPage({ user, onLogout }: Props) {
   const startEditUser = (targetUser: User) => {
     setEditingUserId(targetUser.id);
     setEditUsername(targetUser.username);
+    setEditEmail(targetUser.email || "");
     setEditPassword("");
     setEditName(targetUser.name);
     setEditRole(targetUser.role === "admin" ? "admin" : "user");
@@ -1256,6 +1295,7 @@ export default function AdminPage({ user, onLogout }: Props) {
   const cancelEditUser = () => {
     setEditingUserId(null);
     setEditUsername("");
+    setEditEmail("");
     setEditPassword("");
     setEditName("");
     setEditRole("user");
@@ -1267,13 +1307,19 @@ export default function AdminPage({ user, onLogout }: Props) {
     setMessage("");
     setError("");
 
-    if (!editUsername.trim() || !editName.trim()) {
-      setError("Username and full name are required.");
+    if (!editEmail.trim() || !editUsername.trim() || !editName.trim()) {
+      setError("Email, username and full name are required.");
+      return;
+    }
+
+    if (!editEmail.includes("@")) {
+      setError("A valid email address is required.");
       return;
     }
 
     try {
       await updateUser(editingUserId, {
+        email: editEmail.trim(),
         username: editUsername.trim(),
         name: editName.trim(),
         role: editRole,
@@ -1360,15 +1406,22 @@ export default function AdminPage({ user, onLogout }: Props) {
     const pendingForm = pendingUserForms[targetUser.id] || {
       username: targetUser.username,
       name: targetUser.name,
+      email: targetUser.email || "",
     };
 
-    if (!pendingForm.username.trim() || !pendingForm.name.trim()) {
-      setError("Username and full name are required before approval.");
+    if (!pendingForm.email.trim() || !pendingForm.username.trim() || !pendingForm.name.trim()) {
+      setError("Email, username and full name are required before approval.");
+      return;
+    }
+
+    if (!pendingForm.email.includes("@")) {
+      setError("A valid email address is required before approval.");
       return;
     }
 
     try {
       await updateUser(targetUser.id, {
+        email: pendingForm.email.trim(),
         username: pendingForm.username.trim(),
         name: pendingForm.name.trim(),
         approvalStatus: "approved",
@@ -1648,6 +1701,33 @@ export default function AdminPage({ user, onLogout }: Props) {
   const selectedBillingPlan =
     billing.plans.find((plan) => plan.id === billingPlanId) || billing.plans[0] || null;
   const billingUsage = billing.usage;
+  const organizationUserRows = users
+    .filter((candidate) => candidate.role !== "platform_admin")
+    .map((candidate) => {
+      const organization = organizations.find(
+        (item) => item.id === candidate.organizationId
+      );
+
+      return {
+        id: candidate.id,
+        organizationName:
+          candidate.organizationName ||
+          organization?.name ||
+          getOrganizationLabel(organization, candidate.organizationId),
+        userName: candidate.name || candidate.username,
+        email: candidate.email || "No email provided",
+      };
+    })
+    .sort((first, second) => {
+      const organizationSort = first.organizationName.localeCompare(second.organizationName);
+      if (organizationSort !== 0) return organizationSort;
+      return first.userName.localeCompare(second.userName);
+    });
+  const toggleExpandedRow = (rowKey: string) => {
+    setExpandedRows((current) => ({ ...current, [rowKey]: !current[rowKey] }));
+  };
+
+  const isExpandedRow = (rowKey: string) => Boolean(expandedRows[rowKey]);
 
   return (
     <DashboardShell user={user} onLogout={onLogout}>
@@ -1757,6 +1837,7 @@ export default function AdminPage({ user, onLogout }: Props) {
       ) : (
         <>
           <div
+            className="admin-module-nav"
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
@@ -1862,12 +1943,18 @@ export default function AdminPage({ user, onLogout }: Props) {
           ) : null}
 
           {activeAdminPage === "organizations" && isPlatformAdmin ? (
-            <div style={styles.section}>
-              <h3 style={styles.title}>Organizations</h3>
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Organizations</h3>
+                  <p>Manage SaaS tenant accounts, plans, administrator access, and status.</p>
+                </div>
+              </div>
 
-              <div style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+              <div className="admin-two-column organization-layout">
+              <div className="admin-side-panel" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
                 <h4 style={{ ...styles.title, marginBottom: 10 }}>Create Organization</h4>
-                <div style={{ ...styles.row, marginBottom: 12 }}>
+                <div className="admin-form-grid admin-form-grid-2" style={{ ...styles.row, marginBottom: 12 }}>
                   <input
                     style={styles.input}
                     placeholder="Organization name"
@@ -1882,7 +1969,14 @@ export default function AdminPage({ user, onLogout }: Props) {
                   />
                 </div>
 
-                <div style={{ ...styles.row, marginBottom: 12 }}>
+                <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 12 }}>
+                  <input
+                    style={styles.input}
+                    type="email"
+                    placeholder="Admin email"
+                    value={newOrgAdminEmail}
+                    onChange={(e) => setNewOrgAdminEmail(e.target.value)}
+                  />
                   <input
                     style={styles.input}
                     placeholder="Admin username"
@@ -1907,120 +2001,200 @@ export default function AdminPage({ user, onLogout }: Props) {
                 </button>
               </div>
 
+              <div className="admin-main-panel">
               {organizations.length === 0 ? (
                 <div style={styles.small}>No organizations found.</div>
               ) : (
-                organizations.map((organization) => {
-                  const pendingAdmins = organization.admins.filter(
-                    (admin) => admin.approvalStatus === "pending"
-                  );
+                <div className="compact-list" aria-label="Organizations list">
+                  {organizations.map((organization) => {
+                    const pendingAdmins = organization.admins.filter(
+                      (admin) => admin.approvalStatus === "pending"
+                    );
+                    const rowKey = `organization-${organization.id}`;
+                    const isOpen = isExpandedRow(rowKey);
 
-                  return (
-                    <div key={organization.id} style={styles.section}>
+                    return (
                       <div
-                        style={{
-                          ...styles.row,
-                          justifyContent: "space-between",
-                          alignItems: "flex-start",
-                        }}
+                        key={organization.id}
+                        className={`compact-row organization-row ${isOpen ? "compact-row-open" : ""}`}
                       >
-                        <div>
-                          <strong>{organization.name}</strong>
-                          <div style={styles.small}>
-                            Plan: {organization.plan} | Status:{" "}
-                            {organization.active ? "active" : "inactive"}
+                        <div className="compact-row-main">
+                          <button
+                            type="button"
+                            className="compact-row-toggle"
+                            aria-expanded={isOpen}
+                            aria-label={`${isOpen ? "Hide" : "Show"} organization details`}
+                            onClick={() => toggleExpandedRow(rowKey)}
+                          >
+                            {isOpen ? "-" : "+"}
+                          </button>
+                          <div className="compact-row-title">
+                            <strong>{organization.name}</strong>
+                            <span>
+                              {organization.plan} plan
+                              {pendingAdmins.length > 0
+                                ? ` | ${pendingAdmins.length} admin approval waiting`
+                                : ""}
+                            </span>
                           </div>
                         </div>
-                        <button
-                          style={
-                            organization.active
-                              ? { ...styles.button, background: "#b91c1c" }
-                              : styles.button
-                          }
-                          onClick={() => handleToggleOrganization(organization)}
-                        >
-                          {organization.active ? "Deactivate" : "Activate"}
-                        </button>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                          gap: 10,
-                          marginTop: 12,
-                        }}
-                      >
-                        <div style={{ ...styles.section, marginTop: 0 }}>
-                          <strong>{organization.userCount}</strong>
-                          <br />
-                          <span style={styles.small}>Users</span>
+                        <div className="compact-row-meta">
+                          <span>{organization.active ? "active" : "inactive"}</span>
+                          <span>{organization.userCount} users</span>
+                          <span>{organization.reportCount} reports</span>
                         </div>
-                        <div style={{ ...styles.section, marginTop: 0 }}>
-                          <strong>{organization.adminCount}</strong>
-                          <br />
-                          <span style={styles.small}>Admins</span>
-                        </div>
-                        <div style={{ ...styles.section, marginTop: 0 }}>
-                          <strong>{organization.inspectorCount}</strong>
-                          <br />
-                          <span style={styles.small}>Inspectors</span>
-                        </div>
-                        <div style={{ ...styles.section, marginTop: 0 }}>
-                          <strong>{organization.reportCount}</strong>
-                          <br />
-                          <span style={styles.small}>Reports</span>
-                        </div>
-                      </div>
-
-                      <div style={{ marginTop: 12 }}>
-                        <strong>Organization Admins</strong>
-                        {organization.admins.length === 0 ? (
-                          <div style={styles.small}>No admin user yet.</div>
-                        ) : (
-                          organization.admins.map((admin) => (
-                            <div key={admin.id} style={{ ...styles.section, background: "#fff" }}>
-                              <strong>{admin.name}</strong> ({admin.username}) -{" "}
-                              {admin.approvalStatus}
-                              {admin.active === false ? " / inactive" : ""}
-                              {admin.approvalStatus === "pending" ? (
-                                <div style={{ ...styles.row, marginTop: 10 }}>
-                                  <button
-                                    style={styles.button}
-                                    onClick={() => handleApproveOrganizationAdmin(admin)}
-                                  >
-                                    Approve Admin
-                                  </button>
-                                  <button
-                                    style={styles.secondaryButton}
-                                    onClick={() => handleDeleteUser(admin.id)}
-                                  >
-                                    Reject
-                                  </button>
-                                </div>
-                              ) : null}
+                        <div className="compact-row-actions organization-row-actions">
+                          <div className="organization-stats">
+                            <div>
+                              <strong>{organization.userCount}</strong>
+                              <span>Users</span>
                             </div>
-                          ))
-                        )}
-                      </div>
+                            <div>
+                              <strong>{organization.adminCount}</strong>
+                              <span>Admins</span>
+                            </div>
+                            <div>
+                              <strong>{organization.inspectorCount}</strong>
+                              <span>Inspectors</span>
+                            </div>
+                            <div>
+                              <strong>{organization.reportCount}</strong>
+                              <span>Reports</span>
+                            </div>
+                          </div>
 
-                      {pendingAdmins.length > 0 ? (
-                        <div style={{ ...styles.small, marginTop: 8 }}>
-                          {pendingAdmins.length} admin approval waiting.
+                          <div className="organization-admins">
+                            <div className="organization-admins-title">Organization Admins</div>
+                            {organization.admins.length === 0 ? (
+                              <div style={styles.small}>No admin user yet.</div>
+                            ) : (
+                              organization.admins.map((admin) => (
+                                <div key={admin.id} className="organization-admin-row">
+                                  <div className="compact-row-title">
+                                    <strong>{admin.name}</strong>
+                                    <span>
+                                      {admin.email || "No email"} | {admin.username} | {admin.approvalStatus}
+                                      {admin.active === false ? " | inactive" : ""}
+                                    </span>
+                                  </div>
+                                  {admin.approvalStatus === "pending" ? (
+                                    <div className="organization-admin-actions">
+                                      <button
+                                        style={styles.button}
+                                        onClick={() => handleApproveOrganizationAdmin(admin)}
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        style={styles.secondaryButton}
+                                        onClick={() => handleDeleteUser(admin.id)}
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))
+                            )}
+                          </div>
+
+                          <div className="organization-admins">
+                            <div className="organization-admins-title">Admin & User List</div>
+                            {(organization.users || []).length === 0 ? (
+                              <div style={styles.small}>No users registered yet.</div>
+                            ) : (
+                              (organization.users || []).map((member) => (
+                                <div key={member.id} className="organization-admin-row">
+                                  <div className="compact-row-title">
+                                    <strong>{member.name}</strong>
+                                    <span>
+                                      {member.email || "No email"} | {member.username} | {member.role}
+                                      {" | "}
+                                      {member.approvalStatus || "approved"}
+                                      {member.active === false ? " | inactive" : ""}
+                                      {" | Password stored securely"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+
+                          <button
+                            style={
+                              organization.active
+                                ? { ...styles.button, background: "#b91c1c" }
+                                : styles.button
+                            }
+                            onClick={() => handleToggleOrganization(organization)}
+                          >
+                            {organization.active ? "Deactivate" : "Activate"}
+                          </button>
                         </div>
-                      ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              </div>
+              </div>
+            </div>
+          ) : null}
+
+          {activeAdminPage === "organizationUsers" && isPlatformAdmin ? (
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Organization &gt; Kullanıcı</h3>
+                  <p>All organization users listed with their email addresses.</p>
+                </div>
+              </div>
+
+              {organizationUserRows.length === 0 ? (
+                <div style={styles.small}>No organization users found.</div>
+              ) : (
+                <div className="compact-list" aria-label="Organization users list">
+                  <div className="compact-row organization-users-row organization-users-header">
+                    <div className="compact-row-title">
+                      <strong>Organization</strong>
                     </div>
-                  );
-                })
+                    <div className="compact-row-title">
+                      <strong>Kullanıcı</strong>
+                    </div>
+                    <div className="compact-row-title">
+                      <strong>E-Mail Address</strong>
+                    </div>
+                  </div>
+
+                  {organizationUserRows.map((row) => (
+                    <div key={row.id} className="compact-row organization-users-row">
+                      <div className="compact-row-title">
+                        <strong>{row.organizationName}</strong>
+                      </div>
+                      <div className="compact-row-title">
+                        <span>{row.userName}</span>
+                      </div>
+                      <div className="compact-row-title">
+                        <span>{row.email}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           ) : null}
 
           {activeAdminPage === "billing" ? (
-            <div style={styles.section}>
-              <h3 style={styles.title}>Billing & Subscription</h3>
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Billing & Subscription</h3>
+                  <p>Review usage, choose plans, activate subscriptions, and audit billing history.</p>
+                </div>
+              </div>
 
               <div
+                className="billing-summary-grid"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
@@ -2093,12 +2267,14 @@ export default function AdminPage({ user, onLogout }: Props) {
                 </div>
               </div>
 
+              <div className="admin-two-column billing-layout">
+                <div className="admin-side-panel billing-controls-panel" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
               {!isPlatformAdmin ? (
-                <div style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+                <>
                   <h4 style={{ ...styles.title, marginBottom: 10 }}>
                     Renew or Change Subscription
                   </h4>
-                  <div style={{ ...styles.row, marginBottom: 12 }}>
+                  <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 12 }}>
                     <select
                       style={styles.input}
                       value={billingPlanId}
@@ -2177,13 +2353,13 @@ export default function AdminPage({ user, onLogout }: Props) {
                       </div>
                     </div>
                   ) : null}
-                </div>
+                </>
               ) : null}
 
               {isPlatformAdmin ? (
-              <div style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+              <>
                 <h4 style={{ ...styles.title, marginBottom: 10 }}>Activate Subscription</h4>
-                <div style={{ ...styles.row, marginBottom: 12 }}>
+                <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 12 }}>
                   <select
                     style={styles.input}
                     value={billingOrganizationId}
@@ -2220,7 +2396,7 @@ export default function AdminPage({ user, onLogout }: Props) {
                 <div style={{ ...styles.small, marginBottom: 12 }}>
                   Every plan starts with a 7-day trial. Billing begins after the trial period.
                 </div>
-                <div style={{ ...styles.row, marginBottom: 12 }}>
+                <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 12 }}>
                   <input
                     style={styles.input}
                     placeholder="Payment method / invoice note"
@@ -2243,10 +2419,13 @@ export default function AdminPage({ user, onLogout }: Props) {
                 <button style={styles.button} onClick={handleActivateSubscription}>
                   Activate Subscription
                 </button>
-              </div>
+              </>
               ) : null}
+                </div>
 
+                <div className="admin-main-panel">
               <div
+                className="billing-plan-grid"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -2333,12 +2512,22 @@ export default function AdminPage({ user, onLogout }: Props) {
                 )}
               </div>
               ) : null}
+                </div>
+              </div>
             </div>
           ) : null}
 
           {activeAdminPage === "templates" ? (
-            <>
-          <div style={styles.section}>
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Templates</h3>
+                  <p>Create reusable checklist templates, import questions, manage images, and edit sections.</p>
+                </div>
+              </div>
+
+              <div className="admin-two-column templates-layout">
+          <div className="admin-main-panel template-builder-panel" style={styles.section}>
             <h3 style={styles.title}>
               {editingId ? "Edit Checklist Template" : "Create Checklist Template"}
             </h3>
@@ -2636,81 +2825,107 @@ export default function AdminPage({ user, onLogout }: Props) {
             </div>
           </div>
 
-          <div style={styles.section}>
+          <div className="admin-side-panel template-list-panel" style={styles.section}>
             <h3 style={styles.title}>Templates</h3>
 
             {checklists.length === 0 ? (
               <div style={styles.small}>No templates found.</div>
             ) : (
-              checklists.map((c) => (
-                <div key={c.id} style={styles.section}>
-                  {(c.image_path || c.imagePath) ? (
-                    <img
-                      src={(c.image_path || c.imagePath || "").startsWith("http") ? (c.image_path || c.imagePath) : `${FILE_BASE}${c.image_path || c.imagePath}`}
-                      alt={c.title}
-                      style={{
-                        width: "25%",
-                        minWidth: 100,
-                        maxWidth: 180,
-                        height: "auto",
-                        objectFit: "contain",
-                        borderRadius: 10,
-                        border: "1px solid #d7e6e4",
-                        marginBottom: 10,
-                        display: "block",
-                      }}
-                    />
-                  ) : null}
-                  <strong>{c.title}</strong>
-                  <br />
-                  Sections: {Array.isArray(c.sections) ? c.sections.length : 0}
-                  <br />
-                  <div style={{ marginTop: 8 }}>
-                    {Array.isArray(c.sections) &&
-                      c.sections.map((section) => (
-                        <div key={section.id} style={{ marginBottom: 6 }}>
-                          <strong>- {section.title}</strong> ({section.items.length} questions)
+              <div className="compact-list">
+                {checklists.map((c) => {
+                  const rowKey = `template-${c.id}`;
+                  const isOpen = isExpandedRow(rowKey);
+                  const sectionCount = Array.isArray(c.sections) ? c.sections.length : 0;
+                  const questionCount = Array.isArray(c.sections)
+                    ? c.sections.reduce((total, section) => total + section.items.length, 0)
+                    : 0;
+
+                  return (
+                    <div
+                      key={c.id}
+                      className={`compact-row template-row ${isOpen ? "compact-row-open" : ""}`}
+                    >
+                      <div className="compact-row-main">
+                        <button
+                          type="button"
+                          className="compact-row-toggle"
+                          aria-expanded={isOpen}
+                          aria-label={`${isOpen ? "Hide" : "Show"} template actions`}
+                          onClick={() => toggleExpandedRow(rowKey)}
+                        >
+                          {isOpen ? "-" : "+"}
+                        </button>
+                        <div className="compact-row-title">
+                          <strong>{c.title}</strong>
+                          <span>{sectionCount} sections | {questionCount} questions</span>
                         </div>
-                      ))}
-                  </div>
-                  <div style={{ ...styles.row, marginTop: 10 }}>
-                    <button
-                      style={styles.secondaryButton}
-                      onClick={() => startEditTemplate(c)}
-                    >
-                      Edit Template
-                    </button>
-                    <button
-                      style={styles.secondaryButton}
-                      onClick={() => handleDuplicateTemplate(c)}
-                    >
-                      Copy Template
-                    </button>
-                    <button
-                      style={styles.button}
-                      onClick={() => handleDeleteTemplate(c.id)}
-                    >
-                      Delete Template
-                    </button>
-                    <button
-                      style={{ ...styles.button, background: "#b91c1c" }}
-                      onClick={() => handleForceDeleteTemplate(c.id)}
-                    >
-                      Force Delete
-                    </button>
-                  </div>
-                </div>
-              ))
+                      </div>
+                      <div className="compact-row-meta">
+                        <span>{sectionCount} sections</span>
+                      </div>
+                      <div className="compact-row-actions template-row-actions">
+                        {(c.image_path || c.imagePath) ? (
+                          <img
+                            src={(c.image_path || c.imagePath || "").startsWith("http") ? (c.image_path || c.imagePath) : `${FILE_BASE}${c.image_path || c.imagePath}`}
+                            alt={c.title}
+                          />
+                        ) : null}
+                        <div className="template-section-list">
+                          {Array.isArray(c.sections) &&
+                            c.sections.map((section) => (
+                              <div key={section.id}>
+                                <strong>{section.title}</strong> ({section.items.length} questions)
+                              </div>
+                            ))}
+                        </div>
+                        <button
+                          style={styles.secondaryButton}
+                          onClick={() => startEditTemplate(c)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          style={styles.secondaryButton}
+                          onClick={() => handleDuplicateTemplate(c)}
+                        >
+                          Copy
+                        </button>
+                        <button
+                          style={styles.button}
+                          onClick={() => handleDeleteTemplate(c.id)}
+                        >
+                          Delete
+                        </button>
+                        <button
+                          style={{ ...styles.button, background: "#b91c1c" }}
+                          onClick={() => handleForceDeleteTemplate(c.id)}
+                        >
+                          Force Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
-            </>
+              </div>
+            </div>
           ) : null}
 
           {activeAdminPage === "assignments" ? (
-          <div style={styles.section}>
-            <h3 style={styles.title}>Assignments</h3>
+          <div className="admin-page-panel" style={styles.section}>
+            <div className="admin-panel-heading">
+              <div>
+                <h3 style={styles.title}>Assignments</h3>
+                <p>Assign checklist work and review open or completed assignment ownership.</p>
+              </div>
+            </div>
 
-            <div style={{ ...styles.row, marginBottom: 12 }}>
+            <div className="admin-two-column assignments-layout">
+            <div className="admin-side-panel" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+            <h4 style={{ ...styles.title, marginBottom: 10 }}>Create Assignment</h4>
+            <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 12 }}>
               <select
                 style={styles.input}
                 value={selectedChecklistId}
@@ -2748,24 +2963,62 @@ export default function AdminPage({ user, onLogout }: Props) {
                 Assign
               </button>
             </div>
+            </div>
 
-            {assignments.map((a) => (
-              <div key={a.id} style={styles.section}>
-                <strong>{a.checklistTitle}</strong>
-                <br />
-                Assigned To: {a.assignedToName}
-                <br />
-                Assigned By: {a.assignedByName}
-                <br />
-                Status: {a.status}
-              </div>
-            ))}
+            <div className="admin-main-panel">
+            <div className="compact-list" aria-label="Assignments list">
+              {assignments.length === 0 ? (
+                <div style={styles.small}>No assignments yet.</div>
+              ) : (
+                assignments.map((a) => {
+                  const rowKey = `assignment-${a.id}`;
+                  const isOpen = isExpandedRow(rowKey);
+
+                  return (
+                    <div
+                      key={a.id}
+                      className={`compact-row ${isOpen ? "compact-row-open" : ""}`}
+                    >
+                      <div className="compact-row-main">
+                        <button
+                          type="button"
+                          className="compact-row-toggle"
+                          aria-expanded={isOpen}
+                          aria-label={`${isOpen ? "Hide" : "Show"} assignment details`}
+                          onClick={() => toggleExpandedRow(rowKey)}
+                        >
+                          {isOpen ? "-" : "+"}
+                        </button>
+                        <div className="compact-row-title">
+                          <strong>{a.checklistTitle}</strong>
+                          <span>Assigned to {a.assignedToName}</span>
+                        </div>
+                      </div>
+                      <div className="compact-row-meta">
+                        <span>{a.status}</span>
+                        <span>{formatDateTime(a.assigned_at)}</span>
+                      </div>
+                      <div className="compact-row-actions">
+                        <span>Assigned by {a.assignedByName}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            </div>
+            </div>
           </div>
           ) : null}
 
           {activeAdminPage === "users" ? (
-          <div style={styles.section}>
-            <h3 style={styles.title}>User Management</h3>
+          <div className="admin-page-panel" style={styles.section}>
+            <div className="admin-panel-heading">
+              <div>
+                <h3 style={styles.title}>User Management</h3>
+                <p>Create users, approve requests, edit access, and generate password reset links.</p>
+              </div>
+            </div>
 
             {isPlatformAdmin && (
               <div style={{ ...styles.small, marginBottom: 12 }}>
@@ -2777,7 +3030,7 @@ export default function AdminPage({ user, onLogout }: Props) {
               <div style={{ ...styles.section, background: "#fff8e6", marginBottom: 14 }}>
                 <h4 style={{ ...styles.title, marginBottom: 10 }}>Pending Approval</h4>
 
-                {(isPlatformAdmin ? pendingUserGroups : [{ key: "current", name: "", users: pendingUsers }]).map((group) => (
+                {(isPlatformAdmin ? pendingUserGroups : [currentOrganizationUserGroup(pendingUsers)]).map((group) => (
                   <div key={group.key} style={isPlatformAdmin ? styles.section : undefined}>
                     {isPlatformAdmin ? (
                       <div style={{ marginBottom: 10 }}>
@@ -2788,61 +3041,111 @@ export default function AdminPage({ user, onLogout }: Props) {
                       </div>
                     ) : null}
 
-                    {group.users.map((u) => (
-                  <div key={u.id} style={{ ...styles.section, background: "#fff" }}>
-                    <div style={{ ...styles.row, marginBottom: 10 }}>
-                      <input
-                        style={styles.input}
-                        placeholder="Username"
-                        value={pendingUserForms[u.id]?.username || ""}
-                        onChange={(e) =>
-                          setPendingUserForms((prev) => ({
-                            ...prev,
-                            [u.id]: {
-                              username: e.target.value,
-                              name: prev[u.id]?.name || u.name,
-                            },
-                          }))
-                        }
-                      />
-                      <input
-                        style={styles.input}
-                        placeholder="Full Name"
-                        value={pendingUserForms[u.id]?.name || ""}
-                        onChange={(e) =>
-                          setPendingUserForms((prev) => ({
-                            ...prev,
-                            [u.id]: {
-                              username: prev[u.id]?.username || u.username,
-                              name: e.target.value,
-                            },
-                          }))
-                        }
-                      />
+                    <div className="compact-list">
+                      {group.users.map((u) => {
+                        const rowKey = `pending-user-${u.id}`;
+                        const isOpen = isExpandedRow(rowKey);
+
+                        return (
+                          <div
+                            key={u.id}
+                            className={`compact-row compact-row-editable ${isOpen ? "compact-row-open" : ""}`}
+                          >
+                            <div className="compact-row-main">
+                              <button
+                                type="button"
+                                className="compact-row-toggle"
+                                aria-expanded={isOpen}
+                                aria-label={`${isOpen ? "Hide" : "Show"} pending user actions`}
+                                onClick={() => toggleExpandedRow(rowKey)}
+                              >
+                                {isOpen ? "-" : "+"}
+                              </button>
+                              <div className="compact-row-title">
+                                <strong>{u.name || "Pending user"}</strong>
+                                <span>
+                                  {u.email || "No email"} | {u.username || "No username yet"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="compact-row-meta">
+                              <span>pending</span>
+                              <span>Email: {u.email || "No email provided"}</span>
+                              {u.organizationName ? <span>{u.organizationName}</span> : null}
+                            </div>
+                            <div className="compact-row-actions compact-row-form">
+                              <input
+                                style={styles.input}
+                                type="email"
+                                placeholder="Email"
+                                value={pendingUserForms[u.id]?.email ?? u.email ?? ""}
+                                onChange={(e) =>
+                                  setPendingUserForms((prev) => ({
+                                    ...prev,
+                                    [u.id]: {
+                                      email: e.target.value,
+                                      username: prev[u.id]?.username || u.username,
+                                      name: prev[u.id]?.name || u.name,
+                                    },
+                                  }))
+                                }
+                              />
+                              <input
+                                style={styles.input}
+                                placeholder="Username"
+                                value={pendingUserForms[u.id]?.username || ""}
+                                onChange={(e) =>
+                                  setPendingUserForms((prev) => ({
+                                    ...prev,
+                                    [u.id]: {
+                                      email: prev[u.id]?.email || u.email || "",
+                                      username: e.target.value,
+                                      name: prev[u.id]?.name || u.name,
+                                    },
+                                  }))
+                                }
+                              />
+                              <input
+                                style={styles.input}
+                                placeholder="Full Name"
+                                value={pendingUserForms[u.id]?.name || ""}
+                                onChange={(e) =>
+                                  setPendingUserForms((prev) => ({
+                                    ...prev,
+                                    [u.id]: {
+                                      email: prev[u.id]?.email || u.email || "",
+                                      username: prev[u.id]?.username || u.username,
+                                      name: e.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                              <button
+                                style={styles.button}
+                                onClick={() => handleApproveUser(u)}
+                              >
+                                Approve User
+                              </button>
+                              <button
+                                style={styles.secondaryButton}
+                                onClick={() => handleDeleteUser(u.id)}
+                              >
+                                Reject Request
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    Status: waiting for admin approval. The user's registration password will be kept.
-                    <div style={{ ...styles.row, marginTop: 10 }}>
-                      <button
-                        style={styles.button}
-                        onClick={() => handleApproveUser(u)}
-                      >
-                        Approve User
-                      </button>
-                      <button
-                        style={styles.secondaryButton}
-                        onClick={() => handleDeleteUser(u.id)}
-                      >
-                        Reject Request
-                      </button>
-                    </div>
-                  </div>
-                    ))}
                   </div>
                 ))}
               </div>
             ) : null}
 
-            <div style={{ ...styles.row, marginBottom: 14 }}>
+            <div className="admin-two-column users-layout">
+            <div className="admin-side-panel" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+            <h4 style={{ ...styles.title, marginBottom: 10 }}>Create User</h4>
+            <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 14 }}>
               {isPlatformAdmin ? (
                 <select
                   style={styles.input}
@@ -2857,6 +3160,13 @@ export default function AdminPage({ user, onLogout }: Props) {
                   ))}
                 </select>
               ) : null}
+              <input
+                style={styles.input}
+                type="email"
+                placeholder="Email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+              />
               <input
                 style={styles.input}
                 placeholder="Username"
@@ -2887,11 +3197,13 @@ export default function AdminPage({ user, onLogout }: Props) {
                 Create User
               </button>
             </div>
+            </div>
 
+            <div className="admin-main-panel">
             {approvedUsers.length === 0 ? (
               <div style={styles.small}>No users found.</div>
             ) : (
-              (isPlatformAdmin ? approvedUserGroups : [{ key: "current", name: "", users: approvedUsers }]).map((group) => (
+              (isPlatformAdmin ? approvedUserGroups : [currentOrganizationUserGroup(approvedUsers)]).map((group) => (
                 <div key={group.key} style={isPlatformAdmin ? styles.section : undefined}>
                   {isPlatformAdmin ? (
                     <div style={{ marginBottom: 10 }}>
@@ -2905,11 +3217,26 @@ export default function AdminPage({ user, onLogout }: Props) {
                     </div>
                   ) : null}
 
-                  {group.users.map((u) => (
-                <div key={u.id} style={{ ...styles.section, background: "#fff" }}>
+                  <div className="compact-list">
+                  {group.users.map((u) => {
+                    const rowKey = `user-${u.id}`;
+                    const isOpen = isExpandedRow(rowKey);
+
+                    return (
+                <div
+                  key={u.id}
+                  className={`compact-row compact-row-editable ${isOpen || editingUserId === u.id ? "compact-row-open" : ""}`}
+                >
                   {editingUserId === u.id ? (
                     <>
                       <div style={{ ...styles.row, marginBottom: 10 }}>
+                        <input
+                          style={styles.input}
+                          type="email"
+                          placeholder="Email"
+                          value={editEmail}
+                          onChange={(e) => setEditEmail(e.target.value)}
+                        />
                         <input
                           style={styles.input}
                           placeholder="Username"
@@ -2947,9 +3274,28 @@ export default function AdminPage({ user, onLogout }: Props) {
                     </>
                   ) : (
                     <>
-                      <strong>{u.name}</strong> ({u.username}) - {u.role}
-                      <br />
-                      <div style={{ ...styles.row, marginTop: 10 }}>
+                      <div className="compact-row-main">
+                        <button
+                          type="button"
+                          className="compact-row-toggle"
+                          aria-expanded={isOpen}
+                          aria-label={`${isOpen ? "Hide" : "Show"} user actions`}
+                          onClick={() => toggleExpandedRow(rowKey)}
+                        >
+                          {isOpen ? "-" : "+"}
+                        </button>
+                        <div className="compact-row-title">
+                          <strong>{u.name}</strong>
+                          <span>
+                            {u.email || "No email"} | {u.username} | Password stored securely
+                          </span>
+                        </div>
+                      </div>
+                      <div className="compact-row-meta">
+                        <span>{u.role}</span>
+                        <span>{u.active === false ? "inactive" : "active"}</span>
+                      </div>
+                      <div className="compact-row-actions">
                         <button
                           style={styles.secondaryButton}
                           onClick={() => startEditUser(u)}
@@ -2994,10 +3340,14 @@ export default function AdminPage({ user, onLogout }: Props) {
                     </>
                   )}
                 </div>
-                  ))}
+                    );
+                  })}
+                  </div>
                 </div>
               ))
             )}
+            </div>
+            </div>
           </div>
           ) : null}
 
@@ -3262,105 +3612,152 @@ export default function AdminPage({ user, onLogout }: Props) {
               {walkthroughs.filter((walkthrough) => walkthrough.status === "completed").length === 0 ? (
                 <div style={styles.small}>No completed walkthrough reports yet.</div>
               ) : (
-                walkthroughs
-                  .filter((walkthrough) => walkthrough.status === "completed")
-                  .map((walkthrough) => (
-                    <div key={walkthrough.id} style={styles.section}>
-                      <strong>{walkthrough.title}</strong>
-                      {walkthrough.location ? <> - {walkthrough.location}</> : null}
-                      <br />
-                      Created By: {walkthrough.createdByName || "-"}
-                      <br />
-                      {walkthrough.organizationName ? <>Organization: {walkthrough.organizationName}<br /></> : null}
-                      Sections: {walkthrough.sections.length}
-                      <br />
-                      Comments: {walkthrough.sections.reduce((total, section) => total + section.items.length, 0)}
-                      <div style={{ ...styles.row, marginTop: 10 }}>
-                        <button
-                          type="button"
-                          style={styles.secondaryButton}
-                          onClick={() => setSelectedWalkthrough(walkthrough)}
+                <div className="compact-list">
+                  {walkthroughs
+                    .filter((walkthrough) => walkthrough.status === "completed")
+                    .map((walkthrough) => {
+                      const rowKey = `walkthrough-report-${walkthrough.id}`;
+                      const isOpen = isExpandedRow(rowKey);
+                      const commentCount = walkthrough.sections.reduce(
+                        (total, section) => total + section.items.length,
+                        0
+                      );
+
+                      return (
+                        <div
+                          key={walkthrough.id}
+                          className={`compact-row ${isOpen ? "compact-row-open" : ""}`}
                         >
-                          View Walkthrough Report
-                        </button>
-                        <button
-                          type="button"
-                          style={styles.button}
-                          onClick={() => handleEmailWalkthrough(walkthrough)}
-                        >
-                          Email Report
-                        </button>
-                        <button
-                          type="button"
-                          style={styles.secondaryButton}
-                          onClick={() => handleDeleteWalkthrough(walkthrough.id)}
-                        >
-                          Delete Walkthrough
-                        </button>
-                      </div>
-                    </div>
-                  ))
+                          <div className="compact-row-main">
+                            <button
+                              type="button"
+                              className="compact-row-toggle"
+                              aria-expanded={isOpen}
+                              aria-label={`${isOpen ? "Hide" : "Show"} walkthrough report actions`}
+                              onClick={() => toggleExpandedRow(rowKey)}
+                            >
+                              {isOpen ? "-" : "+"}
+                            </button>
+                            <div className="compact-row-title">
+                              <strong>{walkthrough.title}</strong>
+                              <span>{walkthrough.location || walkthrough.organizationName || "Walkthrough report"}</span>
+                            </div>
+                          </div>
+                          <div className="compact-row-meta">
+                            <span>{walkthrough.sections.length} sections</span>
+                            <span>{commentCount} comments</span>
+                          </div>
+                          <div className="compact-row-actions">
+                            <span>Created by {walkthrough.createdByName || "-"}</span>
+                            <button
+                              type="button"
+                              style={styles.secondaryButton}
+                              onClick={() => setSelectedWalkthrough(walkthrough)}
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              style={styles.button}
+                              onClick={() => handleEmailWalkthrough(walkthrough)}
+                            >
+                              Email
+                            </button>
+                            <button
+                              type="button"
+                              style={styles.secondaryButton}
+                              onClick={() => handleDeleteWalkthrough(walkthrough.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
               )}
             </div>
 
             {reports.length === 0 ? (
               <div style={styles.small}>No reports yet.</div>
             ) : (
-              reports.map((r) => (
-                <div key={r.id} style={styles.section}>
-                  <strong>{r.checklistTitle}</strong>
-                  <br />
-                  Completed By: {r.completedByName}
-                  <br />
-                  Assigned To: {r.assignedToName}
-                  <br />
-                  Status: {r.status}
-                  <br />
-                  <div style={{ ...styles.row, marginTop: 10 }}>
-                    <button
-                      style={styles.secondaryButton}
-                      onClick={() => setSelectedReport(r)}
-                    >
-                      View Detail
-                    </button>
+              <div className="compact-list">
+                {reports.map((r) => {
+                  const rowKey = `report-${r.id}`;
+                  const isOpen = isExpandedRow(rowKey);
 
-                    <button
-                      style={styles.button}
-                      onClick={() => handleDownloadPdf(r)}
+                  return (
+                    <div
+                      key={r.id}
+                      className={`compact-row ${isOpen ? "compact-row-open" : ""}`}
                     >
-                      Download PDF
-                    </button>
-                    <button
-                      style={styles.secondaryButton}
-                      onClick={() => handleEmailReport(r)}
-                    >
-                      Email Report
-                    </button>
+                      <div className="compact-row-main">
+                        <button
+                          type="button"
+                          className="compact-row-toggle"
+                          aria-expanded={isOpen}
+                          aria-label={`${isOpen ? "Hide" : "Show"} report actions`}
+                          onClick={() => toggleExpandedRow(rowKey)}
+                        >
+                          {isOpen ? "-" : "+"}
+                        </button>
+                        <div className="compact-row-title">
+                          <strong>{r.checklistTitle}</strong>
+                          <span>Completed by {r.completedByName}</span>
+                        </div>
+                      </div>
+                      <div className="compact-row-meta">
+                        <span>{r.status}</span>
+                        <span>{formatDateTime(r.completed_at)}</span>
+                      </div>
+                      <div className="compact-row-actions">
+                        <span>Assigned to {r.assignedToName}</span>
+                        <button
+                          style={styles.secondaryButton}
+                          onClick={() => setSelectedReport(r)}
+                        >
+                          View
+                        </button>
 
-                    <a
-                      style={{ ...styles.button, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
-                      href={getActionPlanExcelDownloadUrl(r.id)}
-                    >
-                      AI Action Plan Excel
-                    </a>
+                        <button
+                          style={styles.button}
+                          onClick={() => handleDownloadPdf(r)}
+                        >
+                          PDF
+                        </button>
+                        <button
+                          style={styles.secondaryButton}
+                          onClick={() => handleEmailReport(r)}
+                        >
+                          Email
+                        </button>
 
-                    <button
-                      style={styles.button}
-                      onClick={() => handleDownloadManagerSummary(r)}
-                      disabled={managerSummaryReportId === r.id}
-                    >
-                      {managerSummaryReportId === r.id ? "Preparing Summary..." : "Manager Summary"}
-                    </button>
+                        <a
+                          style={{ ...styles.button, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                          href={getActionPlanExcelDownloadUrl(r.id)}
+                        >
+                          Action Plan
+                        </a>
 
-                    <button
-                      style={styles.button}
-                      onClick={() => handleDeleteReport(r.id)}
-                    >
-                      Delete Report
-                    </button>
-                  </div>
-                </div>
-              ))
+                        <button
+                          style={styles.button}
+                          onClick={() => handleDownloadManagerSummary(r)}
+                          disabled={managerSummaryReportId === r.id}
+                        >
+                          {managerSummaryReportId === r.id ? "Preparing..." : "Summary"}
+                        </button>
+
+                        <button
+                          style={styles.button}
+                          onClick={() => handleDeleteReport(r.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
           ) : null}

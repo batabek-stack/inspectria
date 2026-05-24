@@ -36,6 +36,7 @@ router.get("/", authRequired, adminOnly, async (req, res, next) => {
         u.id,
         u.organization_id AS "organizationId",
         o.name AS "organizationName",
+        u.email,
         u.username,
         u.name,
         u.role,
@@ -60,16 +61,22 @@ router.get("/", authRequired, adminOnly, async (req, res, next) => {
 
 router.post("/", authRequired, adminOnly, async (req, res, next) => {
   try {
-    const { username, password, name, role, organizationId } = req.body || {};
+    const { username, password, name, email, role, organizationId } = req.body || {};
     const nextRole = normalizeRole(role);
     const targetOrganizationId = db.isPlatformAdmin(req.user)
       ? Number(organizationId || req.user.organizationId)
       : req.user.organizationId;
 
-    if (!username || !password || !name || !nextRole || !targetOrganizationId) {
+    const cleanEmail = String(email || "").trim().toLowerCase();
+
+    if (!username || !password || !name || !cleanEmail || !nextRole || !targetOrganizationId) {
       return res.status(400).json({
-        message: "username, password, name, role and organization are required",
+        message: "email, username, password, name, role and organization are required",
       });
+    }
+
+    if (!cleanEmail.includes("@")) {
+      return res.status(400).json({ message: "A valid email address is required" });
     }
 
     const org = await db.one("SELECT id FROM organizations WHERE id = $1", [
@@ -95,13 +102,14 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 
     const result = await db.one(
       `
-      INSERT INTO users
-        (organization_id, username, password_hash, name, role, active, approval_status, created_at)
-      VALUES ($1, $2, $3, $4, $5, TRUE, 'approved', NOW())
+        INSERT INTO users
+        (organization_id, email, username, password_hash, name, role, active, approval_status, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, TRUE, 'approved', NOW())
       RETURNING id
     `,
       [
         targetOrganizationId,
+        cleanEmail,
         String(username).trim(),
         await bcrypt.hash(String(password), 10),
         String(name).trim(),
@@ -121,7 +129,7 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
   try {
     const userId = Number(req.params.id);
-    const { username, password, name, role, active, approvalStatus } = req.body || {};
+    const { username, password, name, email, role, active, approvalStatus } = req.body || {};
 
     if (!userId) {
       return res.status(400).json({
@@ -131,7 +139,7 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
 
     const existingUser = await db.one(
       `
-      SELECT id, organization_id, username, name, role, active, approval_status
+      SELECT id, organization_id, email, username, name, role, active, approval_status
       FROM users u
       ${userSelectWhere(req, "WHERE u.id = $" + (db.isPlatformAdmin(req.user) ? "1" : "2"))}
     `,
@@ -150,6 +158,8 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
 
     const nextUsername =
       typeof username === "string" ? username.trim() : existingUser.username;
+    const nextEmail =
+      typeof email === "string" ? email.trim().toLowerCase() : existingUser.email;
     const nextName = typeof name === "string" ? name.trim() : existingUser.name;
     const nextRole =
       existingUser.role === "platform_admin"
@@ -161,10 +171,23 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
       typeof active === "boolean" ? active : Boolean(existingUser.active);
     const nextApprovalStatus = approvalStatus || existingUser.approval_status;
 
-    if (!nextUsername || !nextName) {
+    const updatesProfile = [
+      "email",
+      "username",
+      "name",
+      "role",
+      "active",
+      "approvalStatus",
+    ].some((field) => Object.prototype.hasOwnProperty.call(req.body || {}, field));
+
+    if ((updatesProfile && !nextEmail) || !nextUsername || !nextName) {
       return res.status(400).json({
-        message: "username and name are required",
+        message: "email, username and name are required",
       });
+    }
+
+    if (updatesProfile && !nextEmail.includes("@")) {
+      return res.status(400).json({ message: "A valid email address is required" });
     }
 
     if (!nextRole) {
@@ -209,15 +232,17 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
       UPDATE users
       SET
         username = $1,
-        password_hash = COALESCE($2, password_hash),
-        name = $3,
-        role = $4,
-        active = $5,
-        approval_status = $6
-      WHERE id = $7
+        email = $2,
+        password_hash = COALESCE($3, password_hash),
+        name = $4,
+        role = $5,
+        active = $6,
+        approval_status = $7
+      WHERE id = $8
       RETURNING
         id,
         organization_id AS "organizationId",
+        email,
         username,
         name,
         role,
@@ -227,6 +252,7 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
     `,
       [
         nextUsername,
+        nextEmail,
         passwordHash,
         nextName,
         nextRole,

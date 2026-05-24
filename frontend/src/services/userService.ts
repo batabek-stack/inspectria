@@ -9,6 +9,7 @@ export function createUser(payload: {
   username: string;
   password: string;
   name: string;
+  email: string;
   role: "admin" | "user";
   organizationId?: number;
 }) {
@@ -21,6 +22,7 @@ export function updateUser(
     username: string;
     password: string;
     name: string;
+    email: string;
     role: "admin" | "user";
     active: boolean;
     approvalStatus: "pending" | "approved" | "rejected";

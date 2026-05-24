@@ -11,7 +11,7 @@ type Props = {
 export default function DashboardShell({ user, onLogout, children }: Props) {
   return (
     <div className="app-page" style={styles.page}>
-      <div style={styles.card}>
+      <div className="dashboard-card" style={styles.card}>
         <div className="app-header">
           <div className="app-brand">
             <img src="/inspectra-logo.png" alt="Inspectria" />

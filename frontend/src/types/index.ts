@@ -5,6 +5,7 @@ export type User = {
   id: number;
   organizationId?: number | null;
   organizationName?: string | null;
+  email: string;
   username: string;
   password?: string;
   name: string;
@@ -26,6 +27,7 @@ export type Organization = {
   pendingUserCount: number;
   reportCount: number;
   admins: User[];
+  users?: User[];
 };
 
 export type BillingCycle = "monthly" | "yearly";

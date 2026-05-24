@@ -11,9 +11,9 @@ export const styles: Record<string, React.CSSProperties> = {
   card: {
     background: "#ffffff",
     borderRadius: 8,
-    padding: "clamp(14px, 3vw, 20px)",
+    padding: "clamp(16px, 3vw, 28px)",
     boxShadow: "0 18px 45px rgba(3, 32, 42, 0.10)",
-    maxWidth: 960,
+    maxWidth: 1440,
     margin: "0 auto",
     width: "100%",
     overflow: "hidden",

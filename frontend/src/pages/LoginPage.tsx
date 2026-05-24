@@ -9,16 +9,18 @@ type Props = {
     password: string,
     organizationName: string
   ) => Promise<void>;
+  initialMode?: "login" | "register";
 };
 
-export default function LoginPage({ onLogin }: Props) {
+export default function LoginPage({ onLogin, initialMode = "login" }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [organizationName, setOrganizationName] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register">(initialMode);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,10 +33,22 @@ export default function LoginPage({ onLogin }: Props) {
         return;
       }
 
-      await registerUser(username, password, fullName, organizationName);
-      setMessage("Your organization request was sent. Please wait for platform approval.");
+      const cleanEmail = email.trim();
+      if (!organizationName.trim() || !fullName.trim() || !cleanEmail || !username.trim() || !password.trim()) {
+        setError("Organization name, full name, email, username and password are required.");
+        return;
+      }
+
+      if (!cleanEmail.includes("@")) {
+        setError("Please enter a valid email address.");
+        return;
+      }
+
+      const result = await registerUser(username, password, fullName, email, organizationName);
+      setMessage(result.message);
       setUsername("");
       setPassword("");
+      setEmail("");
       setFullName("");
       setOrganizationName("");
       setMode("login");
@@ -55,7 +69,9 @@ export default function LoginPage({ onLogin }: Props) {
         <div className="login-brand">
           <img src="/inspectra-logo.png" alt="Inspectria" />
         </div>
-        <h1 style={{ ...styles.title, textAlign: "center", marginBottom: 18 }}>Login</h1>
+        <h1 style={{ ...styles.title, textAlign: "center", marginBottom: 18 }}>
+          {mode === "login" ? "Login" : "Create User Request"}
+        </h1>
 
         {error ? <div style={styles.error}>{error}</div> : null}
         {message ? (
@@ -72,6 +88,7 @@ export default function LoginPage({ onLogin }: Props) {
                 <input
                   style={styles.input}
                   value={organizationName}
+                  required
                   onChange={(e) => setOrganizationName(e.target.value)}
                 />
               </div>
@@ -81,7 +98,19 @@ export default function LoginPage({ onLogin }: Props) {
                 <input
                   style={styles.input}
                   value={fullName}
+                  required
                   onChange={(e) => setFullName(e.target.value)}
+                />
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                <label>Email</label>
+                <input
+                  style={styles.input}
+                  type="email"
+                  value={email}
+                  required
+                  onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
             </>
@@ -104,6 +133,7 @@ export default function LoginPage({ onLogin }: Props) {
             <input
               style={styles.input}
               value={username}
+              required
               onChange={(e) => setUsername(e.target.value)}
             />
           </div>
@@ -134,9 +164,15 @@ export default function LoginPage({ onLogin }: Props) {
             {mode === "login" ? "Create New User Request" : "Back To Login"}
           </button>
           {mode === "login" ? (
-            <div style={{ ...styles.small, marginTop: 10 }}>
-              Forgot your password? Contact your organization admin to generate a reset link.
-            </div>
+            <button
+              type="button"
+              style={{ ...styles.secondaryButton, marginTop: 10, width: "100%" }}
+              onClick={() => {
+                window.location.hash = "reset-password";
+              }}
+            >
+              Forgot Password?
+            </button>
           ) : null}
         </div>
       </div>

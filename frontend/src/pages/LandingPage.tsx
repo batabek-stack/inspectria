@@ -3,6 +3,7 @@ import { sendContactMessage } from "../services/emailService";
 
 type Props = {
   onSignIn: () => void;
+  onRegister: () => void;
 };
 
 const inspectionFlows = [
@@ -123,7 +124,7 @@ const pricingPlans = [
   },
 ];
 
-export default function LandingPage({ onSignIn }: Props) {
+export default function LandingPage({ onSignIn, onRegister }: Props) {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactOrganization, setContactOrganization] = useState("");
@@ -192,9 +193,9 @@ export default function LandingPage({ onSignIn }: Props) {
             <button className="primary-action" type="button" onClick={onSignIn}>
               Open workspace
             </button>
-            <a className="secondary-action" href="#platform">
-              Explore platform
-            </a>
+            <button className="secondary-action" type="button" onClick={onRegister}>
+              Create user request
+            </button>
           </div>
         </div>
 

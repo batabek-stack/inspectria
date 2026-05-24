@@ -8,6 +8,7 @@ export function getOrganizations() {
 export function createOrganization(payload: {
   name: string;
   plan?: string;
+  adminEmail?: string;
   adminUsername?: string;
   adminPassword?: string;
   adminName?: string;

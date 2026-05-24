@@ -118,6 +118,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       organization_id INTEGER REFERENCES organizations(id),
+      email TEXT NOT NULL DEFAULT '',
       username TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -428,6 +429,7 @@ async function initDb() {
   );
 
   await dropConstraintIfExists("users", "users_username_key");
+  await ensureColumn("users", "email", "email TEXT NOT NULL DEFAULT ''");
 
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_platform_username_unique

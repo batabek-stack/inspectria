@@ -20,12 +20,14 @@ export async function register(
   username: string,
   password: string,
   name: string,
+  email: string,
   organizationName: string
 ) {
   return apiPost<{ success: boolean; message: string }>("/auth/register", {
     username,
     password,
     name,
+    email,
     organizationName,
   });
 }
@@ -35,6 +37,24 @@ export async function completePasswordReset(token: string, password: string) {
     token,
     password,
   });
+}
+
+export async function requestPasswordResetCode(username: string, email: string) {
+  return apiPost<{ success: boolean; message: string }>("/auth/password-reset/request-code", {
+    username,
+    email,
+  });
+}
+
+export async function verifyPasswordResetCode(username: string, email: string, code: string) {
+  return apiPost<{ success: boolean; token: string; expiresAt: string; message: string }>(
+    "/auth/password-reset/verify-code",
+    {
+      username,
+      email,
+      code,
+    }
+  );
 }
 
 export async function me() {
