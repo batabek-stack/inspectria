@@ -78,6 +78,7 @@ import {
 type Props = {
   user: User;
   onLogout: () => Promise<void>;
+  initialSection?: AdminSectionKey;
 };
 
 type SectionForm = {
@@ -372,10 +373,10 @@ function IyzicoCheckout({ content }: { content: string }) {
   return <div ref={containerRef} />;
 }
 
-export default function AdminPage({ user, onLogout }: Props) {
+export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const isPlatformAdmin = user.role === "platform_admin";
   const [activeAdminPage, setActiveAdminPage] = useState<AdminSectionKey>(
-    isPlatformAdmin ? "organizations" : "templates"
+    initialSection || (isPlatformAdmin ? "organizations" : "templates")
   );
   const visibleAdminSections = ADMIN_SECTIONS.filter(
     (section) =>

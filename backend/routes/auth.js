@@ -3,7 +3,10 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
 const { authRequired } = require("../middleware/auth");
-const { sendPasswordResetCode } = require("../services/emailService");
+const {
+  sendPasswordResetCode,
+  sendUserRegistrationRequestEmail,
+} = require("../services/emailService");
 
 const router = express.Router();
 
@@ -35,6 +38,13 @@ function hashResetCode(userId, code) {
 
 function createResetCode() {
   return String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+}
+
+function userManagementLoginUrl() {
+  return (
+    process.env.ADMIN_USER_MANAGEMENT_URL ||
+    "https://inspectria.com/login?admin=users"
+  );
 }
 
 async function findPasswordResetUser(username, email) {
@@ -182,6 +192,7 @@ router.post("/register", async (req, res, next) => {
 
     const registration = await db.transaction(async (client) => {
       let organizationId;
+      let organizationNameForEmail = cleanOrganizationName;
       let role = "user";
       let approvalTarget = "organization";
 
@@ -243,8 +254,41 @@ router.post("/register", async (req, res, next) => {
         [organizationId, cleanEmail, cleanUsername, passwordHash, cleanName, role]
       );
 
-      return { approvalTarget };
+      return {
+        approvalTarget,
+        organizationId,
+        organizationName: organizationNameForEmail,
+      };
     });
+
+    if (registration.approvalTarget === "organization") {
+      const admins = await db.many(
+        `
+        SELECT email
+        FROM users
+        WHERE organization_id = $1
+          AND role = 'admin'
+          AND active = TRUE
+          AND approval_status = 'approved'
+          AND email <> ''
+      `,
+        [registration.organizationId]
+      );
+
+      const recipients = admins.map((admin) => admin.email).filter(Boolean);
+      if (recipients.length > 0) {
+        sendUserRegistrationRequestEmail({
+          to: recipients,
+          organizationName: registration.organizationName,
+          requesterName: cleanName,
+          requesterUsername: cleanUsername,
+          requesterEmail: cleanEmail,
+          loginUrl: userManagementLoginUrl(),
+        }).catch((emailError) => {
+          console.error("User registration notification email failed.", emailError);
+        });
+      }
+    }
 
     res.json({
       success: true,

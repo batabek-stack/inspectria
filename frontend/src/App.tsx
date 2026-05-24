@@ -8,6 +8,19 @@ import LandingPage from "./pages/LandingPage";
 import LegalPage, { getLegalPageFromHash, isLegalPageHash } from "./pages/LegalPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 
+function isLoginRoute(routeHash: string) {
+  return routeHash.startsWith("#login") || window.location.pathname === "/login";
+}
+
+function requestedAdminSection() {
+  const hashQuery = window.location.hash.split("?")[1] || "";
+  const hashParams = new URLSearchParams(hashQuery);
+  const searchParams = new URLSearchParams(window.location.search);
+  const requested = hashParams.get("admin") || searchParams.get("admin");
+
+  return requested === "users" ? "users" : undefined;
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(getStoredSession());
   const [loading, setLoading] = useState(true);
@@ -56,7 +69,7 @@ export default function App() {
     return <LegalPage page={getLegalPageFromHash(routeHash)} />;
   }
   if (!session && routeHash.startsWith("#reset-password")) return <ResetPasswordPage />;
-  if (!session && routeHash === "#login") return <LoginPage onLogin={handleLogin} />;
+  if (!session && isLoginRoute(routeHash)) return <LoginPage onLogin={handleLogin} />;
   if (!session && routeHash === "#register") {
     return <LoginPage onLogin={handleLogin} initialMode="register" />;
   }
@@ -76,6 +89,6 @@ export default function App() {
   }
 
   return session.user.role === "admin" || session.user.role === "platform_admin"
-    ? <AdminPage user={session.user} onLogout={handleLogout} />
+    ? <AdminPage user={session.user} onLogout={handleLogout} initialSection={requestedAdminSection()} />
     : <UserPage user={session.user} onLogout={handleLogout} />;
 }

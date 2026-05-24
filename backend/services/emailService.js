@@ -75,6 +75,47 @@ async function sendPasswordResetCode({ to, username, code }) {
   });
 }
 
+async function sendUserRegistrationRequestEmail({
+  to,
+  organizationName,
+  requesterName,
+  requesterUsername,
+  requesterEmail,
+  loginUrl,
+}) {
+  const safeOrganizationName = escapeHtml(organizationName);
+  const safeRequesterName = escapeHtml(requesterName);
+  const safeRequesterUsername = escapeHtml(requesterUsername);
+  const safeRequesterEmail = escapeHtml(requesterEmail);
+  const safeLoginUrl = escapeHtml(loginUrl);
+
+  return sendReportEmail({
+    to,
+    subject: `Inspectria user request for ${organizationName}`,
+    text: [
+      `A new user requested access to ${organizationName}.`,
+      "",
+      `Name: ${requesterName}`,
+      `Username: ${requesterUsername}`,
+      `Email: ${requesterEmail}`,
+      "",
+      `Open User Management to review the request: ${loginUrl}`,
+    ].join("\n"),
+    html: `
+      <p>A new user requested access to <strong>${safeOrganizationName}</strong>.</p>
+      <p>
+        <strong>Name:</strong> ${safeRequesterName}<br />
+        <strong>Username:</strong> ${safeRequesterUsername}<br />
+        <strong>Email:</strong> ${safeRequesterEmail}
+      </p>
+      <p>
+        <a href="${safeLoginUrl}">Open Inspectria User Management</a>
+      </p>
+      <p>${safeLoginUrl}</p>
+    `,
+  });
+}
+
 async function verifyEmailConnection() {
   const transporter = createTransporter();
   return transporter.verify();
@@ -84,6 +125,7 @@ module.exports = {
   getMailFrom,
   isEmailConfigured,
   sendPasswordResetCode,
+  sendUserRegistrationRequestEmail,
   verifyEmailConnection,
   sendReportEmail,
 };
