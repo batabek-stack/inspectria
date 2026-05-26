@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import {
   AnswerType,
@@ -93,6 +93,7 @@ type QuestionForm = {
 };
 
 type AdminSectionKey =
+  | "dashboard"
   | "organizations"
   | "organizationUsers"
   | "billing"
@@ -118,6 +119,11 @@ const ADMIN_SECTIONS: Array<{
   label: string;
   description: string;
 }> = [
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    description: "Organization overview and success metrics",
+  },
   {
     key: "organizations",
     label: "Organizations",
@@ -259,6 +265,33 @@ function formatDateTime(value?: string | null) {
   }
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return "-";
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return value;
+  }
+}
+
+function getDaysBetween(start?: string | null, end?: string | null) {
+  if (!start || !end) return null;
+  const startTime = new Date(start).getTime();
+  const endTime = new Date(end).getTime();
+  if (Number.isNaN(startTime) || Number.isNaN(endTime)) return null;
+  return Math.ceil((endTime - startTime) / (1000 * 60 * 60 * 24));
+}
+
+function normalizeAnswer(value?: string | null) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function isDesktopViewport() {
+  return typeof window === "undefined"
+    ? true
+    : window.matchMedia("(min-width: 769px)").matches;
+}
+
 type UserGroup = {
   key: string;
   organizationId: number | null;
@@ -375,13 +408,17 @@ function IyzicoCheckout({ content }: { content: string }) {
 
 export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const isPlatformAdmin = user.role === "platform_admin";
+  const [isDesktop, setIsDesktop] = useState(isDesktopViewport);
   const [activeAdminPage, setActiveAdminPage] = useState<AdminSectionKey>(
-    initialSection || (isPlatformAdmin ? "organizations" : "templates")
+    initialSection || (isPlatformAdmin ? "organizations" : isDesktopViewport() ? "dashboard" : "templates")
   );
   const visibleAdminSections = ADMIN_SECTIONS.filter(
     (section) =>
-      isPlatformAdmin ||
-      (section.key !== "organizations" && section.key !== "organizationUsers")
+      isPlatformAdmin
+        ? section.key !== "dashboard"
+        : section.key !== "organizations" &&
+          section.key !== "organizationUsers" &&
+          (isDesktop || section.key !== "dashboard")
   );
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -545,6 +582,21 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 769px)");
+    const syncDesktopState = () => setIsDesktop(mediaQuery.matches);
+
+    syncDesktopState();
+    mediaQuery.addEventListener("change", syncDesktopState);
+    return () => mediaQuery.removeEventListener("change", syncDesktopState);
+  }, []);
+
+  useEffect(() => {
+    if (!isPlatformAdmin && !isDesktop && activeAdminPage === "dashboard") {
+      setActiveAdminPage("templates");
+    }
+  }, [activeAdminPage, isDesktop, isPlatformAdmin]);
 
   useEffect(() => {
     return () => {
@@ -1702,6 +1754,110 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const selectedBillingPlan =
     billing.plans.find((plan) => plan.id === billingPlanId) || billing.plans[0] || null;
   const billingUsage = billing.usage;
+  const activeUsers = users.filter(
+    (candidate) => candidate.active !== false && candidate.approvalStatus !== "pending"
+  );
+  const organizationAdmins = activeUsers.filter((candidate) => candidate.role === "admin");
+  const organizationInspectors = activeUsers.filter((candidate) => candidate.role === "user");
+  const openAssignments = assignments.filter((assignment) => assignment.status !== "completed");
+  const completedAssignments = assignments.filter((assignment) => assignment.status === "completed");
+  const completedWalkthroughs = walkthroughs.filter(
+    (walkthrough) => walkthrough.status === "completed"
+  );
+  const siteNames = Array.from(
+    new Set(
+      walkthroughs
+        .map((walkthrough) => (walkthrough.location || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((first, second) => first.localeCompare(second));
+  const siteCount = siteNames.length || (user.organizationName ? 1 : 0);
+  const subscriptionDaysTotal = getDaysBetween(
+    currentSubscription?.startedAt,
+    currentSubscription?.renewsAt
+  );
+  const subscriptionDaysLeft = currentSubscription
+    ? getDaysBetween(new Date().toISOString(), currentSubscription.renewsAt)
+    : null;
+  const subscriptionProgress =
+    subscriptionDaysTotal && subscriptionDaysLeft !== null
+      ? Math.max(
+          0,
+          Math.min(
+            100,
+            Math.round(((subscriptionDaysTotal - subscriptionDaysLeft) / subscriptionDaysTotal) * 100)
+          )
+        )
+      : 0;
+  const templateSuccessRows = useMemo(
+    () =>
+      checklists
+        .map((checklist) => {
+          const templateReports = reports.filter(
+            (report) => report.checklistTitle === checklist.title
+          );
+          let successfulAnswers = 0;
+          let failedAnswers = 0;
+          let notApplicableAnswers = 0;
+          let scoredAnswers = 0;
+
+          templateReports.forEach((report) => {
+            (report.items || []).forEach((item) => {
+              const answer = normalizeAnswer(item.answer);
+              if (answer === "YES") {
+                successfulAnswers += 1;
+                scoredAnswers += 1;
+              } else if (answer === "NO") {
+                failedAnswers += 1;
+                scoredAnswers += 1;
+              } else if (answer === "N/A" || answer === "NA") {
+                notApplicableAnswers += 1;
+              }
+            });
+          });
+
+          const successRate = scoredAnswers
+            ? Math.round((successfulAnswers / scoredAnswers) * 100)
+            : 0;
+          const latestReportAt = templateReports
+            .map((report) => report.completed_at)
+            .filter(Boolean)
+            .sort((first, second) => new Date(second).getTime() - new Date(first).getTime())[0];
+
+          return {
+            id: checklist.id,
+            title: checklist.title,
+            reportCount: templateReports.length,
+            successfulAnswers,
+            failedAnswers,
+            notApplicableAnswers,
+            scoredAnswers,
+            successRate,
+            latestReportAt,
+          };
+        })
+        .sort((first, second) => {
+          if (second.reportCount !== first.reportCount) {
+            return second.reportCount - first.reportCount;
+          }
+          return first.title.localeCompare(second.title);
+        }),
+    [checklists, reports]
+  );
+  const overallScoredAnswers = templateSuccessRows.reduce(
+    (total, row) => total + row.scoredAnswers,
+    0
+  );
+  const overallSuccessfulAnswers = templateSuccessRows.reduce(
+    (total, row) => total + row.successfulAnswers,
+    0
+  );
+  const overallSuccessRate = overallScoredAnswers
+    ? Math.round((overallSuccessfulAnswers / overallScoredAnswers) * 100)
+    : 0;
+  const recentReports = [...reports]
+    .sort((first, second) => new Date(second.completed_at).getTime() - new Date(first.completed_at).getTime())
+    .slice(0, 6);
   const organizationUserRows = users
     .filter((candidate) => candidate.role !== "platform_admin")
     .map((candidate) => {
@@ -1914,6 +2070,258 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               summary={managerSummaryPreview.summary}
               onClose={() => setManagerSummaryPreview(null)}
             />
+          ) : null}
+
+          {activeAdminPage === "dashboard" && !isPlatformAdmin && isDesktop ? (
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Organization Dashboard</h3>
+                  <p>
+                    Sites, team access, billing preview, templates, assignment volume, and completed
+                    checklist success rates in one operational view.
+                  </p>
+                </div>
+              </div>
+
+              <div className="org-dashboard-grid">
+                <div className="org-dashboard-hero">
+                  <div>
+                    <div className="org-dashboard-eyebrow">Organization</div>
+                    <h4>{user.organizationName || "Current Organization"}</h4>
+                    <p>
+                      {currentSubscription
+                        ? `${currentSubscription.planName} plan is ${currentSubscription.status}.`
+                        : "No active subscription is attached yet."}
+                    </p>
+                  </div>
+                  <div className="org-dashboard-score">
+                    <strong>{overallSuccessRate}%</strong>
+                    <span>Overall Success</span>
+                  </div>
+                </div>
+
+                <div className="org-dashboard-metrics">
+                  <div>
+                    <span>Sites</span>
+                    <strong>{siteCount}</strong>
+                    <small>
+                      {siteNames.length
+                        ? siteNames.slice(0, 3).join(", ")
+                        : user.organizationName || "Main location"}
+                    </small>
+                  </div>
+                  <div>
+                    <span>Total Users</span>
+                    <strong>{activeUsers.length}</strong>
+                    <small>{organizationInspectors.length} users, {organizationAdmins.length} admins</small>
+                  </div>
+                  <div>
+                    <span>Templates</span>
+                    <strong>{checklists.length}</strong>
+                    <small>{overallScoredAnswers} scored answers completed</small>
+                  </div>
+                  <div>
+                    <span>Reports</span>
+                    <strong>{reports.length}</strong>
+                    <small>{completedWalkthroughs.length} walkthroughs completed</small>
+                  </div>
+                  <div>
+                    <span>Open Assignments</span>
+                    <strong>{openAssignments.length}</strong>
+                    <small>{completedAssignments.length} completed assignments</small>
+                  </div>
+                  <div>
+                    <span>Plan Usage</span>
+                    <strong>{billingUsage?.userCount ?? activeUsers.length}</strong>
+                    <small>
+                      {currentSubscription
+                        ? `${formatLimit(currentSubscription.userLimit, "users")} allowed`
+                        : "No plan limit"}
+                    </small>
+                  </div>
+                </div>
+              </div>
+
+              <div className="org-dashboard-split">
+                <div className="org-dashboard-panel">
+                  <div className="org-dashboard-panel-title">
+                    <h4>Billing Preview</h4>
+                    <span>{currentSubscription?.billingCycle || "no cycle"}</span>
+                  </div>
+                  <div className="billing-preview-line">
+                    <span>Plan</span>
+                    <strong>{currentSubscription?.planName || "-"}</strong>
+                  </div>
+                  <div className="billing-preview-line">
+                    <span>Amount</span>
+                    <strong>
+                      {currentSubscription
+                        ? `${formatMoney(
+                            currentSubscription.amountCents,
+                            currentSubscription.currency
+                          )} / ${currentSubscription.billingCycle}`
+                        : "-"}
+                    </strong>
+                  </div>
+                  <div className="billing-preview-line">
+                    <span>Start</span>
+                    <strong>{formatDate(currentSubscription?.startedAt)}</strong>
+                  </div>
+                  <div className="billing-preview-line">
+                    <span>Renewal / End</span>
+                    <strong>{formatDate(currentSubscription?.renewsAt)}</strong>
+                  </div>
+                  <div className="billing-preview-line">
+                    <span>Remaining</span>
+                    <strong>
+                      {subscriptionDaysLeft === null
+                        ? "-"
+                        : `${Math.max(0, subscriptionDaysLeft)} days`}
+                    </strong>
+                  </div>
+                  <div className="subscription-progress" aria-label="Subscription period progress">
+                    <span style={{ width: `${subscriptionProgress}%` }} />
+                  </div>
+                  <div className="org-dashboard-footnote">
+                    Retention: {currentSubscription?.reportRetentionDays || "-"} days | Template limit:{" "}
+                    {currentSubscription
+                      ? formatLimit(currentSubscription.checklistLimit, "templates")
+                      : "-"}
+                  </div>
+                </div>
+
+                <div className="org-dashboard-panel">
+                  <div className="org-dashboard-panel-title">
+                    <h4>Team & Workload</h4>
+                    <span>{activeUsers.length} active</span>
+                  </div>
+                  <div className="team-breakdown">
+                    <div>
+                      <strong>{organizationAdmins.length}</strong>
+                      <span>Admins</span>
+                    </div>
+                    <div>
+                      <strong>{organizationInspectors.length}</strong>
+                      <span>Users</span>
+                    </div>
+                    <div>
+                      <strong>{pendingUsers.length}</strong>
+                      <span>Pending</span>
+                    </div>
+                    <div>
+                      <strong>{assignments.length}</strong>
+                      <span>Assignments</span>
+                    </div>
+                  </div>
+                  <div className="mini-list">
+                    {activeUsers.slice(0, 6).map((member) => (
+                      <div key={member.id}>
+                        <span>{member.name || member.username}</span>
+                        <strong>{member.role}</strong>
+                      </div>
+                    ))}
+                    {activeUsers.length === 0 ? (
+                      <div>
+                        <span>No active users</span>
+                        <strong>-</strong>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="org-dashboard-performance-layout">
+                <div className="org-dashboard-panel template-performance-panel">
+                  <div className="org-dashboard-panel-title">
+                    <h4>Template Success Totals</h4>
+                    <span>{templateSuccessRows.length} templates</span>
+                  </div>
+                  <div className="template-gauge-grid">
+                    {templateSuccessRows.map((row) => (
+                      <div key={row.id} className="template-gauge-card">
+                        <div
+                          className="template-gauge"
+                          style={{
+                            background: `conic-gradient(#0f766e ${row.successRate}%, #e6f3f1 0)`,
+                          }}
+                        >
+                          <div>
+                            <strong>{row.successRate}%</strong>
+                            <span>success</span>
+                          </div>
+                        </div>
+                        <div className="template-gauge-details">
+                          <strong>{row.title}</strong>
+                          <span>
+                            {row.reportCount} reports | {row.successfulAnswers} yes /{" "}
+                            {row.failedAnswers} no
+                          </span>
+                          <small>
+                            {row.scoredAnswers} scored | {row.notApplicableAnswers} N/A | Latest{" "}
+                            {formatDate(row.latestReportAt)}
+                          </small>
+                        </div>
+                      </div>
+                    ))}
+                    {templateSuccessRows.length === 0 ? (
+                      <div style={styles.small}>No templates found.</div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="org-dashboard-stack">
+                  <div className="org-dashboard-panel">
+                    <div className="org-dashboard-panel-title">
+                      <h4>Recent Completed Reports</h4>
+                      <span>{reports.length} total</span>
+                    </div>
+                    <div className="mini-list">
+                      {recentReports.map((report) => (
+                        <button
+                          key={report.id}
+                          type="button"
+                          className="mini-list-button"
+                          onClick={() => setSelectedReport(report)}
+                        >
+                          <span>{report.checklistTitle}</span>
+                          <strong>{formatDate(report.completed_at)}</strong>
+                        </button>
+                      ))}
+                      {recentReports.length === 0 ? (
+                        <div>
+                          <span>No completed reports yet</span>
+                          <strong>-</strong>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="org-dashboard-panel">
+                    <div className="org-dashboard-panel-title">
+                      <h4>Site Signals</h4>
+                      <span>{siteCount} tracked</span>
+                    </div>
+                    <div className="mini-list">
+                      {(siteNames.length ? siteNames : [user.organizationName || "Main location"]).map(
+                        (siteName) => (
+                          <div key={siteName}>
+                            <span>{siteName}</span>
+                            <strong>
+                              {
+                                walkthroughs.filter(
+                                  (walkthrough) => (walkthrough.location || "").trim() === siteName
+                                ).length || "-"
+                              }
+                            </strong>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : null}
 
           {activeAdminPage === "account" ? (
