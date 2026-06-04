@@ -417,21 +417,6 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const ownOrganization = organizations.find(
     (organization) => organization.id === user.organizationId
   );
-  const canManageSubOrganizations =
-    isPlatformAdmin ||
-    Boolean(
-      ownOrganization &&
-        !ownOrganization.parentOrganizationId &&
-        ownOrganization.plan?.toLowerCase() === "enterprise"
-    );
-  const visibleAdminSections = ADMIN_SECTIONS.filter(
-    (section) =>
-      isPlatformAdmin
-        ? section.key !== "dashboard"
-        : section.key !== "organizationUsers" &&
-          (canManageSubOrganizations || section.key !== "organizations") &&
-          (isDesktop || section.key !== "dashboard")
-  );
   const [users, setUsers] = useState<User[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -495,6 +480,24 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [billingExternalSubscriptionId, setBillingExternalSubscriptionId] = useState("");
   const [iyzicoCheckoutContent, setIyzicoCheckoutContent] = useState("");
   const [iyzicoCheckoutToken, setIyzicoCheckoutToken] = useState("");
+  const currentPlanCode = String(
+    billing.currentSubscription?.planCode || ownOrganization?.plan || ""
+  ).toLowerCase();
+  const isTopLevelTenant = Boolean(ownOrganization && !ownOrganization.parentOrganizationId);
+  const subOrganizations = organizations.filter(
+    (organization) => organization.parentOrganizationId === user.organizationId
+  );
+  const canCreateSubOrganizations =
+    isPlatformAdmin || (isTopLevelTenant && currentPlanCode === "enterprise");
+  const canViewSubOrganizations =
+    isPlatformAdmin || canCreateSubOrganizations || subOrganizations.length > 0;
+  const visibleAdminSections = ADMIN_SECTIONS.filter((section) =>
+    isPlatformAdmin
+      ? section.key !== "dashboard"
+      : section.key !== "organizationUsers" &&
+        (canViewSubOrganizations || section.key !== "organizations") &&
+        (isDesktop || section.key !== "dashboard")
+  );
 
   const [newUsername, setNewUsername] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -622,10 +625,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   }, [activeAdminPage, isDesktop, isPlatformAdmin]);
 
   useEffect(() => {
-    if (!isPlatformAdmin && activeAdminPage === "organizations" && !canManageSubOrganizations) {
+    if (!isPlatformAdmin && activeAdminPage === "organizations" && !canViewSubOrganizations) {
       setActiveAdminPage("users");
     }
-  }, [activeAdminPage, canManageSubOrganizations, isPlatformAdmin]);
+  }, [activeAdminPage, canViewSubOrganizations, isPlatformAdmin]);
 
   useEffect(() => {
     return () => {
@@ -2174,6 +2177,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     </small>
                   </div>
                   <div>
+                    <span>Sub Organizations</span>
+                    <strong>{subOrganizations.length}</strong>
+                    <small>
+                      {subOrganizations.length
+                        ? subOrganizations.slice(0, 3).map((organization) => organization.name).join(", ")
+                        : "No sub-organizations"}
+                    </small>
+                  </div>
+                  <div>
                     <span>Total Users</span>
                     <strong>{activeUsers.length}</strong>
                     <small>{organizationInspectors.length} users, {organizationAdmins.length} admins</small>
@@ -2413,7 +2425,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             </div>
           ) : null}
 
-          {activeAdminPage === "organizations" && canManageSubOrganizations ? (
+          {activeAdminPage === "organizations" && canViewSubOrganizations ? (
             <div className="admin-page-panel" style={styles.section}>
               <div className="admin-panel-heading">
                 <div>
@@ -2424,6 +2436,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
               <div className="admin-two-column organization-layout">
               <div className="admin-side-panel" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+                {canCreateSubOrganizations ? (
+                <>
                 <h4 style={{ ...styles.title, marginBottom: 10 }}>
                   {isPlatformAdmin ? "Create Organization" : "Create Sub-Organization"}
                 </h4>
@@ -2496,14 +2510,37 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 <button style={styles.button} onClick={handleCreateOrganization}>
                   {isPlatformAdmin ? "Create Organization" : "Create Sub-Organization"}
                 </button>
+                </>
+                ) : (
+                  <>
+                    <h4 style={{ ...styles.title, marginBottom: 10 }}>Sub Organizations</h4>
+                    <input
+                      style={{ ...styles.input, marginBottom: 12 }}
+                      value={currentSubscription?.planName || ownOrganization?.plan || "-"}
+                      disabled
+                      aria-label="Current tenant plan"
+                    />
+                    <input
+                      style={{ ...styles.input, marginBottom: 12 }}
+                      value={ownOrganization?.active ? "active" : "inactive"}
+                      disabled
+                      aria-label="Current tenant status"
+                    />
+                    <div style={styles.small}>
+                      Existing sub-organizations are listed here. New sub-organization creation is available only for enterprise parent tenants.
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="admin-main-panel">
-              {organizations.length === 0 ? (
-                <div style={styles.small}>No organizations found.</div>
+              {(isPlatformAdmin ? organizations : subOrganizations).length === 0 ? (
+                <div style={styles.small}>
+                  {isPlatformAdmin ? "No organizations found." : "No sub-organizations found."}
+                </div>
               ) : (
                 <div className="compact-list" aria-label="Organizations list">
-                  {organizations.map((organization) => {
+                  {(isPlatformAdmin ? organizations : subOrganizations).map((organization) => {
                     const pendingAdmins = organization.admins.filter(
                       (admin) => admin.approvalStatus === "pending"
                     );
@@ -2817,7 +2854,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
               <div className="admin-two-column billing-layout">
                 <div className="admin-side-panel billing-controls-panel" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
-              {!isPlatformAdmin ? (
+              {!isPlatformAdmin && canCreateSubOrganizations ? (
                 <>
                   <h4 style={{ ...styles.title, marginBottom: 10 }}>Tenant Status</h4>
                   <input
