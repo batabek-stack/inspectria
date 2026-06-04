@@ -280,4 +280,35 @@ router.get("/:id/users", authRequired, platformAdminOnly, async (req, res, next)
   }
 });
 
+router.delete("/:id", authRequired, platformAdminOnly, async (req, res, next) => {
+  try {
+    const organizationId = Number(req.params.id);
+    if (!organizationId) {
+      return res.status(400).json({ message: "Invalid organization id" });
+    }
+
+    if (req.user.organizationId && Number(req.user.organizationId) === organizationId) {
+      return res.status(400).json({
+        message: "You cannot delete the organization attached to your own account",
+      });
+    }
+
+    const existing = await db.one("SELECT id, name FROM organizations WHERE id = $1", [
+      organizationId,
+    ]);
+    if (!existing) return res.status(404).json({ message: "Organization not found" });
+
+    await db.transaction(async (client) => {
+      await client.query("DELETE FROM users WHERE organization_id = $1", [organizationId]);
+      await client.query("DELETE FROM organizations WHERE id = $1", [organizationId]);
+    });
+
+    res.json({
+      success: true,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

@@ -732,7 +732,7 @@ textarea {
 }
 
 .organization-users-row {
-  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 1fr) minmax(220px, 1.2fr);
+  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 1fr) minmax(220px, 1.2fr) auto;
 }
 
 .organization-users-header {

@@ -44,6 +44,7 @@ import {
 } from "../services/userService";
 import {
   createOrganization,
+  deleteOrganization,
   getOrganizations,
   updateOrganization,
 } from "../services/organizationService";
@@ -1194,6 +1195,24 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     }
   };
 
+  const handleDeleteOrganization = async (organization: Organization) => {
+    setMessage("");
+    setError("");
+
+    const confirmDelete = window.confirm(
+      `Delete ${organization.name}? This will permanently delete its users and organization data.`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      await deleteOrganization(organization.id);
+      setMessage(`${organization.name} deleted successfully.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Organization could not be deleted");
+    }
+  };
+
   const handleActivateSubscription = async () => {
     setMessage("");
     setError("");
@@ -1873,6 +1892,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           getOrganizationLabel(organization, candidate.organizationId),
         userName: candidate.name || candidate.username,
         email: candidate.email || "No email provided",
+        role: candidate.role,
       };
     })
     .sort((first, second) => {
@@ -2501,7 +2521,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                         Reject
                                       </button>
                                     </div>
-                                  ) : null}
+                                  ) : (
+                                    <button
+                                      style={styles.removeButton}
+                                      onClick={() => handleDeleteUser(admin.id)}
+                                      disabled={admin.id === user.id}
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
                                 </div>
                               ))
                             )}
@@ -2524,6 +2552,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                       {" | Password stored securely"}
                                     </span>
                                   </div>
+                                  <button
+                                    style={styles.removeButton}
+                                    onClick={() => handleDeleteUser(member.id)}
+                                    disabled={member.id === user.id}
+                                  >
+                                    Delete
+                                  </button>
                                 </div>
                               ))
                             )}
@@ -2538,6 +2573,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             onClick={() => handleToggleOrganization(organization)}
                           >
                             {organization.active ? "Deactivate" : "Activate"}
+                          </button>
+                          <button
+                            style={styles.removeButton}
+                            onClick={() => handleDeleteOrganization(organization)}
+                          >
+                            Delete Organization
                           </button>
                         </div>
                       </div>
@@ -2573,6 +2614,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     <div className="compact-row-title">
                       <strong>E-Mail Address</strong>
                     </div>
+                    <div className="compact-row-title">
+                      <strong>Action</strong>
+                    </div>
                   </div>
 
                   {organizationUserRows.map((row) => (
@@ -2585,6 +2629,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       </div>
                       <div className="compact-row-title">
                         <span>{row.email}</span>
+                      </div>
+                      <div className="compact-row-title">
+                        <button
+                          style={styles.removeButton}
+                          onClick={() => handleDeleteUser(row.id)}
+                          disabled={row.id === user.id}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ))}
