@@ -2564,22 +2564,24 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             )}
                           </div>
 
-                          <button
-                            style={
-                              organization.active
-                                ? { ...styles.button, background: "#b91c1c" }
-                                : styles.button
-                            }
-                            onClick={() => handleToggleOrganization(organization)}
-                          >
-                            {organization.active ? "Deactivate" : "Activate"}
-                          </button>
-                          <button
-                            style={styles.removeButton}
-                            onClick={() => handleDeleteOrganization(organization)}
-                          >
-                            Delete Organization
-                          </button>
+                          <div className="organization-tenant-actions">
+                            <button
+                              style={
+                                organization.active
+                                  ? { ...styles.button, background: "#b91c1c" }
+                                  : styles.button
+                              }
+                              onClick={() => handleToggleOrganization(organization)}
+                            >
+                              {organization.active ? "Deactivate" : "Activate"}
+                            </button>
+                            <button
+                              style={styles.removeButton}
+                              onClick={() => handleDeleteOrganization(organization)}
+                            >
+                              Delete Organization
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
