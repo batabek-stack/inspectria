@@ -280,4 +280,166 @@ router.get("/:id/users", authRequired, platformAdminOnly, async (req, res, next)
   }
 });
 
+router.delete("/:id", authRequired, platformAdminOnly, async (req, res, next) => {
+  try {
+    const organizationId = Number(req.params.id);
+    if (!organizationId) {
+      return res.status(400).json({ message: "Invalid organization id" });
+    }
+
+    if (req.user.organizationId && Number(req.user.organizationId) === organizationId) {
+      return res.status(400).json({
+        message: "You cannot delete the organization attached to your own account",
+      });
+    }
+
+    const existing = await db.one("SELECT id, name FROM organizations WHERE id = $1", [
+      organizationId,
+    ]);
+    if (!existing) return res.status(404).json({ message: "Organization not found" });
+
+    await db.transaction(async (client) => {
+      await client.query(
+        `
+        DELETE FROM report_photos
+        WHERE report_item_id IN (
+          SELECT ri.id
+          FROM report_items ri
+          JOIN reports r ON r.id = ri.report_id
+          WHERE r.organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query(
+        `
+        DELETE FROM report_items
+        WHERE report_id IN (
+          SELECT id FROM reports WHERE organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query("DELETE FROM reports WHERE organization_id = $1", [
+        organizationId,
+      ]);
+      await client.query("DELETE FROM draft_reports WHERE organization_id = $1", [
+        organizationId,
+      ]);
+      await client.query("DELETE FROM assignments WHERE organization_id = $1", [
+        organizationId,
+      ]);
+
+      await client.query(
+        `
+        DELETE FROM checklist_items
+        WHERE checklist_id IN (
+          SELECT id FROM checklists WHERE organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query(
+        `
+        DELETE FROM checklist_sections
+        WHERE checklist_id IN (
+          SELECT id FROM checklists WHERE organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query("DELETE FROM checklists WHERE organization_id = $1", [
+        organizationId,
+      ]);
+
+      await client.query(
+        `
+        DELETE FROM walkthrough_photos
+        WHERE item_id IN (
+          SELECT wi.id
+          FROM walkthrough_items wi
+          JOIN walkthrough_sections ws ON ws.id = wi.section_id
+          JOIN walkthroughs w ON w.id = ws.walkthrough_id
+          WHERE w.organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query(
+        `
+        DELETE FROM walkthrough_items
+        WHERE section_id IN (
+          SELECT ws.id
+          FROM walkthrough_sections ws
+          JOIN walkthroughs w ON w.id = ws.walkthrough_id
+          WHERE w.organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query(
+        `
+        DELETE FROM walkthrough_sections
+        WHERE walkthrough_id IN (
+          SELECT id FROM walkthroughs WHERE organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query("DELETE FROM walkthroughs WHERE organization_id = $1", [
+        organizationId,
+      ]);
+
+      await client.query("DELETE FROM subscriptions WHERE organization_id = $1", [
+        organizationId,
+      ]);
+      await client.query(
+        "DELETE FROM iyzico_checkout_sessions WHERE organization_id = $1",
+        [organizationId]
+      );
+      await client.query("DELETE FROM email_logs WHERE organization_id = $1", [
+        organizationId,
+      ]);
+
+      await client.query(
+        `
+        DELETE FROM password_reset_tokens
+        WHERE user_id IN (
+          SELECT id FROM users WHERE organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query(
+        `
+        DELETE FROM sessions
+        WHERE user_id IN (
+          SELECT id FROM users WHERE organization_id = $1
+        )
+      `,
+        [organizationId]
+      );
+
+      await client.query("DELETE FROM users WHERE organization_id = $1", [
+        organizationId,
+      ]);
+      await client.query("DELETE FROM organizations WHERE id = $1", [organizationId]);
+    });
+
+    res.json({
+      success: true,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

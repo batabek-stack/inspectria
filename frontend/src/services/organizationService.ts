@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from "./api";
+import { apiDelete, apiGet, apiPost, apiPut } from "./api";
 import { Organization, User } from "../types";
 
 export function getOrganizations() {
@@ -35,4 +35,8 @@ export function updateOrganization(
 
 export function getOrganizationUsers(id: number) {
   return apiGet<User[]>(`/organizations/${id}/users`);
+}
+
+export function deleteOrganization(id: number) {
+  return apiDelete<{ success: boolean }>(`/organizations/${id}`);
 }

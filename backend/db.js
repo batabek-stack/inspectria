@@ -117,7 +117,7 @@ async function initDb() {
 
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
-      organization_id INTEGER REFERENCES organizations(id),
+      organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
       email TEXT NOT NULL DEFAULT '',
       username TEXT NOT NULL,
       password_hash TEXT NOT NULL,
@@ -357,6 +357,15 @@ async function initDb() {
       ON iyzico_checkout_sessions(token);
     CREATE INDEX IF NOT EXISTS idx_iyzico_checkout_sessions_organization_id
       ON iyzico_checkout_sessions(organization_id);
+  `);
+
+  await dropConstraintIfExists("users", "users_organization_id_fkey");
+  await query(`
+    ALTER TABLE users
+    ADD CONSTRAINT users_organization_id_fkey
+    FOREIGN KEY (organization_id)
+    REFERENCES organizations(id)
+    ON DELETE CASCADE
   `);
 
   await ensureColumn(
