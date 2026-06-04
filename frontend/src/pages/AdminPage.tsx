@@ -413,13 +413,25 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [activeAdminPage, setActiveAdminPage] = useState<AdminSectionKey>(
     initialSection || (isPlatformAdmin ? "organizations" : isDesktopViewport() ? "dashboard" : "templates")
   );
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const ownOrganization = organizations.find(
+    (organization) => organization.id === user.organizationId
+  );
+  const canManageSubOrganizations =
+    isPlatformAdmin ||
+    Boolean(
+      ownOrganization &&
+        !ownOrganization.parentOrganizationId &&
+        ownOrganization.plan?.toLowerCase() === "enterprise"
+    );
   const visibleAdminSections = ADMIN_SECTIONS.filter(
     (section) =>
       isPlatformAdmin
         ? section.key !== "dashboard"
-        : (isDesktop || section.key !== "dashboard")
+        : section.key !== "organizationUsers" &&
+          (canManageSubOrganizations || section.key !== "organizations") &&
+          (isDesktop || section.key !== "dashboard")
   );
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -608,6 +620,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       setActiveAdminPage("templates");
     }
   }, [activeAdminPage, isDesktop, isPlatformAdmin]);
+
+  useEffect(() => {
+    if (!isPlatformAdmin && activeAdminPage === "organizations" && !canManageSubOrganizations) {
+      setActiveAdminPage("users");
+    }
+  }, [activeAdminPage, canManageSubOrganizations, isPlatformAdmin]);
 
   useEffect(() => {
     return () => {
@@ -1164,8 +1182,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     try {
       await createOrganization({
         name: newOrgName.trim(),
-        plan: newOrgPlan.trim() || "standard",
-        parentOrganizationId: newOrgParentOrganizationId || null,
+        plan: isPlatformAdmin ? newOrgPlan.trim() || "standard" : "standard",
+        parentOrganizationId: isPlatformAdmin
+          ? newOrgParentOrganizationId || null
+          : user.organizationId || null,
         ...(hasAdminInput
           ? {
               adminEmail: newOrgAdminEmail.trim(),
@@ -2043,6 +2063,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               const sectionDescription =
                 !isPlatformAdmin && section.key === "organizations"
                   ? "Create sub-organizations and assign admins"
+                  : !isPlatformAdmin && section.key === "billing"
+                    ? "View tenant status"
                   : section.description;
 
               return (
@@ -2391,7 +2413,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             </div>
           ) : null}
 
-          {activeAdminPage === "organizations" ? (
+          {activeAdminPage === "organizations" && canManageSubOrganizations ? (
             <div className="admin-page-panel" style={styles.section}>
               <div className="admin-panel-heading">
                 <div>
@@ -2415,18 +2437,28 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   <input
                     style={styles.input}
                     placeholder="Plan"
-                    value={newOrgPlan}
+                    value={isPlatformAdmin ? newOrgPlan : "standard"}
                     onChange={(e) => setNewOrgPlan(e.target.value)}
+                    disabled={!isPlatformAdmin}
+                    aria-label={
+                      isPlatformAdmin
+                        ? "Organization plan"
+                        : "Sub-organization plan is fixed to standard"
+                    }
                   />
                   <select
                     style={styles.input}
-                    value={newOrgParentOrganizationId}
+                    value={isPlatformAdmin ? newOrgParentOrganizationId : user.organizationId || 0}
                     onChange={(e) => setNewOrgParentOrganizationId(Number(e.target.value))}
+                    disabled={!isPlatformAdmin}
                   >
                     <option value={0}>
                       {isPlatformAdmin ? "Top-level organization" : "Select parent organization"}
                     </option>
-                    {organizations.map((organization) => (
+                    {(isPlatformAdmin
+                      ? organizations
+                      : organizations.filter((organization) => organization.id === user.organizationId)
+                    ).map((organization) => (
                       <option key={organization.id} value={organization.id}>
                         {organization.name}
                       </option>
@@ -2604,17 +2636,22 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           </div>
 
                           <div className="organization-tenant-actions">
-                            <button
-                              style={
-                                organization.active
-                                  ? { ...styles.button, background: "#b91c1c" }
-                                  : styles.button
-                              }
-                              onClick={() => handleToggleOrganization(organization)}
-                              disabled={!isPlatformAdmin && organization.id === user.organizationId}
-                            >
-                              {organization.active ? "Deactivate" : "Activate"}
-                            </button>
+                            {isPlatformAdmin ? (
+                              <button
+                                style={
+                                  organization.active
+                                    ? { ...styles.button, background: "#b91c1c" }
+                                    : styles.button
+                                }
+                                onClick={() => handleToggleOrganization(organization)}
+                              >
+                                {organization.active ? "Deactivate" : "Activate"}
+                              </button>
+                            ) : (
+                              <div style={styles.small}>
+                                Tenant status: {organization.active ? "active" : "inactive"}
+                              </div>
+                            )}
                             <button
                               style={styles.removeButton}
                               onClick={() => handleDeleteOrganization(organization)}
@@ -2694,7 +2731,11 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <div className="admin-panel-heading">
                 <div>
                   <h3 style={styles.title}>Billing & Subscription</h3>
-                  <p>Review usage, choose plans, activate subscriptions, and audit billing history.</p>
+                  <p>
+                    {isPlatformAdmin
+                      ? "Review usage, choose plans, activate subscriptions, and audit billing history."
+                      : "Review your tenant status and current plan details."}
+                  </p>
                 </div>
               </div>
 
@@ -2718,7 +2759,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           currentSubscription.amountCents,
                           currentSubscription.currency
                         )} / ${currentSubscription.billingCycle}`
-                      : "Select a plan to start or renew."}
+                      : isPlatformAdmin
+                        ? "Select a plan to start or renew."
+                        : "No active subscription assigned."}
                   </div>
                   <div style={{ ...styles.small, marginTop: 8 }}>
                     Status: {currentSubscription?.status || "-"}
@@ -2776,88 +2819,22 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 <div className="admin-side-panel billing-controls-panel" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
               {!isPlatformAdmin ? (
                 <>
-                  <h4 style={{ ...styles.title, marginBottom: 10 }}>
-                    Renew or Change Subscription
-                  </h4>
-                  <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 12 }}>
-                    <select
-                      style={styles.input}
-                      value={billingPlanId}
-                      onChange={(e) => setBillingPlanId(Number(e.target.value))}
-                    >
-                      <option value={0}>Select plan</option>
-                      {billing.plans.map((plan) => (
-                        <option key={plan.id} value={plan.id}>
-                          {plan.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      style={styles.input}
-                      value={billingCycle}
-                      onChange={(e) => setBillingCycle(e.target.value as BillingCycle)}
-                    >
-                      <option value="monthly">Monthly</option>
-                      <option value="yearly">Yearly</option>
-                    </select>
-                    <input
-                      style={styles.input}
-                      placeholder="Payment method / invoice note"
-                      value={billingPaymentMethod}
-                      onChange={(e) => setBillingPaymentMethod(e.target.value)}
-                    />
+                  <h4 style={{ ...styles.title, marginBottom: 10 }}>Tenant Status</h4>
+                  <input
+                    style={{ ...styles.input, marginBottom: 12 }}
+                    value={currentSubscription?.planName || ownOrganization?.plan || "-"}
+                    disabled
+                    aria-label="Current tenant plan"
+                  />
+                  <input
+                    style={{ ...styles.input, marginBottom: 12 }}
+                    value={currentSubscription?.status || (ownOrganization?.active ? "active" : "inactive")}
+                    disabled
+                    aria-label="Current tenant status"
+                  />
+                  <div style={styles.small}>
+                    Plan and tenant status changes are managed by the platform admin.
                   </div>
-
-                  {selectedBillingPlan ? (
-                    <div style={{ ...styles.small, marginBottom: 12 }}>
-                      Selected: {selectedBillingPlan.name} |{" "}
-                      {billingCycle === "yearly"
-                        ? formatMoney(selectedBillingPlan.yearlyPriceCents)
-                        : formatMoney(selectedBillingPlan.monthlyPriceCents)}
-                      {" / "}
-                      {billingCycle} | {formatLimit(selectedBillingPlan.userLimit, "users")} |{" "}
-                      {formatLimit(selectedBillingPlan.checklistLimit, "templates")}
-                    </div>
-                  ) : null}
-
-                  <div style={styles.row}>
-                    <button type="button" style={styles.button} onClick={handleRenewCurrentSubscription}>
-                      Pay with iyzico
-                    </button>
-                    {currentSubscription ? (
-                      <button
-                        type="button"
-                        style={{ ...styles.secondaryButton, background: "#fee2e2", color: "#991b1b" }}
-                        onClick={handleCancelCurrentSubscription}
-                      >
-                        Cancel Subscription
-                      </button>
-                    ) : null}
-                  </div>
-
-                  {iyzicoCheckoutContent ? (
-                    <div style={{ ...styles.section, marginTop: 14, background: "#fbfefd" }}>
-                      <div style={{ ...styles.row, justifyContent: "space-between" }}>
-                        <strong>iyzico Secure Checkout</strong>
-                        <button
-                          type="button"
-                          style={styles.secondaryButton}
-                          onClick={() => {
-                            setIyzicoCheckoutContent("");
-                            setIyzicoCheckoutToken("");
-                          }}
-                        >
-                          Close
-                        </button>
-                      </div>
-                      <div style={{ ...styles.small, marginTop: 8 }}>
-                        Token: {iyzicoCheckoutToken}
-                      </div>
-                      <div style={{ marginTop: 12 }}>
-                        <IyzicoCheckout content={iyzicoCheckoutContent} />
-                      </div>
-                    </div>
-                  ) : null}
                 </>
               ) : null}
 
@@ -2959,13 +2936,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       {formatLimit(plan.checklistLimit, "checklists")} |{" "}
                       {plan.reportRetentionDays} days retention
                     </div>
-                    <button
-                      type="button"
-                      style={{ ...styles.secondaryButton, marginTop: 10 }}
-                      onClick={() => setBillingPlanId(plan.id)}
-                    >
-                      Select
-                    </button>
+                    {isPlatformAdmin ? (
+                      <button
+                        type="button"
+                        style={{ ...styles.secondaryButton, marginTop: 10 }}
+                        onClick={() => setBillingPlanId(plan.id)}
+                      >
+                        Select
+                      </button>
+                    ) : null}
                   </div>
                 ))}
               </div>
