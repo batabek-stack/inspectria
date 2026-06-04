@@ -83,17 +83,29 @@ async function userCanCreateSubOrganization(user) {
 
   const organization = await db.one(
     `
-    SELECT id, parent_organization_id, plan
-    FROM organizations
-    WHERE id = $1
+    SELECT
+      o.id,
+      o.parent_organization_id,
+      o.plan,
+      p.code AS subscription_plan_code
+    FROM organizations o
+    LEFT JOIN subscriptions s
+      ON s.organization_id = o.id
+      AND s.status IN ('trialing', 'active', 'past_due')
+    LEFT JOIN billing_plans p ON p.id = s.billing_plan_id
+    WHERE o.id = $1
+    ORDER BY s.id DESC NULLS LAST
+    LIMIT 1
   `,
     [user.organizationId]
   );
 
+  const planCode = String(organization?.subscription_plan_code || organization?.plan || "").toLowerCase();
+
   return (
     Boolean(organization) &&
     !organization.parent_organization_id &&
-    String(organization.plan || "").toLowerCase() === "enterprise"
+    planCode === "enterprise"
   );
 }
 
