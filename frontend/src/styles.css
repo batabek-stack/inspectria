@@ -714,7 +714,7 @@ textarea {
 .compact-row:hover .compact-row-actions,
 .compact-row:focus-within .compact-row-actions,
 .compact-row-open .compact-row-actions {
-  max-height: 320px;
+  max-height: 720px;
   opacity: 1;
   padding-top: 2px;
   pointer-events: auto;
@@ -732,7 +732,7 @@ textarea {
 }
 
 .organization-users-row {
-  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 1fr) minmax(220px, 1.2fr);
+  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 1fr) minmax(220px, 1.2fr) auto;
 }
 
 .organization-users-header {
@@ -808,6 +808,16 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.organization-tenant-actions {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+}
+
+.organization-tenant-actions button {
+  width: 100%;
 }
 
 @media print {
@@ -1712,7 +1722,7 @@ textarea {
   .compact-row:focus-within .compact-row-actions,
   .compact-row.compact-row-open:hover .compact-row-actions,
   .compact-row-open .compact-row-actions {
-    max-height: 280px;
+    max-height: 720px;
     opacity: 1;
     padding-top: 2px;
     pointer-events: auto;
