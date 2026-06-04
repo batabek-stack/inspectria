@@ -1,16 +1,9 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
-const { authRequired } = require("../middleware/auth");
+const { authRequired, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
-
-function platformAdminOnly(req, res, next) {
-  if (!db.isPlatformAdmin(req.user)) {
-    return res.status(403).json({ message: "Platform admin access required" });
-  }
-  next();
-}
 
 async function mapOrganization(org) {
   const counts = await db.one(
@@ -75,6 +68,8 @@ async function mapOrganization(org) {
 
   return {
     ...org,
+    parentOrganizationId: org.parentOrganizationId || null,
+    parentOrganizationName: org.parentOrganizationName || null,
     ...counts,
     reportCount: reportCount.count,
     admins,
@@ -82,19 +77,30 @@ async function mapOrganization(org) {
   };
 }
 
-router.get("/", authRequired, platformAdminOnly, async (_req, res, next) => {
+router.get("/", authRequired, adminOnly, async (req, res, next) => {
   try {
+    const scopeIds = await db.getManagedOrganizationIds(req.user);
+    if (scopeIds.length === 0) return res.json([]);
+
     const organizations = await db.many(
       `
       SELECT
-        id,
-        name,
-        plan,
-        active,
-        created_at
+        o.id,
+        o.parent_organization_id AS "parentOrganizationId",
+        parent.name AS "parentOrganizationName",
+        o.name,
+        o.plan,
+        o.active,
+        o.created_at
       FROM organizations
-      ORDER BY id DESC
-    `
+      o
+      LEFT JOIN organizations parent ON parent.id = o.parent_organization_id
+      WHERE o.id = ANY($1::int[])
+      ORDER BY
+        COALESCE(o.parent_organization_id, 0),
+        o.id DESC
+    `,
+      [scopeIds]
     );
 
     res.json(await Promise.all(organizations.map(mapOrganization)));
@@ -103,11 +109,12 @@ router.get("/", authRequired, platformAdminOnly, async (_req, res, next) => {
   }
 });
 
-router.post("/", authRequired, platformAdminOnly, async (req, res, next) => {
+router.post("/", authRequired, adminOnly, async (req, res, next) => {
   try {
     const {
       name,
       plan = "standard",
+      parentOrganizationId,
       adminEmail,
       adminUsername,
       adminPassword,
@@ -116,19 +123,44 @@ router.post("/", authRequired, platformAdminOnly, async (req, res, next) => {
 
     const cleanName = String(name || "").trim();
     const cleanPlan = String(plan || "standard").trim() || "standard";
+    const cleanParentOrganizationId = db.isPlatformAdmin(req.user)
+      ? parentOrganizationId
+        ? Number(parentOrganizationId)
+        : null
+      : parentOrganizationId
+        ? Number(parentOrganizationId)
+        : Number(req.user.organizationId);
 
     if (!cleanName) {
       return res.status(400).json({ message: "Organization name is required" });
     }
 
+    if (
+      cleanParentOrganizationId !== null &&
+      (!Number.isInteger(cleanParentOrganizationId) || cleanParentOrganizationId <= 0)
+    ) {
+      return res.status(400).json({ message: "Invalid parent organization id" });
+    }
+
+    if (!db.isPlatformAdmin(req.user) && !cleanParentOrganizationId) {
+      return res.status(400).json({ message: "Parent organization is required" });
+    }
+
+    if (cleanParentOrganizationId) {
+      const canUseParent = await db.userCanManageOrganization(req.user, cleanParentOrganizationId);
+      if (!canUseParent) {
+        return res.status(403).json({ message: "Parent organization is outside your access scope" });
+      }
+    }
+
     const result = await db.transaction(async (client) => {
       const orgResult = await client.query(
         `
-        INSERT INTO organizations (name, plan, active)
-        VALUES ($1, $2, TRUE)
+        INSERT INTO organizations (parent_organization_id, name, plan, active)
+        VALUES ($1, $2, $3, TRUE)
         RETURNING id
       `,
-        [cleanName, cleanPlan]
+        [cleanParentOrganizationId, cleanName, cleanPlan]
       );
 
       const organizationId = orgResult.rows[0].id;
@@ -169,9 +201,17 @@ router.post("/", authRequired, platformAdminOnly, async (req, res, next) => {
 
     const organization = await db.one(
       `
-      SELECT id, name, plan, active, created_at
-      FROM organizations
-      WHERE id = $1
+      SELECT
+        o.id,
+        o.parent_organization_id AS "parentOrganizationId",
+        parent.name AS "parentOrganizationName",
+        o.name,
+        o.plan,
+        o.active,
+        o.created_at
+      FROM organizations o
+      LEFT JOIN organizations parent ON parent.id = o.parent_organization_id
+      WHERE o.id = $1
     `,
       [result]
     );
@@ -193,13 +233,17 @@ router.post("/", authRequired, platformAdminOnly, async (req, res, next) => {
   }
 });
 
-router.put("/:id", authRequired, platformAdminOnly, async (req, res, next) => {
+router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
   try {
     const organizationId = Number(req.params.id);
     const { name, plan, active } = req.body || {};
 
     if (!organizationId) {
       return res.status(400).json({ message: "Invalid organization id" });
+    }
+
+    if (!(await db.userCanManageOrganization(req.user, organizationId))) {
+      return res.status(404).json({ message: "Organization not found" });
     }
 
     const existing = await db.one("SELECT * FROM organizations WHERE id = $1", [
@@ -211,12 +255,26 @@ router.put("/:id", authRequired, platformAdminOnly, async (req, res, next) => {
     const nextPlan = typeof plan === "string" && plan.trim() ? plan.trim() : existing.plan;
     const nextActive = typeof active === "boolean" ? active : existing.active;
 
+    if (
+      !db.isPlatformAdmin(req.user) &&
+      Number(req.user.organizationId) === organizationId &&
+      nextActive === false
+    ) {
+      return res.status(400).json({ message: "You cannot deactivate your own organization" });
+    }
+
     const organization = await db.one(
       `
       UPDATE organizations
       SET name = $1, plan = $2, active = $3
       WHERE id = $4
-      RETURNING id, name, plan, active, created_at
+      RETURNING
+        id,
+        parent_organization_id AS "parentOrganizationId",
+        name,
+        plan,
+        active,
+        created_at
     `,
       [nextName, nextPlan, nextActive, organizationId]
     );
@@ -246,11 +304,15 @@ router.put("/:id", authRequired, platformAdminOnly, async (req, res, next) => {
   }
 });
 
-router.get("/:id/users", authRequired, platformAdminOnly, async (req, res, next) => {
+router.get("/:id/users", authRequired, adminOnly, async (req, res, next) => {
   try {
     const organizationId = Number(req.params.id);
     if (!organizationId) {
       return res.status(400).json({ message: "Invalid organization id" });
+    }
+
+    if (!(await db.userCanManageOrganization(req.user, organizationId))) {
+      return res.status(404).json({ message: "Organization not found" });
     }
 
     const users = await db.many(
@@ -280,7 +342,7 @@ router.get("/:id/users", authRequired, platformAdminOnly, async (req, res, next)
   }
 });
 
-router.delete("/:id", authRequired, platformAdminOnly, async (req, res, next) => {
+router.delete("/:id", authRequired, adminOnly, async (req, res, next) => {
   try {
     const organizationId = Number(req.params.id);
     if (!organizationId) {
@@ -291,6 +353,10 @@ router.delete("/:id", authRequired, platformAdminOnly, async (req, res, next) =>
       return res.status(400).json({
         message: "You cannot delete the organization attached to your own account",
       });
+    }
+
+    if (!(await db.userCanManageOrganization(req.user, organizationId))) {
+      return res.status(404).json({ message: "Organization not found" });
     }
 
     const existing = await db.one("SELECT id, name FROM organizations WHERE id = $1", [

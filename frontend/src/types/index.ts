@@ -17,6 +17,8 @@ export type User = {
 
 export type Organization = {
   id: number;
+  parentOrganizationId?: number | null;
+  parentOrganizationName?: string | null;
   name: string;
   plan: string;
   active: boolean;

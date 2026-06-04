@@ -6,15 +6,6 @@ const { authRequired, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
 
-function userSelectWhere(req, extra = "") {
-  if (db.isPlatformAdmin(req.user)) return extra;
-  return `${extra ? `${extra} AND` : "WHERE"} u.organization_id = $1`;
-}
-
-function userParams(req, params = []) {
-  return db.isPlatformAdmin(req.user) ? params : [req.user.organizationId, ...params];
-}
-
 function normalizeRole(role) {
   return role === "admin" || role === "user" ? role : null;
 }
@@ -30,6 +21,9 @@ function resetUrl(req, token) {
 
 router.get("/", authRequired, adminOnly, async (req, res, next) => {
   try {
+    const scopeIds = await db.getManagedOrganizationIds(req.user);
+    if (scopeIds.length === 0) return res.json([]);
+
     const users = await db.many(
       `
       SELECT
@@ -45,12 +39,13 @@ router.get("/", authRequired, adminOnly, async (req, res, next) => {
         u.created_at
       FROM users u
       LEFT JOIN organizations o ON o.id = u.organization_id
-      ${userSelectWhere(req)}
+      WHERE u.organization_id = ANY($1::int[])
+        AND u.role != 'platform_admin'
       ORDER BY
         CASE u.approval_status WHEN 'pending' THEN 0 ELSE 1 END,
         u.id
     `,
-      userParams(req)
+      [scopeIds]
     );
 
     res.json(users);
@@ -65,7 +60,7 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
     const nextRole = normalizeRole(role);
     const targetOrganizationId = db.isPlatformAdmin(req.user)
       ? Number(organizationId || req.user.organizationId)
-      : req.user.organizationId;
+      : Number(organizationId || req.user.organizationId);
 
     const cleanEmail = String(email || "").trim().toLowerCase();
 
@@ -83,6 +78,10 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
       targetOrganizationId,
     ]);
     if (!org) return res.status(400).json({ message: "Organization not found" });
+
+    if (!(await db.userCanManageOrganization(req.user, targetOrganizationId))) {
+      return res.status(403).json({ message: "Organization is outside your access scope" });
+    }
 
     const existingUser = await db.one(
       `
@@ -141,12 +140,18 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
       `
       SELECT id, organization_id, email, username, name, role, active, approval_status
       FROM users u
-      ${userSelectWhere(req, "WHERE u.id = $" + (db.isPlatformAdmin(req.user) ? "1" : "2"))}
+      WHERE u.id = $1
     `,
-      db.isPlatformAdmin(req.user) ? [userId] : [req.user.organizationId, userId]
+      [userId]
     );
 
     if (!existingUser) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    if (!(await db.userCanManageOrganization(req.user, existingUser.organization_id))) {
       return res.status(404).json({
         message: "User not found",
       });
@@ -281,14 +286,18 @@ router.post("/:id/password-reset-link", authRequired, adminOnly, async (req, res
 
     const targetUser = await db.one(
       `
-      SELECT u.id, u.role
+      SELECT u.id, u.organization_id, u.role
       FROM users u
-      ${userSelectWhere(req, "WHERE u.id = $" + (db.isPlatformAdmin(req.user) ? "1" : "2"))}
+      WHERE u.id = $1
     `,
-      db.isPlatformAdmin(req.user) ? [userId] : [req.user.organizationId, userId]
+      [userId]
     );
 
     if (!targetUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!(await db.userCanManageOrganization(req.user, targetUser.organization_id))) {
       return res.status(404).json({ message: "User not found" });
     }
 
@@ -351,14 +360,20 @@ router.delete("/:id", authRequired, adminOnly, async (req, res, next) => {
 
     const user = await db.one(
       `
-      SELECT u.id, u.role
+      SELECT u.id, u.organization_id, u.role
       FROM users u
-      ${userSelectWhere(req, "WHERE u.id = $" + (db.isPlatformAdmin(req.user) ? "1" : "2"))}
+      WHERE u.id = $1
     `,
-      db.isPlatformAdmin(req.user) ? [userId] : [req.user.organizationId, userId]
+      [userId]
     );
 
     if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    if (!(await db.userCanManageOrganization(req.user, user.organization_id))) {
       return res.status(404).json({
         message: "User not found",
       });

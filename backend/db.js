@@ -109,6 +109,7 @@ async function initDb() {
   await query(`
     CREATE TABLE IF NOT EXISTS organizations (
       id SERIAL PRIMARY KEY,
+      parent_organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
       name TEXT UNIQUE NOT NULL,
       plan TEXT NOT NULL DEFAULT 'standard',
       active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -369,6 +370,17 @@ async function initDb() {
   `);
 
   await ensureColumn(
+    "organizations",
+    "parent_organization_id",
+    "parent_organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE"
+  );
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_organizations_parent_organization_id
+      ON organizations(parent_organization_id);
+  `);
+
+  await ensureColumn(
     "billing_plans",
     "iyzico_monthly_pricing_plan_reference_code",
     "iyzico_monthly_pricing_plan_reference_code TEXT"
@@ -511,6 +523,69 @@ function isOrgAdmin(user) {
   return user && (user.role === "admin" || user.role === "platform_admin");
 }
 
+async function getManagedOrganizationIds(user) {
+  if (!user) return [];
+  if (isPlatformAdmin(user)) {
+    const rows = await many("SELECT id FROM organizations ORDER BY id");
+    return rows.map((row) => Number(row.id));
+  }
+
+  if (!user.organizationId) return [];
+
+  const rows = await many(
+    `
+    WITH RECURSIVE organization_scope AS (
+      SELECT id
+      FROM organizations
+      WHERE id = $1
+
+      UNION ALL
+
+      SELECT child.id
+      FROM organizations child
+      JOIN organization_scope parent
+        ON child.parent_organization_id = parent.id
+    )
+    SELECT id
+    FROM organization_scope
+    ORDER BY id
+  `,
+    [user.organizationId]
+  );
+
+  return rows.map((row) => Number(row.id));
+}
+
+async function userCanManageOrganization(user, organizationId) {
+  if (isPlatformAdmin(user)) return true;
+  const targetOrganizationId = Number(organizationId);
+  if (!targetOrganizationId) return false;
+
+  const row = await one(
+    `
+    WITH RECURSIVE organization_scope AS (
+      SELECT id
+      FROM organizations
+      WHERE id = $1
+
+      UNION ALL
+
+      SELECT child.id
+      FROM organizations child
+      JOIN organization_scope parent
+        ON child.parent_organization_id = parent.id
+    )
+    SELECT id
+    FROM organization_scope
+    WHERE id = $2
+    LIMIT 1
+  `,
+    [user?.organizationId || null, targetOrganizationId]
+  );
+
+  return Boolean(row);
+}
+
 module.exports = {
   pool,
   query,
@@ -520,4 +595,6 @@ module.exports = {
   initDb,
   isPlatformAdmin,
   isOrgAdmin,
+  getManagedOrganizationIds,
+  userCanManageOrganization,
 };

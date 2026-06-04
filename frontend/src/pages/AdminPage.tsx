@@ -417,9 +417,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     (section) =>
       isPlatformAdmin
         ? section.key !== "dashboard"
-        : section.key !== "organizations" &&
-          section.key !== "organizationUsers" &&
-          (isDesktop || section.key !== "dashboard")
+        : (isDesktop || section.key !== "dashboard")
   );
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -466,6 +464,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgPlan, setNewOrgPlan] = useState("standard");
+  const [newOrgParentOrganizationId, setNewOrgParentOrganizationId] = useState<number>(0);
   const [newOrgAdminEmail, setNewOrgAdminEmail] = useState("");
   const [newOrgAdminUsername, setNewOrgAdminUsername] = useState("");
   const [newOrgAdminPassword, setNewOrgAdminPassword] = useState("");
@@ -513,7 +512,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   const load = async () => {
     const [orgs, u, c, a, r, w, billingSummary] = await Promise.all([
-      isPlatformAdmin ? getOrganizations() : Promise.resolve([]),
+      getOrganizations(),
       getUsers(),
       getChecklists(),
       getAssignments(),
@@ -567,6 +566,17 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
     if (isPlatformAdmin && !billingOrganizationId && orgs[0]) {
       setBillingOrganizationId(orgs[0].id);
+    }
+
+    if (!newOrgParentOrganizationId) {
+      const ownOrganization = orgs.find((organization) => organization.id === user.organizationId);
+      if (ownOrganization) setNewOrgParentOrganizationId(ownOrganization.id);
+    }
+
+    if (!newUserOrganizationId) {
+      const ownOrganization = orgs.find((organization) => organization.id === user.organizationId);
+      if (ownOrganization) setNewUserOrganizationId(ownOrganization.id);
+      else if (orgs[0]) setNewUserOrganizationId(orgs[0].id);
     }
 
     if (!billingPlanId) {
@@ -1155,6 +1165,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       await createOrganization({
         name: newOrgName.trim(),
         plan: newOrgPlan.trim() || "standard",
+        parentOrganizationId: newOrgParentOrganizationId || null,
         ...(hasAdminInput
           ? {
               adminEmail: newOrgAdminEmail.trim(),
@@ -1167,6 +1178,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
       setNewOrgName("");
       setNewOrgPlan("standard");
+      setNewOrgParentOrganizationId(0);
       setNewOrgAdminEmail("");
       setNewOrgAdminUsername("");
       setNewOrgAdminPassword("");
@@ -1325,8 +1337,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       return;
     }
 
-    if (isPlatformAdmin && !newUserOrganizationId) {
-      setError("Organization selection is required for platform admin.");
+    if (organizations.length > 0 && !newUserOrganizationId) {
+      setError("Organization selection is required.");
       return;
     }
 
@@ -1337,7 +1349,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         password: newPassword,
         name: newName.trim(),
         role: newRole,
-        ...(isPlatformAdmin ? { organizationId: newUserOrganizationId } : {}),
+        ...(newUserOrganizationId ? { organizationId: newUserOrganizationId } : {}),
       });
 
       setNewUsername("");
@@ -2371,12 +2383,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             </div>
           ) : null}
 
-          {activeAdminPage === "organizations" && isPlatformAdmin ? (
+          {activeAdminPage === "organizations" ? (
             <div className="admin-page-panel" style={styles.section}>
               <div className="admin-panel-heading">
                 <div>
                   <h3 style={styles.title}>Organizations</h3>
-                  <p>Manage SaaS tenant accounts, plans, administrator access, and status.</p>
+                  <p>Manage tenant accounts, sub-organizations, administrator access, and status.</p>
                 </div>
               </div>
 
@@ -2396,6 +2408,20 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     value={newOrgPlan}
                     onChange={(e) => setNewOrgPlan(e.target.value)}
                   />
+                  <select
+                    style={styles.input}
+                    value={newOrgParentOrganizationId}
+                    onChange={(e) => setNewOrgParentOrganizationId(Number(e.target.value))}
+                  >
+                    <option value={0}>
+                      {isPlatformAdmin ? "Top-level organization" : "Select parent organization"}
+                    </option>
+                    {organizations.map((organization) => (
+                      <option key={organization.id} value={organization.id}>
+                        {organization.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 12 }}>
@@ -2461,6 +2487,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             <strong>{organization.name}</strong>
                             <span>
                               {organization.plan} plan
+                              {organization.parentOrganizationName
+                                ? ` | parent: ${organization.parentOrganizationName}`
+                                : " | top-level"}
                               {pendingAdmins.length > 0
                                 ? ` | ${pendingAdmins.length} admin approval waiting`
                                 : ""}
@@ -2572,12 +2601,14 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                   : styles.button
                               }
                               onClick={() => handleToggleOrganization(organization)}
+                              disabled={!isPlatformAdmin && organization.id === user.organizationId}
                             >
                               {organization.active ? "Deactivate" : "Activate"}
                             </button>
                             <button
                               style={styles.removeButton}
                               onClick={() => handleDeleteOrganization(organization)}
+                              disabled={organization.id === user.organizationId}
                             >
                               Delete Organization
                             </button>
@@ -2593,7 +2624,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             </div>
           ) : null}
 
-          {activeAdminPage === "organizationUsers" && isPlatformAdmin ? (
+          {activeAdminPage === "organizationUsers" ? (
             <div className="admin-page-panel" style={styles.section}>
               <div className="admin-panel-heading">
                 <div>
@@ -3494,9 +3525,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <div style={{ ...styles.section, background: "#fff8e6", marginBottom: 14 }}>
                 <h4 style={{ ...styles.title, marginBottom: 10 }}>Pending Approval</h4>
 
-                {(isPlatformAdmin ? pendingUserGroups : [currentOrganizationUserGroup(pendingUsers)]).map((group) => (
-                  <div key={group.key} style={isPlatformAdmin ? styles.section : undefined}>
-                    {isPlatformAdmin ? (
+                {(organizations.length > 0 ? pendingUserGroups : [currentOrganizationUserGroup(pendingUsers)]).map((group) => (
+                  <div key={group.key} style={organizations.length > 0 ? styles.section : undefined}>
+                    {organizations.length > 0 ? (
                       <div style={{ marginBottom: 10 }}>
                         <strong>{group.name}</strong>
                         {group.organization && !group.organization.active ? (
@@ -3610,7 +3641,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             <div className="admin-side-panel" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
             <h4 style={{ ...styles.title, marginBottom: 10 }}>Create User</h4>
             <div className="admin-form-grid" style={{ ...styles.row, marginBottom: 14 }}>
-              {isPlatformAdmin ? (
+              {organizations.length > 0 ? (
                 <select
                   style={styles.input}
                   value={newUserOrganizationId}
@@ -3667,9 +3698,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             {approvedUsers.length === 0 ? (
               <div style={styles.small}>No users found.</div>
             ) : (
-              (isPlatformAdmin ? approvedUserGroups : [currentOrganizationUserGroup(approvedUsers)]).map((group) => (
-                <div key={group.key} style={isPlatformAdmin ? styles.section : undefined}>
-                  {isPlatformAdmin ? (
+              (organizations.length > 0 ? approvedUserGroups : [currentOrganizationUserGroup(approvedUsers)]).map((group) => (
+                <div key={group.key} style={organizations.length > 0 ? styles.section : undefined}>
+                  {organizations.length > 0 ? (
                     <div style={{ marginBottom: 10 }}>
                       <strong>{group.name}</strong>
                       <div style={styles.small}>
