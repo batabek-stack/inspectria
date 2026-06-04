@@ -77,6 +77,26 @@ async function mapOrganization(org) {
   };
 }
 
+async function userCanCreateSubOrganization(user) {
+  if (db.isPlatformAdmin(user)) return true;
+  if (!user?.organizationId) return false;
+
+  const organization = await db.one(
+    `
+    SELECT id, parent_organization_id, plan
+    FROM organizations
+    WHERE id = $1
+  `,
+    [user.organizationId]
+  );
+
+  return (
+    Boolean(organization) &&
+    !organization.parent_organization_id &&
+    String(organization.plan || "").toLowerCase() === "enterprise"
+  );
+}
+
 router.get("/", authRequired, adminOnly, async (req, res, next) => {
   try {
     const scopeIds = await db.getManagedOrganizationIds(req.user);
@@ -122,7 +142,9 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
     } = req.body || {};
 
     const cleanName = String(name || "").trim();
-    const cleanPlan = String(plan || "standard").trim() || "standard";
+    const cleanPlan = db.isPlatformAdmin(req.user)
+      ? String(plan || "standard").trim() || "standard"
+      : "standard";
     const cleanParentOrganizationId = db.isPlatformAdmin(req.user)
       ? parentOrganizationId
         ? Number(parentOrganizationId)
@@ -133,6 +155,21 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 
     if (!cleanName) {
       return res.status(400).json({ message: "Organization name is required" });
+    }
+
+    if (!db.isPlatformAdmin(req.user) && !(await userCanCreateSubOrganization(req.user))) {
+      return res.status(403).json({
+        message: "Only enterprise tenant admins can create sub-organizations",
+      });
+    }
+
+    if (
+      !db.isPlatformAdmin(req.user) &&
+      Number(cleanParentOrganizationId) !== Number(req.user.organizationId)
+    ) {
+      return res.status(403).json({
+        message: "Sub-organizations can only be created directly under your enterprise tenant",
+      });
     }
 
     if (
@@ -252,8 +289,14 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
     if (!existing) return res.status(404).json({ message: "Organization not found" });
 
     const nextName = typeof name === "string" && name.trim() ? name.trim() : existing.name;
-    const nextPlan = typeof plan === "string" && plan.trim() ? plan.trim() : existing.plan;
-    const nextActive = typeof active === "boolean" ? active : existing.active;
+    const nextPlan =
+      db.isPlatformAdmin(req.user) && typeof plan === "string" && plan.trim()
+        ? plan.trim()
+        : existing.plan;
+    const nextActive =
+      db.isPlatformAdmin(req.user) && typeof active === "boolean"
+        ? active
+        : existing.active;
 
     if (
       !db.isPlatformAdmin(req.user) &&

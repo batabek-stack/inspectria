@@ -22,13 +22,6 @@ function addTrial(date) {
   return next.toISOString();
 }
 
-function orgAdminOnly(req, res, next) {
-  if (!req.user || req.user.role !== "admin") {
-    return res.status(403).json({ message: "Organization admin access required" });
-  }
-  next();
-}
-
 async function billingUsageForOrganization(organizationId) {
   if (!organizationId) return null;
 
@@ -332,7 +325,7 @@ router.post("/subscriptions", authRequired, platformAdminOnly, async (req, res, 
   }
 });
 
-router.post("/current/renew", authRequired, orgAdminOnly, async (req, res, next) => {
+router.post("/current/renew", authRequired, platformAdminOnly, async (req, res, next) => {
   try {
     if (!req.user.organizationId) {
       return res.status(400).json({ message: "Organization is required" });
@@ -358,7 +351,7 @@ router.post("/current/renew", authRequired, orgAdminOnly, async (req, res, next)
   }
 });
 
-router.post("/iyzico/checkout", authRequired, orgAdminOnly, async (req, res, next) => {
+router.post("/iyzico/checkout", authRequired, platformAdminOnly, async (req, res, next) => {
   try {
     if (!req.user.organizationId) {
       return res.status(400).json({ message: "Organization is required" });
@@ -489,7 +482,7 @@ router.post("/iyzico/callback", async (req, res, next) => {
   }
 });
 
-router.post("/current/cancel", authRequired, orgAdminOnly, async (req, res, next) => {
+router.post("/current/cancel", authRequired, platformAdminOnly, async (req, res, next) => {
   try {
     if (!req.user.organizationId) {
       return res.status(400).json({ message: "Organization is required" });
