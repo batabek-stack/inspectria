@@ -65,7 +65,7 @@ function publicAppUrl() {
 }
 
 function buildTemplateImportUrl(token) {
-  return `${publicAppUrl()}/login?templateShare=${encodeURIComponent(token)}`;
+  return `${publicAppUrl()}/#login?templateShare=${encodeURIComponent(token)}`;
 }
 
 function isValidEmail(value) {
