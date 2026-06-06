@@ -1081,6 +1081,82 @@ textarea {
   box-shadow: 0 0 0 4px #e6f3f1;
 }
 
+.message-composer {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 18px;
+  padding: 12px;
+  border: 1px solid #d7e6e4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.message-composer h4 {
+  margin: 0 0 4px;
+  color: #06323f;
+}
+
+.message-composer p {
+  margin: 0;
+  color: #5e7378;
+  font-size: 13px;
+}
+
+.message-recipient-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: #5e7378;
+  font-size: 13px;
+}
+
+.message-recipient-check,
+.message-recipient-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.message-recipient-list {
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #d7e6e4;
+  border-radius: 8px;
+}
+
+.message-recipient-row {
+  padding: 10px 12px;
+  background: #fbfefd;
+  border-bottom: 1px solid #d7e6e4;
+}
+
+.message-recipient-row:last-child {
+  border-bottom: 0;
+}
+
+.message-recipient-row > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.message-recipient-row strong,
+.message-recipient-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-recipient-row strong {
+  color: #06323f;
+}
+
+.message-recipient-row small {
+  color: #5e7378;
+}
+
 .checklist-preview {
   display: grid;
   gap: 10px;

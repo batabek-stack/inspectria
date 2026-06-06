@@ -367,7 +367,9 @@ router.post("/:id/share", authRequired, adminOnly, async (req, res, next) => {
               req.user.id,
               share.id,
               `Template shared: ${checklist.title}`,
-              `${req.user.name || req.user.username} sizinle ${checklist.title} templateini paylaştı.`,
+              `${
+                req.user.name || req.user.username
+              } shared the ${checklist.title} template with you. Click Import Template to add it to your Templates.`,
             ]
           )
         )
