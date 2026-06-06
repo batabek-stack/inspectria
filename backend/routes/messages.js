@@ -131,6 +131,76 @@ router.get("/", authRequired, async (req, res, next) => {
   }
 });
 
+router.post("/", authRequired, adminOnly, async (req, res, next) => {
+  try {
+    const rawRecipientIds = Array.isArray(req.body?.recipientUserIds)
+      ? req.body.recipientUserIds
+      : [];
+    const recipientUserIds = [...new Set(rawRecipientIds.map(Number).filter(Boolean))];
+    const title = String(req.body?.title || "").trim();
+    const body = String(req.body?.body || "").trim();
+
+    if (recipientUserIds.length === 0) {
+      return res.status(400).json({ message: "At least one recipient is required" });
+    }
+
+    if (!title || !body) {
+      return res.status(400).json({ message: "Subject and message are required" });
+    }
+
+    if (title.length > 160) {
+      return res.status(400).json({ message: "Subject must be 160 characters or fewer" });
+    }
+
+    if (body.length > 4000) {
+      return res.status(400).json({ message: "Message must be 4000 characters or fewer" });
+    }
+
+    const scopeIds = await db.getManagedOrganizationIds(req.user);
+    if (scopeIds.length === 0) {
+      return res.status(403).json({ message: "No managed organizations found" });
+    }
+
+    const recipients = await db.many(
+      `
+      SELECT id
+      FROM users
+      WHERE id = ANY($1::int[])
+        AND organization_id = ANY($2::int[])
+        AND role IN ('admin', 'user')
+        AND active = TRUE
+        AND approval_status = 'approved'
+      ORDER BY id
+    `,
+      [recipientUserIds, scopeIds]
+    );
+
+    if (recipients.length === 0) {
+      return res.status(400).json({ message: "No eligible recipients were found" });
+    }
+
+    await db.transaction(async (client) => {
+      for (const recipient of recipients) {
+        await client.query(
+          `
+          INSERT INTO app_messages
+            (recipient_user_id, sender_user_id, message_type, title, body)
+          VALUES ($1, $2, 'general', $3, $4)
+        `,
+          [recipient.id, req.user.id, title, body]
+        );
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      sentCount: recipients.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/:id/read", authRequired, async (req, res, next) => {
   try {
     const messageId = Number(req.params.id);

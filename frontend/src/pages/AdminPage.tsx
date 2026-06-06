@@ -81,6 +81,7 @@ import {
   getMessages,
   importTemplateFromMessage,
   markMessageRead,
+  sendAppMessage,
 } from "../services/messageService";
 
 type Props = {
@@ -434,6 +435,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
   const unreadMessageCount = messages.filter((candidate) => !candidate.readAt).length;
+  const [composeMessageTitle, setComposeMessageTitle] = useState("");
+  const [composeMessageBody, setComposeMessageBody] = useState("");
+  const [selectedMessageRecipientIds, setSelectedMessageRecipientIds] = useState<number[]>([]);
+  const [messageSending, setMessageSending] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [walkthroughs, setWalkthroughs] = useState<Walkthrough[]>([]);
@@ -540,6 +545,16 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   );
   const pendingUserGroups = groupUsersByOrganization(pendingUsers, organizations);
   const approvedUserGroups = groupUsersByOrganization(approvedUsers, organizations);
+  const messageRecipients = approvedUsers.filter(
+    (candidate) =>
+      candidate.active !== false &&
+      candidate.approvalStatus !== "rejected" &&
+      (candidate.role === "admin" || candidate.role === "user")
+  );
+  const selectedMessageRecipientSet = new Set(selectedMessageRecipientIds);
+  const allMessageRecipientsSelected =
+    messageRecipients.length > 0 &&
+    messageRecipients.every((candidate) => selectedMessageRecipientSet.has(candidate.id));
 
   const load = async () => {
     const [orgs, u, c, a, r, w, billingSummary, inbox] = await Promise.all([
@@ -1155,6 +1170,59 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       setActiveAdminPage("templates");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Shared template could not be imported");
+    }
+  };
+
+  const toggleMessageRecipient = (recipientId: number) => {
+    setSelectedMessageRecipientIds((prev) =>
+      prev.includes(recipientId)
+        ? prev.filter((candidateId) => candidateId !== recipientId)
+        : [...prev, recipientId]
+    );
+  };
+
+  const toggleAllMessageRecipients = () => {
+    setSelectedMessageRecipientIds(
+      allMessageRecipientsSelected ? [] : messageRecipients.map((recipient) => recipient.id)
+    );
+  };
+
+  const handleSendAppMessage = async () => {
+    setMessage("");
+    setError("");
+
+    const titleValue = composeMessageTitle.trim();
+    const bodyValue = composeMessageBody.trim();
+
+    if (selectedMessageRecipientIds.length === 0) {
+      setError("Please select at least one recipient.");
+      return;
+    }
+
+    if (!titleValue || !bodyValue) {
+      setError("Please enter a subject and message.");
+      return;
+    }
+
+    try {
+      setMessageSending(true);
+      const result = await sendAppMessage({
+        recipientUserIds: selectedMessageRecipientIds,
+        title: titleValue,
+        body: bodyValue,
+      });
+      setMessage(
+        `Message sent to ${result.sentCount} recipient${result.sentCount === 1 ? "" : "s"}.`
+      );
+      setComposeMessageTitle("");
+      setComposeMessageBody("");
+      setSelectedMessageRecipientIds([]);
+      const inbox = await getMessages();
+      setMessages(inbox.messages);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Message could not be sent");
+    } finally {
+      setMessageSending(false);
     }
   };
 
@@ -2522,7 +2590,83 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <div className="admin-panel-heading">
                 <div>
                   <h3 style={styles.title}>Messages</h3>
-                  <p>Template shares sent to your account appear here even if email delivery is blocked.</p>
+                  <p>Send in-app messages and review template shares sent to your account.</p>
+                </div>
+              </div>
+
+              <div className="message-composer">
+                <div>
+                  <h4>New Message</h4>
+                  <p>
+                    {isPlatformAdmin
+                      ? "Choose active users and admins across managed organizations."
+                      : "Choose active users and admins in your organization."}
+                  </p>
+                </div>
+                <input
+                  style={styles.input}
+                  value={composeMessageTitle}
+                  onChange={(event) => setComposeMessageTitle(event.target.value)}
+                  placeholder="Subject"
+                  maxLength={160}
+                />
+                <textarea
+                  style={{ ...styles.input, minHeight: 96, resize: "vertical" }}
+                  value={composeMessageBody}
+                  onChange={(event) => setComposeMessageBody(event.target.value)}
+                  placeholder="Message"
+                  maxLength={4000}
+                />
+                <div className="message-recipient-toolbar">
+                  <label className="message-recipient-check">
+                    <input
+                      type="checkbox"
+                      checked={allMessageRecipientsSelected}
+                      disabled={messageRecipients.length === 0}
+                      onChange={toggleAllMessageRecipients}
+                    />
+                    <span>Select all</span>
+                  </label>
+                  <span>
+                    {selectedMessageRecipientIds.length} of {messageRecipients.length} selected
+                  </span>
+                </div>
+                {messageRecipients.length === 0 ? (
+                  <div style={styles.small}>No active recipients found.</div>
+                ) : (
+                  <div className="message-recipient-list" aria-label="Message recipients">
+                    {messageRecipients.map((recipient) => (
+                      <label key={recipient.id} className="message-recipient-row">
+                        <input
+                          type="checkbox"
+                          checked={selectedMessageRecipientSet.has(recipient.id)}
+                          onChange={() => toggleMessageRecipient(recipient.id)}
+                        />
+                        <span>
+                          <strong>{recipient.name || recipient.username}</strong>
+                          <small>
+                            {recipient.email || recipient.username} | {recipient.role}
+                            {recipient.organizationName ? ` | ${recipient.organizationName}` : ""}
+                          </small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <button
+                    type="button"
+                    style={styles.button}
+                    onClick={handleSendAppMessage}
+                    disabled={
+                      messageSending ||
+                      selectedMessageRecipientIds.length === 0 ||
+                      !composeMessageTitle.trim() ||
+                      !composeMessageBody.trim()
+                    }
+                  >
+                    {messageSending ? "Sending..." : "Send"}
+                  </button>
                 </div>
               </div>
 
