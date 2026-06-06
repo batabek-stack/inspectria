@@ -1,6 +1,8 @@
 const express = require("express");
+const crypto = require("crypto");
 const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
+const { sendTemplateShareEmail } = require("../services/emailService");
 
 const router = express.Router();
 
@@ -46,6 +48,113 @@ function normalizeSections(sections) {
       items: Array.isArray(section.items) ? section.items : [],
     }))
     .filter((section) => section.title && section.items.length > 0);
+}
+
+function hashShareToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function createShareExpiry(days = 14) {
+  const expires = new Date();
+  expires.setDate(expires.getDate() + days);
+  return expires.toISOString();
+}
+
+function publicAppUrl() {
+  return (process.env.PUBLIC_APP_URL || "https://inspectria.com").replace(/\/+$/, "");
+}
+
+function buildTemplateImportUrl(token) {
+  return `${publicAppUrl()}/login?templateShare=${encodeURIComponent(token)}`;
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+async function copyChecklistToOrganization(client, sourceChecklistId, targetOrganizationId, titleSuffix = "") {
+  const source = await client.query(
+    `
+    SELECT id, title, image_path
+    FROM checklists
+    WHERE id = $1
+  `,
+    [sourceChecklistId]
+  );
+
+  const checklist = source.rows[0];
+  if (!checklist) {
+    throw Object.assign(new Error("Shared template not found"), { statusCode: 404 });
+  }
+
+  const checklistResult = await client.query(
+    `
+    INSERT INTO checklists (organization_id, title, image_path, created_at)
+    VALUES ($1, $2, $3, NOW())
+    RETURNING id
+  `,
+    [
+      targetOrganizationId,
+      `${checklist.title}${titleSuffix}`.trim(),
+      checklist.image_path || "",
+    ]
+  );
+
+  const nextChecklistId = checklistResult.rows[0].id;
+  const sections = await client.query(
+    `
+    SELECT id, title, sort_order
+    FROM checklist_sections
+    WHERE checklist_id = $1
+    ORDER BY sort_order
+  `,
+    [sourceChecklistId]
+  );
+
+  for (const section of sections.rows) {
+    const sectionResult = await client.query(
+      `
+      INSERT INTO checklist_sections (checklist_id, title, sort_order)
+      VALUES ($1, $2, $3)
+      RETURNING id
+    `,
+      [nextChecklistId, section.title, section.sort_order]
+    );
+
+    const nextSectionId = sectionResult.rows[0].id;
+    const items = await client.query(
+      `
+      SELECT question, answer_type, options_json, sort_order
+      FROM checklist_items
+      WHERE checklist_id = $1 AND section_id = $2
+      ORDER BY sort_order
+    `,
+      [sourceChecklistId, section.id]
+    );
+
+    for (const item of items.rows) {
+      await client.query(
+        `
+        INSERT INTO checklist_items
+          (checklist_id, section_id, question, answer_type, options_json, sort_order)
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+        [
+          nextChecklistId,
+          nextSectionId,
+          item.question,
+          item.answer_type || "FORMAT1",
+          item.options_json || "[]",
+          item.sort_order,
+        ]
+      );
+    }
+  }
+
+  return {
+    id: nextChecklistId,
+    title: checklist.title,
+  };
 }
 
 async function getChecklistForUser(checklistId, req) {
@@ -187,6 +296,133 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
     res.json({
       success: true,
       checklistId,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/:id/share", authRequired, adminOnly, async (req, res, next) => {
+  try {
+    const checklistId = Number(req.params.id);
+    const recipientEmail = String(req.body?.email || "").trim().toLowerCase();
+
+    if (!checklistId) {
+      return res.status(400).json({ message: "Invalid checklist id" });
+    }
+
+    if (!isValidEmail(recipientEmail)) {
+      return res.status(400).json({ message: "A valid recipient email is required" });
+    }
+
+    const checklist = await getChecklistForUser(checklistId, req);
+    if (!checklist) {
+      return res.status(404).json({ message: "Checklist not found" });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = hashShareToken(token);
+    const expiresAt = createShareExpiry();
+    const importUrl = buildTemplateImportUrl(token);
+
+    await db.query(
+      `
+      INSERT INTO template_shares
+        (checklist_id, shared_by_user_id, source_organization_id, recipient_email, token_hash, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+    `,
+      [
+        checklist.id,
+        req.user.id,
+        checklist.organization_id,
+        recipientEmail,
+        tokenHash,
+        expiresAt,
+      ]
+    );
+
+    await sendTemplateShareEmail({
+      to: recipientEmail,
+      senderName: req.user.name || req.user.username,
+      templateTitle: checklist.title,
+      importUrl,
+    });
+
+    res.json({ success: true, expiresAt });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/shared/import", authRequired, adminOnly, async (req, res, next) => {
+  try {
+    const token = String(req.body?.token || "").trim();
+
+    if (!token) {
+      return res.status(400).json({ message: "Share token is required" });
+    }
+
+    if (!req.user.organizationId) {
+      return res.status(400).json({ message: "Your account is not linked to an organization" });
+    }
+
+    const tokenHash = hashShareToken(token);
+
+    const imported = await db.transaction(async (client) => {
+      const shareResult = await client.query(
+        `
+        SELECT
+          ts.id,
+          ts.checklist_id,
+          ts.recipient_email,
+          ts.imported_at,
+          ts.expires_at,
+          c.title
+        FROM template_shares ts
+        JOIN checklists c ON c.id = ts.checklist_id
+        WHERE ts.token_hash = $1
+        LIMIT 1
+      `,
+        [tokenHash]
+      );
+
+      const share = shareResult.rows[0];
+      if (!share) {
+        throw Object.assign(new Error("Shared template link is invalid"), { statusCode: 404 });
+      }
+
+      if (share.imported_at) {
+        throw Object.assign(new Error("Shared template link was already imported"), {
+          statusCode: 400,
+        });
+      }
+
+      if (new Date(share.expires_at).getTime() < Date.now()) {
+        throw Object.assign(new Error("Shared template link has expired"), { statusCode: 400 });
+      }
+
+      const nextChecklist = await copyChecklistToOrganization(
+        client,
+        share.checklist_id,
+        req.user.organizationId
+      );
+
+      await client.query(
+        `
+        UPDATE template_shares
+        SET imported_by_user_id = $1, imported_at = NOW()
+        WHERE id = $2
+      `,
+        [req.user.id, share.id]
+      );
+
+      return nextChecklist;
+    });
+
+    res.json({
+      success: true,
+      checklistId: imported.id,
+      title: imported.title,
     });
   } catch (error) {
     next(error);

@@ -155,6 +155,19 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS template_shares (
+      id SERIAL PRIMARY KEY,
+      checklist_id INTEGER NOT NULL REFERENCES checklists(id) ON DELETE CASCADE,
+      shared_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      source_organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+      recipient_email TEXT NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      imported_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      imported_at TIMESTAMPTZ
+    );
+
     CREATE TABLE IF NOT EXISTS checklist_sections (
       id SERIAL PRIMARY KEY,
       checklist_id INTEGER NOT NULL REFERENCES checklists(id) ON DELETE CASCADE,
@@ -331,6 +344,11 @@ async function initDb() {
       ON password_reset_tokens(expires_at)
       WHERE used_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_checklists_organization_id ON checklists(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_template_shares_checklist_id
+      ON template_shares(checklist_id);
+    CREATE INDEX IF NOT EXISTS idx_template_shares_expires_at
+      ON template_shares(expires_at)
+      WHERE imported_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_assignments_organization_id ON assignments(organization_id);
     CREATE INDEX IF NOT EXISTS idx_reports_organization_id ON reports(organization_id);
     CREATE INDEX IF NOT EXISTS idx_drafts_organization_id ON draft_reports(organization_id);
