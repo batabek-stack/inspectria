@@ -615,6 +615,13 @@ textarea {
   font-size: 13px;
 }
 
+.template-share-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .compact-list {
   display: grid;
   gap: 8px;

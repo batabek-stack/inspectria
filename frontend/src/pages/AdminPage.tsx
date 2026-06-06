@@ -27,6 +27,7 @@ import {
   deleteChecklist,
   forceDeleteChecklist,
   getChecklists,
+  shareChecklist,
 } from "../services/checklistService";
 import { deleteReport, getReports } from "../services/reportService";
 import {
@@ -443,6 +444,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     },
   ]);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [shareForms, setShareForms] = useState<Record<number, { open: boolean; email: string; sending: boolean }>>({});
   const [draggedQuestion, setDraggedQuestion] = useState<{
     sectionIndex: number;
     questionIndex: number;
@@ -1040,6 +1042,70 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Template could not be copied");
+    }
+  };
+
+  const toggleTemplateShareForm = (checklistId: number) => {
+    setShareForms((prev) => ({
+      ...prev,
+      [checklistId]: {
+        open: !prev[checklistId]?.open,
+        email: prev[checklistId]?.email || "",
+        sending: false,
+      },
+    }));
+  };
+
+  const updateTemplateShareEmail = (checklistId: number, email: string) => {
+    setShareForms((prev) => ({
+      ...prev,
+      [checklistId]: {
+        open: true,
+        email,
+        sending: prev[checklistId]?.sending || false,
+      },
+    }));
+  };
+
+  const handleShareTemplate = async (checklist: Checklist) => {
+    const cleanEmail = String(shareForms[checklist.id]?.email || "").trim();
+    setMessage("");
+    setError("");
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    try {
+      setShareForms((prev) => ({
+        ...prev,
+        [checklist.id]: {
+          open: true,
+          email: cleanEmail,
+          sending: true,
+        },
+      }));
+      await shareChecklist(checklist.id, cleanEmail);
+      setMessage(`${checklist.title} shared with ${cleanEmail}.`);
+      setShareForms((prev) => ({
+        ...prev,
+        [checklist.id]: {
+          open: false,
+          email: "",
+          sending: false,
+        },
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Template could not be shared");
+      setShareForms((prev) => ({
+        ...prev,
+        [checklist.id]: {
+          open: true,
+          email: cleanEmail,
+          sending: false,
+        },
+      }));
     }
   };
 
@@ -3360,6 +3426,11 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   const questionCount = Array.isArray(c.sections)
                     ? c.sections.reduce((total, section) => total + section.items.length, 0)
                     : 0;
+                  const shareForm = shareForms[c.id] || {
+                    open: false,
+                    email: "",
+                    sending: false,
+                  };
 
                   return (
                     <div
@@ -3411,6 +3482,38 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         >
                           Copy
                         </button>
+                        <button
+                          style={styles.secondaryButton}
+                          onClick={() => toggleTemplateShareForm(c.id)}
+                        >
+                          Share Template
+                        </button>
+                        {shareForm.open ? (
+                          <div className="template-share-form">
+                            <input
+                              type="email"
+                              style={styles.input}
+                              placeholder="Recipient email"
+                              value={shareForm.email}
+                              onChange={(event) =>
+                                updateTemplateShareEmail(c.id, event.target.value)
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  handleShareTemplate(c);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              style={styles.button}
+                              onClick={() => handleShareTemplate(c)}
+                              disabled={shareForm.sending}
+                            >
+                              {shareForm.sending ? "Sending..." : "Send"}
+                            </button>
+                          </div>
+                        ) : null}
                         <button
                           style={styles.button}
                           onClick={() => handleDeleteTemplate(c.id)}

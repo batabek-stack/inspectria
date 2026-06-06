@@ -68,7 +68,10 @@ if (hasBuiltFrontend) {
 
 app.use((error, _, res, __) => {
   console.error(error);
-  res.status(500).json({ message: "Internal server error" });
+  const statusCode = Number(error.statusCode || error.status || 500);
+  res
+    .status(statusCode >= 400 && statusCode < 600 ? statusCode : 500)
+    .json({ message: error.message || "Internal server error" });
 });
 
 const PORT = Number(process.env.PORT || 4000);

@@ -38,11 +38,11 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-async function sendReportEmail({ to, cc, subject, text, html, replyTo, attachments = [] }) {
+async function sendReportEmail({ to, cc, subject, text, html, replyTo, attachments = [], from }) {
   const transporter = createTransporter();
 
   return transporter.sendMail({
-    from: getMailFrom(),
+    from: from || getMailFrom(),
     to,
     cc: cc || undefined,
     replyTo: replyTo || undefined,
@@ -116,6 +116,37 @@ async function sendUserRegistrationRequestEmail({
   });
 }
 
+async function sendTemplateShareEmail({ to, senderName, templateTitle, importUrl }) {
+  const safeSenderName = escapeHtml(senderName);
+  const safeTemplateTitle = escapeHtml(templateTitle);
+  const safeImportUrl = escapeHtml(importUrl);
+
+  return sendReportEmail({
+    from: '"Inspectria" <info@inspectria.com>',
+    to,
+    subject: `${senderName} shared an Inspectria template with you`,
+    text: [
+      `${senderName} sizinle ${templateTitle} templateini paylaştı.`,
+      "İmport etmek için lütfen aşağıdaki Import linkini tıklayınız.",
+      "",
+      `Import: ${importUrl}`,
+    ].join("\n"),
+    html: `
+      <p><strong>${safeSenderName}</strong> sizinle <strong>${safeTemplateTitle}</strong> templateini paylaştı.</p>
+      <p>İmport etmek için lütfen aşağıdaki Import butonunu tıklayınız.</p>
+      <p>
+        <a
+          href="${safeImportUrl}"
+          style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;"
+        >
+          Import
+        </a>
+      </p>
+      <p>${safeImportUrl}</p>
+    `,
+  });
+}
+
 async function verifyEmailConnection() {
   const transporter = createTransporter();
   return transporter.verify();
@@ -125,6 +156,7 @@ module.exports = {
   getMailFrom,
   isEmailConfigured,
   sendPasswordResetCode,
+  sendTemplateShareEmail,
   sendUserRegistrationRequestEmail,
   verifyEmailConnection,
   sendReportEmail,

@@ -41,3 +41,17 @@ export async function deleteChecklist(checklistId: number) {
 export async function forceDeleteChecklist(checklistId: number) {
   return apiDelete(`/checklists/${checklistId}?force=true`);
 }
+
+export async function shareChecklist(checklistId: number, email: string) {
+  return apiPost<{ success: boolean; expiresAt: string }>(
+    `/checklists/${checklistId}/share`,
+    { email }
+  );
+}
+
+export async function importSharedChecklist(token: string) {
+  return apiPost<{ success: boolean; checklistId: number; title: string }>(
+    "/checklists/shared/import",
+    { token }
+  );
+}

@@ -63,6 +63,7 @@ SMTP_USER=reports@yourdomain.com
 SMTP_PASS=your-mailbox-password
 MAIL_FROM="Inspectria Reports <reports@yourdomain.com>"
 CONTACT_TO=info@yourdomain.com
+PUBLIC_APP_URL=https://inspectria.com
 ```
 
 Use the exact hostname, port, and security mode shown in the Natro control
@@ -72,6 +73,9 @@ these values. You can verify the SMTP connection with:
 cd backend
 npm run email:verify
 ```
+
+Template share emails use `info@inspectria.com` as the sender and include an
+import link based on `PUBLIC_APP_URL`.
 
 ## Backend
 ```bash
