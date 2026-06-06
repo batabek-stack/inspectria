@@ -325,11 +325,12 @@ router.post("/:id/share", authRequired, adminOnly, async (req, res, next) => {
     const expiresAt = createShareExpiry();
     const importUrl = buildTemplateImportUrl(token);
 
-    await db.query(
+    const share = await db.one(
       `
       INSERT INTO template_shares
         (checklist_id, shared_by_user_id, source_organization_id, recipient_email, token_hash, expires_at)
       VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id
     `,
       [
         checklist.id,
@@ -341,14 +342,66 @@ router.post("/:id/share", authRequired, adminOnly, async (req, res, next) => {
       ]
     );
 
-    await sendTemplateShareEmail({
-      to: recipientEmail,
-      senderName: req.user.name || req.user.username,
-      templateTitle: checklist.title,
-      importUrl,
-    });
+    const recipients = await db.many(
+      `
+      SELECT id
+      FROM users
+      WHERE LOWER(email) = LOWER($1)
+        AND active = TRUE
+        AND approval_status = 'approved'
+    `,
+      [recipientEmail]
+    );
 
-    res.json({ success: true, expiresAt });
+    if (recipients.length > 0) {
+      await Promise.all(
+        recipients.map((recipient) =>
+          db.query(
+            `
+            INSERT INTO app_messages
+              (recipient_user_id, sender_user_id, template_share_id, message_type, title, body)
+            VALUES ($1, $2, $3, 'template_share', $4, $5)
+          `,
+            [
+              recipient.id,
+              req.user.id,
+              share.id,
+              `Template shared: ${checklist.title}`,
+              `${req.user.name || req.user.username} sizinle ${checklist.title} templateini paylaştı.`,
+            ]
+          )
+        )
+      );
+    }
+
+    let emailSent = true;
+    let emailError = "";
+    try {
+      await sendTemplateShareEmail({
+        to: recipientEmail,
+        senderName: req.user.name || req.user.username,
+        templateTitle: checklist.title,
+        importUrl,
+      });
+    } catch (error) {
+      emailSent = false;
+      emailError = error instanceof Error ? error.message : "Email could not be sent";
+    }
+
+    if (!emailSent && recipients.length === 0) {
+      return res.status(400).json({
+        message:
+          "Email could not be sent, and no active app user was found for this recipient email.",
+      });
+    }
+
+    res.json({
+      success: true,
+      expiresAt,
+      emailSent,
+      emailError: emailSent ? undefined : emailError,
+      appMessageCount: recipients.length,
+    });
   } catch (error) {
     next(error);
   }

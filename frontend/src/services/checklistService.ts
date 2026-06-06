@@ -43,7 +43,13 @@ export async function forceDeleteChecklist(checklistId: number) {
 }
 
 export async function shareChecklist(checklistId: number, email: string) {
-  return apiPost<{ success: boolean; expiresAt: string }>(
+  return apiPost<{
+    success: boolean;
+    expiresAt: string;
+    emailSent: boolean;
+    emailError?: string;
+    appMessageCount: number;
+  }>(
     `/checklists/${checklistId}/share`,
     { email }
   );

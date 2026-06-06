@@ -1072,6 +1072,15 @@ textarea {
   font-weight: 900;
 }
 
+.message-status-dot {
+  width: 12px;
+  height: 12px;
+  margin: 11px auto 0;
+  border-radius: 999px;
+  background: #0f766e;
+  box-shadow: 0 0 0 4px #e6f3f1;
+}
+
 .checklist-preview {
   display: grid;
   gap: 10px;
