@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import {
   AnswerType,
+  AppMessage,
   Assignment,
   BillingCycle,
   BillingSummary,
@@ -76,6 +77,11 @@ import {
   openDownload,
   revokeDownload,
 } from "../utils/downloadFile";
+import {
+  getMessages,
+  importTemplateFromMessage,
+  markMessageRead,
+} from "../services/messageService";
 
 type Props = {
   user: User;
@@ -99,6 +105,7 @@ type AdminSectionKey =
   | "organizations"
   | "organizationUsers"
   | "billing"
+  | "messages"
   | "templates"
   | "assignments"
   | "walkthroughs"
@@ -140,6 +147,11 @@ const ADMIN_SECTIONS: Array<{
     key: "billing",
     label: "Billing",
     description: "Manage plans and subscriptions",
+  },
+  {
+    key: "messages",
+    label: "Messages",
+    description: "Template shares and inbox",
   },
   {
     key: "templates",
@@ -420,6 +432,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   );
   const [users, setUsers] = useState<User[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
+  const [messages, setMessages] = useState<AppMessage[]>([]);
+  const unreadMessageCount = messages.filter((candidate) => !candidate.readAt).length;
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [walkthroughs, setWalkthroughs] = useState<Walkthrough[]>([]);
@@ -528,7 +542,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const approvedUserGroups = groupUsersByOrganization(approvedUsers, organizations);
 
   const load = async () => {
-    const [orgs, u, c, a, r, w, billingSummary] = await Promise.all([
+    const [orgs, u, c, a, r, w, billingSummary, inbox] = await Promise.all([
       getOrganizations(),
       getUsers(),
       getChecklists(),
@@ -536,11 +550,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       getReports(),
       getWalkthroughs(),
       getBillingSummary(),
+      getMessages(),
     ]);
 
     setOrganizations(orgs);
     setUsers(u);
     setChecklists(c);
+    setMessages(inbox.messages);
     setAssignments(a);
     setReports(r);
     setWalkthroughs(w);
@@ -1086,8 +1102,14 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           sending: true,
         },
       }));
-      await shareChecklist(checklist.id, cleanEmail);
-      setMessage(`${checklist.title} shared with ${cleanEmail}.`);
+      const result = await shareChecklist(checklist.id, cleanEmail);
+      setMessage(
+        result.emailSent
+          ? `${checklist.title} shared with ${cleanEmail}.`
+          : `${checklist.title} shared in Messages for ${cleanEmail}. Email could not be sent.`
+      );
+      const inbox = await getMessages();
+      setMessages(inbox.messages);
       setShareForms((prev) => ({
         ...prev,
         [checklist.id]: {
@@ -1106,6 +1128,33 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           sending: false,
         },
       }));
+    }
+  };
+
+  const handleMarkMessageRead = async (messageId: number) => {
+    setMessage("");
+    setError("");
+
+    try {
+      await markMessageRead(messageId);
+      const inbox = await getMessages();
+      setMessages(inbox.messages);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Message could not be updated");
+    }
+  };
+
+  const handleImportMessageTemplate = async (inboxMessage: AppMessage) => {
+    setMessage("");
+    setError("");
+
+    try {
+      const result = await importTemplateFromMessage(inboxMessage.id);
+      setMessage(`${result.title} template'i Templates içine import edildi.`);
+      await load();
+      setActiveAdminPage("templates");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Shared template could not be imported");
     }
   };
 
@@ -2129,6 +2178,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 !isPlatformAdmin && section.key === "organizations"
                   ? "Sub Organizations"
                   : section.label;
+              const displayLabel =
+                section.key === "messages" && unreadMessageCount > 0
+                  ? `${sectionLabel} (${unreadMessageCount})`
+                  : sectionLabel;
               const sectionDescription =
                 !isPlatformAdmin && section.key === "organizations"
                   ? "Create sub-organizations and assign admins"
@@ -2158,7 +2211,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     boxShadow: isActive ? "0 2px 8px rgba(15,118,110,0.16)" : "none",
                   }}
                 >
-                  <div style={{ fontWeight: 800, marginBottom: 4 }}>{sectionLabel}</div>
+                  <div style={{ fontWeight: 800, marginBottom: 4 }}>{displayLabel}</div>
                   <div style={{ fontSize: 12, color: "#5e7378", lineHeight: 1.3 }}>
                     {sectionDescription}
                   </div>
@@ -2461,6 +2514,81 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   </div>
                 </div>
               </div>
+            </div>
+          ) : null}
+
+          {activeAdminPage === "messages" ? (
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Messages</h3>
+                  <p>Template shares sent to your account appear here even if email delivery is blocked.</p>
+                </div>
+              </div>
+
+              {messages.length === 0 ? (
+                <div style={styles.small}>No messages found.</div>
+              ) : (
+                <div className="compact-list">
+                  {messages.map((inboxMessage) => {
+                    const isTemplateShare = inboxMessage.type === "template_share";
+                    const isImported = Boolean(inboxMessage.importedAt);
+                    const isExpired =
+                      inboxMessage.expiresAt &&
+                      new Date(inboxMessage.expiresAt).getTime() < Date.now();
+
+                    return (
+                      <div
+                        key={inboxMessage.id}
+                        className={`compact-row ${!inboxMessage.readAt ? "compact-row-open" : ""}`}
+                      >
+                        <div className="compact-row-main">
+                          <div
+                            className="message-status-dot"
+                            title={inboxMessage.readAt ? "Read" : "Unread"}
+                          />
+                          <div className="compact-row-title">
+                            <strong>{inboxMessage.title}</strong>
+                            <span>{inboxMessage.body}</span>
+                            <span>{formatDateTime(inboxMessage.createdAt)}</span>
+                          </div>
+                        </div>
+                        <div className="compact-row-meta">
+                          <span>
+                            {isImported
+                              ? "Imported"
+                              : isExpired
+                                ? "Expired"
+                                : inboxMessage.readAt
+                                  ? "Read"
+                                  : "Unread"}
+                          </span>
+                        </div>
+                        <div className="compact-row-actions">
+                          {isTemplateShare && !isImported && !isExpired ? (
+                            <button
+                              type="button"
+                              style={styles.button}
+                              onClick={() => handleImportMessageTemplate(inboxMessage)}
+                            >
+                              Import Template
+                            </button>
+                          ) : null}
+                          {!inboxMessage.readAt ? (
+                            <button
+                              type="button"
+                              style={styles.secondaryButton}
+                              onClick={() => handleMarkMessageRead(inboxMessage.id)}
+                            >
+                              Mark Read
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : null}
 

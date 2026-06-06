@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AnswerType,
+  AppMessage,
   Assignment,
   Checklist,
   ManagerSummaryResponse,
@@ -46,6 +47,7 @@ import {
   openDownload,
   revokeDownload,
 } from "../utils/downloadFile";
+import { getMessages, markMessageRead } from "../services/messageService";
 
 type FillItem = {
   itemId: number;
@@ -156,6 +158,7 @@ export default function UserPage({ user, onLogout }: Props) {
   const localDraftKey = `mod_draft_${user.id}`;
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
+  const [messages, setMessages] = useState<AppMessage[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [walkthroughs, setWalkthroughs] = useState<Walkthrough[]>([]);
   const [activeAssignmentId, setActiveAssignmentId] = useState<number | null>(null);
@@ -184,14 +187,16 @@ export default function UserPage({ user, onLogout }: Props) {
   const saveTimeoutRef = useRef<number | null>(null);
 
   const load = async () => {
-    const [a, c, r, w] = await Promise.all([
+    const [a, c, r, w, inbox] = await Promise.all([
       getAssignments(),
       getChecklists(),
       getReports(),
       getWalkthroughs(),
+      getMessages(),
     ]);
     setAssignments(a);
     setChecklists(c);
+    setMessages(inbox.messages);
     setReports(r);
     setWalkthroughs(w);
   };
@@ -914,6 +919,16 @@ export default function UserPage({ user, onLogout }: Props) {
     });
   };
 
+  const handleMarkMessageRead = async (messageId: number) => {
+    try {
+      await markMessageRead(messageId);
+      const inbox = await getMessages();
+      setMessages(inbox.messages);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Message could not be updated.");
+    }
+  };
+
   return (
     <DashboardShell user={user} onLogout={onLogout}>
       {message ? (
@@ -987,6 +1002,47 @@ export default function UserPage({ user, onLogout }: Props) {
                     </button>
                   </div>
                 ))
+            )}
+          </div>
+
+          <div style={styles.section}>
+            <h3 style={styles.title}>Messages</h3>
+            {messages.length === 0 ? (
+              <div style={styles.small}>No messages found.</div>
+            ) : (
+              <div className="compact-list">
+                {messages.map((inboxMessage) => (
+                  <div key={inboxMessage.id} className="compact-row compact-row-open">
+                    <div className="compact-row-main">
+                      <div
+                        className="message-status-dot"
+                        title={inboxMessage.readAt ? "Read" : "Unread"}
+                      />
+                      <div className="compact-row-title">
+                        <strong>{inboxMessage.title}</strong>
+                        <span>{inboxMessage.body}</span>
+                        <span>
+                          Template import requires an admin account. Please ask your admin to import it from Messages.
+                        </span>
+                      </div>
+                    </div>
+                    <div className="compact-row-meta">
+                      <span>{inboxMessage.readAt ? "Read" : "Unread"}</span>
+                    </div>
+                    <div className="compact-row-actions">
+                      {!inboxMessage.readAt ? (
+                        <button
+                          type="button"
+                          style={styles.secondaryButton}
+                          onClick={() => handleMarkMessageRead(inboxMessage.id)}
+                        >
+                          Mark Read
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

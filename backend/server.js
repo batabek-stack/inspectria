@@ -18,6 +18,7 @@ const localFileRoutes = require("./routes/localFiles");
 const aiActionPlanRoutes = require("./routes/aiActionPlan");
 const billingRoutes = require("./routes/billing");
 const downloadRoutes = require("./routes/downloads");
+const messageRoutes = require("./routes/messages");
 
 const app = express();
 const frontendDistPath = path.join(__dirname, "..", "frontend", "dist");
@@ -43,6 +44,7 @@ app.use("/api/local-files", localFileRoutes);
 app.use("/api/ai", aiActionPlanRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/downloads", downloadRoutes);
+app.use("/api/messages", messageRoutes);
 app.use("/downloads", downloadRoutes);
 
 if (hasBuiltFrontend) {

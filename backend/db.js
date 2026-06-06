@@ -168,6 +168,18 @@ async function initDb() {
       imported_at TIMESTAMPTZ
     );
 
+    CREATE TABLE IF NOT EXISTS app_messages (
+      id SERIAL PRIMARY KEY,
+      recipient_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sender_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      template_share_id INTEGER REFERENCES template_shares(id) ON DELETE CASCADE,
+      message_type TEXT NOT NULL DEFAULT 'template_share',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS checklist_sections (
       id SERIAL PRIMARY KEY,
       checklist_id INTEGER NOT NULL REFERENCES checklists(id) ON DELETE CASCADE,
@@ -349,6 +361,11 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_template_shares_expires_at
       ON template_shares(expires_at)
       WHERE imported_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_app_messages_recipient_user_id
+      ON app_messages(recipient_user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_app_messages_unread
+      ON app_messages(recipient_user_id)
+      WHERE read_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_assignments_organization_id ON assignments(organization_id);
     CREATE INDEX IF NOT EXISTS idx_reports_organization_id ON reports(organization_id);
     CREATE INDEX IF NOT EXISTS idx_drafts_organization_id ON draft_reports(organization_id);

@@ -91,6 +91,20 @@ export type Session = {
   user: User;
 };
 
+export type AppMessage = {
+  id: number;
+  type: "template_share" | string;
+  title: string;
+  body: string;
+  createdAt: string;
+  readAt?: string | null;
+  senderName?: string;
+  templateTitle?: string;
+  templateShareId?: number;
+  importedAt?: string | null;
+  expiresAt?: string | null;
+};
+
 export type ChecklistItem = {
   id: number;
   checklist_id: number;
