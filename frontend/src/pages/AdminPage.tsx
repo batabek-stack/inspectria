@@ -28,6 +28,7 @@ import {
   deleteChecklist,
   forceDeleteChecklist,
   getChecklists,
+  previewChecklistImport,
   shareChecklist,
 } from "../services/checklistService";
 import { deleteReport, getReports } from "../services/reportService";
@@ -207,29 +208,10 @@ function normalizeQuestionForm(item: {
   };
 }
 
-function extractImportedQuestions(rows: unknown[][]) {
-  const normalizedRows = rows
+function normalizeImportRows(rows: unknown[][]) {
+  return rows
     .map((row) => row.map((cell) => String(cell || "").trim()))
     .filter((row) => row.some(Boolean));
-
-  if (normalizedRows.length === 0) return [];
-
-  const firstRow = normalizedRows[0].map((cell) => cell.toLowerCase());
-  const questionColumnIndex = firstRow.findIndex((cell) =>
-    ["question", "questions"].includes(cell)
-  );
-  const hasHeader = questionColumnIndex >= 0;
-  const columnIndex = hasHeader
-    ? questionColumnIndex
-    : normalizedRows[0].findIndex(Boolean);
-  const sourceRows = hasHeader ? normalizedRows.slice(1) : normalizedRows;
-
-  if (columnIndex < 0) return [];
-
-  return sourceRows
-    .map((row) => row[columnIndex])
-    .map((question) => String(question || "").trim())
-    .filter(Boolean);
 }
 
 function getFileExtension(fileName: string) {
@@ -956,31 +938,49 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         return;
       }
 
-      const rows = XLSX.utils.sheet_to_json<unknown[]>(
+      const rows = normalizeImportRows(XLSX.utils.sheet_to_json<unknown[]>(
         workbook.Sheets[firstSheetName],
         { header: 1, blankrows: false }
-      );
-      const importedQuestions = extractImportedQuestions(rows);
+      ));
 
-      if (importedQuestions.length === 0) {
-        setError("No questions found. Use a 'Question' column or put questions in the first column.");
+      if (rows.length === 0) {
+        setError("No importable rows found in the selected sheet.");
+        return;
+      }
+
+      setMessage("AI is reviewing the checklist and building sections...");
+      const preview = await previewChecklistImport({
+        fileName: file.name,
+        sheetName: firstSheetName,
+        rows,
+      });
+      const importedSections = preview.sections
+        .map((section) => ({
+          title: section.title,
+          items: section.items.map(normalizeQuestionForm),
+        }))
+        .filter((section) => section.title.trim() && section.items.length > 0);
+      const importedQuestionCount = importedSections.reduce(
+        (total, section) => total + section.items.length,
+        0
+      );
+
+      if (importedSections.length === 0 || importedQuestionCount === 0) {
+        setError("No checklist questions could be detected in this file.");
         return;
       }
 
       setEditingId(null);
-      setTitle((currentTitle) => currentTitle || "Imported Template");
-      setSections([
-        {
-          title: "Imported Questions",
-          items: importedQuestions.map((question) => ({
-            question,
-            answerType: "FORMAT1",
-            options: [""],
-          })),
-        },
-      ]);
+      setTitle((currentTitle) => currentTitle || preview.title || "Imported Template");
+      setSections(importedSections);
       setActiveAdminPage("templates");
-      setMessage(`${importedQuestions.length} questions imported. Review sections and question types before saving.`);
+      setMessage(
+        `${importedQuestionCount} questions imported into ${importedSections.length} sections with ${
+          preview.provider === "fallback" ? "local rules" : "AI review"
+        }. Review sections and question types before saving.${
+          preview.warnings?.length ? ` ${preview.warnings.join(" ")}` : ""
+        }`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Excel import failed");
     }
@@ -3407,7 +3407,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               }}
             >
               <label style={{ display: "block", fontWeight: 700, marginBottom: 8 }}>
-                Import Questions from Excel
+                Import Checklist from Excel
               </label>
               <input
                 id="question-import-file"
@@ -3421,8 +3421,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               />
               <div style={{ ...styles.small, marginTop: 8 }}>
                 Use .xlsx or .csv files only. Macro-enabled and legacy Excel files are blocked.
-                The file can contain only a Question column, or questions in the first filled column.
-                You can also drag and drop the file here.
+                AI reviews the sheet, creates sections, and turns each checklist row into one
+                question. You can also drag and drop the file here.
               </div>
               <DesktopFilePicker
                 kind="spreadsheet"

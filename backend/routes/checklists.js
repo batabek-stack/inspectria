@@ -7,6 +7,307 @@ const { sendTemplateShareEmail } = require("../services/emailService");
 const router = express.Router();
 
 const ANSWER_TYPES = new Set(["FORMAT1", "DATE", "TEXT", "MULTIPLE_CHOICE", "RADIO_BUTTON"]);
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+const DEFAULT_MODEL = "gpt-4.1-mini";
+const DEFAULT_AZURE_API_VERSION = "2024-10-21";
+const MAX_IMPORT_ROWS = 500;
+const MAX_IMPORT_COLS = 20;
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeHeader(value) {
+  return normalizeText(value)
+    .toLocaleLowerCase("tr-TR")
+    .replace(/\s+/g, " ");
+}
+
+function extractJson(content) {
+  const trimmed = normalizeText(content);
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    }
+  }
+
+  return null;
+}
+
+function sanitizeImportRows(rows) {
+  if (!Array.isArray(rows)) return [];
+
+  return rows
+    .slice(0, MAX_IMPORT_ROWS)
+    .map((row) =>
+      (Array.isArray(row) ? row : [])
+        .slice(0, MAX_IMPORT_COLS)
+        .map((cell) => normalizeText(cell).slice(0, 500))
+    )
+    .filter((row) => row.some(Boolean));
+}
+
+function findHeaderIndex(headers, candidates) {
+  return headers.findIndex((header) =>
+    candidates.some((candidate) => header === candidate || header.includes(candidate))
+  );
+}
+
+function looksLikeHeader(row) {
+  const headers = row.map(normalizeHeader);
+  return (
+    findHeaderIndex(headers, ["section", "bölüm", "bolum", "kategori", "alan"]) >= 0 ||
+    findHeaderIndex(headers, ["question", "soru", "criteria", "kriter", "kontrol"]) >= 0 ||
+    findHeaderIndex(headers, ["standard", "standart", "limit"]) >= 0
+  );
+}
+
+function makeQuestionText(question, standard) {
+  const cleanQuestion = normalizeText(question);
+  const cleanStandard = normalizeText(standard);
+  if (!cleanQuestion) return "";
+  if (!cleanStandard || cleanQuestion.includes(cleanStandard)) return cleanQuestion;
+  return `${cleanQuestion} (Standart: ${cleanStandard})`;
+}
+
+function fallbackImportSections(rows) {
+  const sanitizedRows = sanitizeImportRows(rows);
+  if (sanitizedRows.length === 0) return [];
+
+  const hasHeader = looksLikeHeader(sanitizedRows[0]);
+  const headers = hasHeader ? sanitizedRows[0].map(normalizeHeader) : [];
+  const sourceRows = hasHeader ? sanitizedRows.slice(1) : sanitizedRows;
+  const sectionIndex = hasHeader
+    ? findHeaderIndex(headers, ["section", "bölüm", "bolum", "kategori", "alan"])
+    : sourceRows.some((row) => row[0] && row[1])
+      ? 0
+      : -1;
+  const questionIndex = hasHeader
+    ? findHeaderIndex(headers, ["question", "questions", "soru", "criteria", "kriter", "kontrol"])
+    : sourceRows.some((row) => row[0] && row[1])
+      ? 1
+      : 0;
+  const standardIndex = hasHeader
+    ? findHeaderIndex(headers, ["standard", "standart", "limit", "expected", "beklenen"])
+    : sourceRows.some((row) => row[2])
+      ? 2
+      : -1;
+
+  const sections = [];
+  const sectionMap = new Map();
+  let currentSectionTitle = "Imported Questions";
+
+  function ensureSection(title) {
+    const cleanTitle = normalizeText(title) || "Imported Questions";
+    const key = cleanTitle.toLocaleLowerCase("tr-TR");
+    if (!sectionMap.has(key)) {
+      const section = { title: cleanTitle, items: [] };
+      sectionMap.set(key, section);
+      sections.push(section);
+    }
+
+    return sectionMap.get(key);
+  }
+
+  sourceRows.forEach((row) => {
+    const filledCells = row.filter(Boolean);
+    if (filledCells.length === 0) return;
+
+    const explicitSection = sectionIndex >= 0 ? normalizeText(row[sectionIndex]) : "";
+    const rawQuestion = questionIndex >= 0 ? normalizeText(row[questionIndex]) : "";
+    const rawStandard = standardIndex >= 0 ? normalizeText(row[standardIndex]) : "";
+
+    if (!rawQuestion && filledCells.length === 1) {
+      currentSectionTitle = filledCells[0];
+      ensureSection(currentSectionTitle);
+      return;
+    }
+
+    const sectionTitle = explicitSection || currentSectionTitle;
+    const question = makeQuestionText(rawQuestion || filledCells[0], rawStandard);
+    if (!question) return;
+
+    ensureSection(sectionTitle).items.push({
+      question,
+      answerType: "FORMAT1",
+      options: [],
+    });
+  });
+
+  return sections.filter((section) => section.items.length > 0);
+}
+
+function normalizeImportedChecklist(result, rows, fileName) {
+  const fallbackSections = fallbackImportSections(rows);
+  const rawSections = Array.isArray(result?.sections) ? result.sections : fallbackSections;
+  const sections = normalizeSections(rawSections)
+    .map((section) => ({
+      title: section.title,
+      items: section.items
+        .map(normalizeChecklistItem)
+        .filter((item) => item.question)
+        .map((item) => ({
+          ...item,
+          answerType: ANSWER_TYPES.has(item.answerType) ? item.answerType : "FORMAT1",
+        })),
+    }))
+    .filter((section) => section.items.length > 0);
+
+  return {
+    title:
+      normalizeText(result?.title) ||
+      normalizeText(fileName).replace(/\.(xlsx|csv)$/i, "") ||
+      "Imported Template",
+    sections: sections.length > 0 ? sections : fallbackSections,
+    warnings: Array.isArray(result?.warnings)
+      ? result.warnings.map(normalizeText).filter(Boolean).slice(0, 5)
+      : [],
+  };
+}
+
+function buildChecklistImportPayload({ rows, fileName, sheetName }) {
+  return {
+    temperature: 0.1,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You convert external spreadsheet checklists into Inspectria checklist templates.",
+          "Return JSON only with: title, sections, warnings.",
+          "Every source row that contains an inspection criterion, control point, or question must become exactly one checklist item.",
+          "Create sections from explicit Section/Bolum/Kategori columns, standalone heading rows, or logical groups.",
+          "Do not create questions from header rows, notes, standards-only rows, or empty rows.",
+          "If a row has both a criterion/question and a standard/limit, include the standard inside the question text in the same language.",
+          "Use answerType FORMAT1 unless the row clearly asks for DATE, TEXT, MULTIPLE_CHOICE, or RADIO_BUTTON.",
+          "Preserve the spreadsheet language and wording. Keep options empty unless answerType is a choice type.",
+        ].join(" "),
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          fileName,
+          sheetName,
+          rows,
+          expectedShape: {
+            title: "string",
+            sections: [
+              {
+                title: "string",
+                items: [
+                  {
+                    question: "string",
+                    answerType: "FORMAT1 | DATE | TEXT | MULTIPLE_CHOICE | RADIO_BUTTON",
+                    options: ["string"],
+                  },
+                ],
+              },
+            ],
+            warnings: ["string"],
+          },
+        }),
+      },
+    ],
+  };
+}
+
+async function callAzureChecklistImport(payload) {
+  const apiKey = process.env.AZURE_OPENAI_API_KEY;
+  const endpoint = normalizeText(process.env.AZURE_OPENAI_ENDPOINT).replace(/\/$/, "");
+  const deployment = normalizeText(process.env.AZURE_OPENAI_DEPLOYMENT);
+  if (!apiKey || !endpoint || !deployment) return null;
+
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || DEFAULT_AZURE_API_VERSION;
+  const response = await fetch(
+    `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`,
+    {
+      method: "POST",
+      headers: {
+        "api-key": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.error?.message || "Azure OpenAI request failed";
+    throw new Error(message);
+  }
+
+  return extractJson(data.choices?.[0]?.message?.content);
+}
+
+async function callOpenAiChecklistImport(payload) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
+  const response = await fetch(OPENAI_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      ...payload,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.error?.message || "OpenAI request failed";
+    throw new Error(message);
+  }
+
+  return extractJson(data.choices?.[0]?.message?.content);
+}
+
+async function buildAiImportedChecklist({ rows, fileName, sheetName }) {
+  const sanitizedRows = sanitizeImportRows(rows);
+  const payload = buildChecklistImportPayload({ rows: sanitizedRows, fileName, sheetName });
+  const warnings = [];
+
+  try {
+    const azureResult = await callAzureChecklistImport(payload);
+    if (azureResult) {
+      return {
+        provider: "azure-openai",
+        ...normalizeImportedChecklist(azureResult, sanitizedRows, fileName),
+      };
+    }
+  } catch (error) {
+    warnings.push(`Azure OpenAI import review failed: ${error.message || "unknown error"}`);
+  }
+
+  try {
+    const openAiResult = await callOpenAiChecklistImport(payload);
+    if (openAiResult) {
+      return {
+        provider: "openai",
+        ...normalizeImportedChecklist(openAiResult, sanitizedRows, fileName),
+      };
+    }
+  } catch (error) {
+    warnings.push(`OpenAI import review failed: ${error.message || "unknown error"}`);
+  }
+
+  return {
+    provider: "fallback",
+    ...normalizeImportedChecklist(null, sanitizedRows, fileName),
+    warnings: warnings.length
+      ? warnings
+      : ["AI credentials are not configured; local import rules were used."],
+  };
+}
 
 function normalizeChecklistItem(item) {
   const question = String(item?.question || "").trim();
@@ -297,6 +598,28 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
       success: true,
       checklistId,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/import/preview", authRequired, adminOnly, async (req, res, next) => {
+  try {
+    const rows = sanitizeImportRows(req.body?.rows);
+    const fileName = normalizeText(req.body?.fileName);
+    const sheetName = normalizeText(req.body?.sheetName);
+
+    if (rows.length === 0) {
+      return res.status(400).json({ message: "Excel file does not contain importable rows" });
+    }
+
+    const imported = await buildAiImportedChecklist({ rows, fileName, sheetName });
+
+    if (!Array.isArray(imported.sections) || imported.sections.length === 0) {
+      return res.status(400).json({ message: "No checklist questions could be detected" });
+    }
+
+    res.json(imported);
   } catch (error) {
     next(error);
   }

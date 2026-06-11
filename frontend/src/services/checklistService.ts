@@ -7,8 +7,26 @@ type ChecklistItemPayload = {
   options?: string[];
 };
 
+export type ChecklistImportPreview = {
+  provider: "azure-openai" | "openai" | "fallback";
+  title: string;
+  sections: Array<{
+    title: string;
+    items: ChecklistItemPayload[];
+  }>;
+  warnings?: string[];
+};
+
 export async function getChecklists(): Promise<Checklist[]> {
   return apiGet("/checklists");
+}
+
+export async function previewChecklistImport(payload: {
+  fileName: string;
+  sheetName: string;
+  rows: unknown[][];
+}) {
+  return apiPost<ChecklistImportPreview>("/checklists/import/preview", payload);
 }
 
 export async function createChecklist(
