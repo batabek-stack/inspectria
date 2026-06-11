@@ -214,6 +214,98 @@ function normalizeImportRows(rows: unknown[][]) {
     .filter((row) => row.some(Boolean));
 }
 
+function normalizeImportHeader(value: string) {
+  return value.trim().toLocaleLowerCase("tr-TR").replace(/\s+/g, " ");
+}
+
+function findImportHeaderIndex(headers: string[], candidates: string[]) {
+  return headers.findIndex((header) =>
+    candidates.some((candidate) => header === candidate || header.includes(candidate))
+  );
+}
+
+function importRowLooksLikeHeader(row: string[]) {
+  const headers = row.map(normalizeImportHeader);
+  return (
+    findImportHeaderIndex(headers, ["section", "bölüm", "bolum", "kategori", "alan"]) >= 0 ||
+    findImportHeaderIndex(headers, ["question", "soru", "criteria", "kriter", "kontrol"]) >= 0 ||
+    findImportHeaderIndex(headers, ["standard", "standart", "limit"]) >= 0
+  );
+}
+
+function buildImportedQuestion(question: string, standard: string) {
+  const cleanQuestion = question.trim();
+  const cleanStandard = standard.trim();
+  if (!cleanQuestion) return "";
+  if (!cleanStandard || cleanQuestion.includes(cleanStandard)) return cleanQuestion;
+  return `${cleanQuestion} (Standart: ${cleanStandard})`;
+}
+
+function buildLocalImportSections(rows: string[][]): SectionForm[] {
+  if (rows.length === 0) return [];
+
+  const hasHeader = importRowLooksLikeHeader(rows[0]);
+  const headers = hasHeader ? rows[0].map(normalizeImportHeader) : [];
+  const sourceRows = hasHeader ? rows.slice(1) : rows;
+  const hasMultiColumnRows = sourceRows.some((row) => row[0] && row[1]);
+  const sectionIndex = hasHeader
+    ? findImportHeaderIndex(headers, ["section", "bölüm", "bolum", "kategori", "alan"])
+    : hasMultiColumnRows
+      ? 0
+      : -1;
+  const questionIndex = hasHeader
+    ? findImportHeaderIndex(headers, ["question", "questions", "soru", "criteria", "kriter", "kontrol"])
+    : hasMultiColumnRows
+      ? 1
+      : 0;
+  const standardIndex = hasHeader
+    ? findImportHeaderIndex(headers, ["standard", "standart", "limit", "expected", "beklenen"])
+    : sourceRows.some((row) => row[2])
+      ? 2
+      : -1;
+  const sections: SectionForm[] = [];
+  const sectionMap = new Map<string, SectionForm>();
+  let currentSectionTitle = "Imported Questions";
+
+  function ensureSection(title: string) {
+    const cleanTitle = title.trim() || "Imported Questions";
+    const key = cleanTitle.toLocaleLowerCase("tr-TR");
+    const existing = sectionMap.get(key);
+    if (existing) return existing;
+
+    const section: SectionForm = { title: cleanTitle, items: [] };
+    sectionMap.set(key, section);
+    sections.push(section);
+    return section;
+  }
+
+  sourceRows.forEach((row) => {
+    const filledCells = row.filter(Boolean);
+    if (filledCells.length === 0) return;
+
+    const explicitSection = sectionIndex >= 0 ? String(row[sectionIndex] || "").trim() : "";
+    const rawQuestion = questionIndex >= 0 ? String(row[questionIndex] || "").trim() : "";
+    const rawStandard = standardIndex >= 0 ? String(row[standardIndex] || "").trim() : "";
+
+    if (!rawQuestion && filledCells.length === 1) {
+      currentSectionTitle = filledCells[0];
+      ensureSection(currentSectionTitle);
+      return;
+    }
+
+    const question = buildImportedQuestion(rawQuestion || filledCells[0], rawStandard);
+    if (!question) return;
+
+    ensureSection(explicitSection || currentSectionTitle).items.push({
+      question,
+      answerType: "FORMAT1",
+      options: [""],
+    });
+  });
+
+  return sections.filter((section) => section.items.length > 0);
+}
+
 function getFileExtension(fileName: string) {
   const index = fileName.lastIndexOf(".");
   return index >= 0 ? fileName.slice(index).toLowerCase() : "";
@@ -949,17 +1041,35 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       }
 
       setMessage("AI is reviewing the checklist and building sections...");
-      const preview = await previewChecklistImport({
-        fileName: file.name,
-        sheetName: firstSheetName,
-        rows,
-      });
-      const importedSections = preview.sections
-        .map((section) => ({
-          title: section.title,
-          items: section.items.map(normalizeQuestionForm),
-        }))
-        .filter((section) => section.title.trim() && section.items.length > 0);
+      let importProvider = "local rules";
+      let importWarnings: string[] = [];
+      let importedTitle = file.name.replace(/\.(xlsx|csv)$/i, "") || "Imported Template";
+      let importedSections: SectionForm[] = [];
+
+      try {
+        const preview = await previewChecklistImport({
+          fileName: file.name,
+          sheetName: firstSheetName,
+          rows,
+        });
+        importProvider = preview.provider === "fallback" ? "local rules" : "AI review";
+        importWarnings = preview.warnings || [];
+        importedTitle = preview.title || importedTitle;
+        importedSections = preview.sections
+          .map((section) => ({
+            title: section.title,
+            items: section.items.map(normalizeQuestionForm),
+          }))
+          .filter((section) => section.title.trim() && section.items.length > 0);
+      } catch (importError) {
+        importedSections = buildLocalImportSections(rows);
+        importWarnings = [
+          importError instanceof Error
+            ? `AI import review could not be reached: ${importError.message}`
+            : "AI import review could not be reached.",
+        ];
+      }
+
       const importedQuestionCount = importedSections.reduce(
         (total, section) => total + section.items.length,
         0
@@ -971,14 +1081,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       }
 
       setEditingId(null);
-      setTitle((currentTitle) => currentTitle || preview.title || "Imported Template");
+      setTitle((currentTitle) => currentTitle || importedTitle);
       setSections(importedSections);
       setActiveAdminPage("templates");
       setMessage(
-        `${importedQuestionCount} questions imported into ${importedSections.length} sections with ${
-          preview.provider === "fallback" ? "local rules" : "AI review"
-        }. Review sections and question types before saving.${
-          preview.warnings?.length ? ` ${preview.warnings.join(" ")}` : ""
+        `${importedQuestionCount} questions imported into ${importedSections.length} sections with ${importProvider}. Review sections and question types before saving.${
+          importWarnings.length ? ` ${importWarnings.join(" ")}` : ""
         }`
       );
     } catch (err) {
