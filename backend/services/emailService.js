@@ -154,7 +154,6 @@ async function sendAppMessageEmail({ to, recipientName, senderName, title, body 
   const safeBody = escapeHtml(body).replace(/\n/g, "<br />");
 
   return sendReportEmail({
-    from: '"Inspectria" <info@inspectria.com>',
     to,
     subject: title,
     text: [

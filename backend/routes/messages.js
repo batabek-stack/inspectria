@@ -215,7 +215,13 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
         emailSentCount += 1;
       } catch (error) {
         emailFailedCount += 1;
-        emailErrors.push(error instanceof Error ? error.message : "Email could not be sent");
+        const emailError = error instanceof Error ? error.message : "Email could not be sent";
+        emailErrors.push(emailError);
+        console.error("App message email failed", {
+          recipientUserId: recipient.id,
+          recipientEmail: recipient.email,
+          error: emailError,
+        });
       }
     }
 
