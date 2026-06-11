@@ -38,6 +38,86 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function welcomeEmailContent({ role, isEnterprise }) {
+  if (isEnterprise) {
+    return {
+      intro:
+        "Your Inspectria Enterprise account has been activated. Inspectria is a platform that enables you to manage your operational control and checklist processes in a digital, organized, and trackable way.",
+      lead: "With Inspectria Enterprise, you can:",
+      bullets: [
+        "Create customized checklists for departments or locations.",
+        "Track daily, weekly, or periodic operational controls digitally.",
+        "Add answers, comments, and photos to each control item.",
+        "Review completed checklists retrospectively.",
+        "Export reports in Excel or PDF format.",
+        "Create Sub Organizations to manage different units separately.",
+        "Assign a separate admin for each Sub Organization.",
+        "View a snapshot of your organization's overall status on the Dashboard.",
+        "Analyze negative items in completed checklists with AI support.",
+        "Receive negative items as an Action List in Excel format.",
+        "Send individual or bulk messages to users within your organization.",
+        "Share created templates with users within your organization.",
+        "Share templates with users outside your organization when needed.",
+        "Track deficiencies, responsible persons, and actions more easily.",
+        "Standardize operational, quality, technical service, housekeeping, front office, F&B, and management controls.",
+        "Strengthen follow-up and coordination between teams.",
+      ],
+      after:
+        "After logging into the system, you can view the checklists assigned to you on the main screen and start completing the relevant forms.",
+    };
+  }
+
+  if (role === "admin") {
+    return {
+      intro:
+        "Your Inspectria Admin account has been activated. As an Admin User, you will be able to manage your organization's operational control and checklist processes through Inspectria in a digital, organized, and trackable way.",
+      lead: "As an Inspectria Admin, you can:",
+      bullets: [
+        "Create and manage checklists for departments, locations, or operational areas.",
+        "Assign checklists to users or teams.",
+        "Track daily, weekly, or periodic operational controls digitally.",
+        "Review completed checklists and monitor submission status.",
+        "Add, edit, or manage users within your organization.",
+        "Send individual or bulk messages to users within your organization.",
+        "Share created templates with users inside your organization.",
+        "Share templates with external users when needed.",
+        "View your organization's snapshot on the Dashboard.",
+        "Monitor checklist completion, findings, and overall performance.",
+        "Analyze negative items in completed checklists with AI support.",
+        "Export negative findings as an Excel-based Action List.",
+        "Export reports in Excel or PDF format.",
+        "Track deficiencies, responsible persons, and required actions more easily.",
+        "Standardize operational, quality, technical service, housekeeping, front office, F&B, and management controls.",
+        "Strengthen follow-up, accountability, and coordination between teams.",
+      ],
+      after:
+        "After logging into the system, you can access your Admin Dashboard, manage your organization settings, review assigned users, and start creating or managing checklists and templates.",
+    };
+  }
+
+  return {
+    intro:
+      "Your Inspectria user account has been activated. Inspectria is a platform that helps you complete your assigned operational checklists in a digital, organized, and trackable way.",
+    lead: "As an Inspectria User, you can:",
+    bullets: [
+      "View the checklists assigned to you.",
+      "Complete checklist items digitally.",
+      "Add answers, comments, and photos to each control item.",
+      "Submit completed checklists through the system.",
+      "Review your submitted checklist records when needed.",
+      "Export available reports in Excel or PDF format, if authorized.",
+      "Send and receive messages within your organization.",
+      "Receive individual or bulk messages from your organization.",
+      "Access shared templates when they are assigned or shared with you.",
+      "Follow required actions and operational instructions more easily.",
+      "Support standardization of operational, quality, technical service, housekeeping, front office, F&B, and management controls.",
+      "Strengthen communication and coordination with your team.",
+    ],
+    after:
+      "After logging into the system, you can view the checklists assigned to you on the main screen and start completing the relevant forms.",
+  };
+}
+
 async function sendReportEmail({ to, cc, subject, text, html, replyTo, attachments = [], from }) {
   const transporter = createTransporter();
 
@@ -50,6 +130,56 @@ async function sendReportEmail({ to, cc, subject, text, html, replyTo, attachmen
     text,
     html,
     attachments,
+  });
+}
+
+async function sendWelcomeEmail({ to, role, isEnterprise = false }) {
+  const content = welcomeEmailContent({ role, isEnterprise });
+  const siteUrl = "https://inspectria.com";
+  const support =
+    "For any technical issues, access problems, or support needs, please feel free to contact us.";
+  const closing = "We wish you an efficient experience with Inspectria.";
+  const text = [
+    "Hello,",
+    "",
+    content.intro,
+    "",
+    content.lead,
+    "",
+    ...content.bullets.map((item) => `* ${item}`),
+    "",
+    content.after,
+    "",
+    support,
+    "",
+    closing,
+    "",
+    "Best regards,",
+    "Inspectria Team",
+    "",
+    siteUrl,
+  ].join("\n");
+
+  const htmlBullets = content.bullets
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("");
+  const safeSiteUrl = escapeHtml(siteUrl);
+
+  return sendReportEmail({
+    to,
+    subject: "Welcome to INSPECTRIA",
+    text,
+    html: `
+      <p>Hello,</p>
+      <p>${escapeHtml(content.intro)}</p>
+      <p>${escapeHtml(content.lead)}</p>
+      <ul>${htmlBullets}</ul>
+      <p>${escapeHtml(content.after)}</p>
+      <p>${escapeHtml(support)}</p>
+      <p>${escapeHtml(closing)}</p>
+      <p>Best regards,<br />Inspectria Team</p>
+      <p><a href="${safeSiteUrl}">${safeSiteUrl}</a></p>
+    `,
   });
 }
 
@@ -186,6 +316,7 @@ module.exports = {
   sendPasswordResetCode,
   sendTemplateShareEmail,
   sendUserRegistrationRequestEmail,
+  sendWelcomeEmail,
   verifyEmailConnection,
   sendReportEmail,
 };

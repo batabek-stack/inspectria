@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
+const { sendWelcomeEmail } = require("../services/emailService");
 
 const router = express.Router();
 
@@ -17,6 +18,29 @@ function hashResetToken(token) {
 function resetUrl(req, token) {
   const origin = `${req.protocol}://${req.get("host")}`;
   return `${origin}/#reset-password?token=${encodeURIComponent(token)}`;
+}
+
+async function getOrganizationPlanCode(organizationId) {
+  if (!organizationId) return "";
+
+  const organization = await db.one(
+    `
+    SELECT
+      o.plan,
+      p.code AS subscription_plan_code
+    FROM organizations o
+    LEFT JOIN subscriptions s
+      ON s.organization_id = o.id
+      AND s.status IN ('trialing', 'active', 'past_due')
+    LEFT JOIN billing_plans p ON p.id = s.billing_plan_id
+    WHERE o.id = $1
+    ORDER BY s.id DESC NULLS LAST
+    LIMIT 1
+  `,
+    [organizationId]
+  );
+
+  return String(organization?.subscription_plan_code || organization?.plan || "").toLowerCase();
 }
 
 router.get("/", authRequired, adminOnly, async (req, res, next) => {
@@ -232,6 +256,12 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
         ? await bcrypt.hash(password, 10)
         : null;
 
+    const shouldSendWelcomeEmail =
+      existingUser.approval_status !== "approved" &&
+      nextApprovalStatus === "approved" &&
+      nextActive &&
+      Boolean(nextEmail);
+
     const updatedUser = await db.one(
       `
       UPDATE users
@@ -267,9 +297,33 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
       ]
     );
 
+    let welcomeEmailSent = false;
+    let welcomeEmailError = "";
+
+    if (shouldSendWelcomeEmail) {
+      try {
+        const planCode = await getOrganizationPlanCode(updatedUser.organizationId);
+        await sendWelcomeEmail({
+          to: updatedUser.email,
+          role: updatedUser.role,
+          isEnterprise: planCode === "enterprise",
+        });
+        welcomeEmailSent = true;
+      } catch (error) {
+        welcomeEmailError = error instanceof Error ? error.message : "Welcome email could not be sent";
+        console.error("Welcome email failed", {
+          userId: updatedUser.id,
+          email: updatedUser.email,
+          error: welcomeEmailError,
+        });
+      }
+    }
+
     res.json({
       success: true,
       user: updatedUser,
+      welcomeEmailSent,
+      welcomeEmailError: welcomeEmailError || undefined,
     });
   } catch (error) {
     next(error);
