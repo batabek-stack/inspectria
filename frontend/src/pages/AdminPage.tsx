@@ -509,6 +509,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
   const unreadMessageCount = messages.filter((candidate) => !candidate.readAt).length;
+  const [expandedMessageIds, setExpandedMessageIds] = useState<Record<number, boolean>>({});
   const [composeMessageTitle, setComposeMessageTitle] = useState("");
   const [composeMessageBody, setComposeMessageBody] = useState("");
   const [selectedMessageRecipientIds, setSelectedMessageRecipientIds] = useState<number[]>([]);
@@ -1267,6 +1268,27 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     }
   };
 
+  const handleToggleMessageExpanded = async (inboxMessage: AppMessage) => {
+    setMessage("");
+    setError("");
+
+    const willExpand = !expandedMessageIds[inboxMessage.id];
+    setExpandedMessageIds((prev) => ({
+      ...prev,
+      [inboxMessage.id]: willExpand,
+    }));
+
+    if (!willExpand || inboxMessage.readAt) return;
+
+    try {
+      await markMessageRead(inboxMessage.id);
+      const inbox = await getMessages();
+      setMessages(inbox.messages);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Message could not be updated");
+    }
+  };
+
   const handleImportMessageTemplate = async (inboxMessage: AppMessage) => {
     setMessage("");
     setError("");
@@ -1319,8 +1341,16 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         title: titleValue,
         body: bodyValue,
       });
+      const emailStatus =
+        typeof result.emailSentCount === "number"
+          ? ` Email sent to ${result.emailSentCount} recipient${
+              result.emailSentCount === 1 ? "" : "s"
+            }${result.emailFailedCount ? `; ${result.emailFailedCount} email failed.` : "."}`
+          : "";
       setMessage(
-        `Message sent to ${result.sentCount} recipient${result.sentCount === 1 ? "" : "s"}.`
+        `Message sent to ${result.sentCount} recipient${
+          result.sentCount === 1 ? "" : "s"
+        }.${emailStatus}`
       );
       setComposeMessageTitle("");
       setComposeMessageBody("");
@@ -2785,6 +2815,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   {messages.map((inboxMessage) => {
                     const isTemplateShare = inboxMessage.type === "template_share";
                     const isImported = Boolean(inboxMessage.importedAt);
+                    const isOpen = Boolean(expandedMessageIds[inboxMessage.id]);
                     const isExpired =
                       inboxMessage.expiresAt &&
                       new Date(inboxMessage.expiresAt).getTime() < Date.now();
@@ -2792,16 +2823,29 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     return (
                       <div
                         key={inboxMessage.id}
-                        className={`compact-row ${!inboxMessage.readAt ? "compact-row-open" : ""}`}
+                        className={`compact-row message-row ${
+                          isOpen ? "compact-row-open" : ""
+                        } ${!inboxMessage.readAt ? "message-row-unread" : ""}`}
                       >
                         <div className="compact-row-main">
-                          <div
-                            className="message-status-dot"
-                            title={inboxMessage.readAt ? "Read" : "Unread"}
-                          />
-                          <div className="compact-row-title">
-                            <strong>{inboxMessage.title}</strong>
-                            <span>{inboxMessage.body}</span>
+                          <button
+                            type="button"
+                            className="compact-row-toggle"
+                            onClick={() => handleToggleMessageExpanded(inboxMessage)}
+                            aria-expanded={isOpen}
+                            aria-label={isOpen ? "Collapse message" : "Expand message"}
+                          >
+                            {isOpen ? "-" : "+"}
+                          </button>
+                          <div className="compact-row-title message-row-title">
+                            <span className="message-title-line">
+                              <span
+                                className="message-status-dot"
+                                title={inboxMessage.readAt ? "Read" : "Unread"}
+                              />
+                              <strong>{inboxMessage.title}</strong>
+                            </span>
+                            <span className="message-preview">{inboxMessage.body}</span>
                             <span>{formatDateTime(inboxMessage.createdAt)}</span>
                           </div>
                         </div>
@@ -2816,6 +2860,11 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                   : "Unread"}
                           </span>
                         </div>
+                        {isOpen ? (
+                          <div className="message-row-body">
+                            <p>{inboxMessage.body}</p>
+                          </div>
+                        ) : null}
                         <div className="compact-row-actions">
                           {isTemplateShare && !isImported && !isExpired ? (
                             <button

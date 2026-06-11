@@ -147,6 +147,34 @@ async function sendTemplateShareEmail({ to, senderName, templateTitle, importUrl
   });
 }
 
+async function sendAppMessageEmail({ to, recipientName, senderName, title, body }) {
+  const safeRecipientName = escapeHtml(recipientName || "there");
+  const safeSenderName = escapeHtml(senderName || "Inspectria");
+  const safeTitle = escapeHtml(title);
+  const safeBody = escapeHtml(body).replace(/\n/g, "<br />");
+
+  return sendReportEmail({
+    from: '"Inspectria" <info@inspectria.com>',
+    to,
+    subject: title,
+    text: [
+      `Hello ${recipientName || "there"},`,
+      "",
+      `${senderName || "Inspectria"} sent you a message in Inspectria:`,
+      "",
+      title,
+      "",
+      body,
+    ].join("\n"),
+    html: `
+      <p>Hello ${safeRecipientName},</p>
+      <p><strong>${safeSenderName}</strong> sent you a message in Inspectria.</p>
+      <p><strong>${safeTitle}</strong></p>
+      <p>${safeBody}</p>
+    `,
+  });
+}
+
 async function verifyEmailConnection() {
   const transporter = createTransporter();
   return transporter.verify();
@@ -155,6 +183,7 @@ async function verifyEmailConnection() {
 module.exports = {
   getMailFrom,
   isEmailConfigured,
+  sendAppMessageEmail,
   sendPasswordResetCode,
   sendTemplateShareEmail,
   sendUserRegistrationRequestEmail,

@@ -10,7 +10,13 @@ export async function sendAppMessage(payload: {
   title: string;
   body: string;
 }) {
-  return apiPost<{ success: boolean; sentCount: number }>("/messages", payload);
+  return apiPost<{
+    success: boolean;
+    sentCount: number;
+    emailSentCount?: number;
+    emailFailedCount?: number;
+    emailError?: string;
+  }>("/messages", payload);
 }
 
 export async function markMessageRead(messageId: number) {

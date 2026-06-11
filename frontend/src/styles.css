@@ -1075,10 +1075,52 @@ textarea {
 .message-status-dot {
   width: 12px;
   height: 12px;
-  margin: 11px auto 0;
+  flex: 0 0 auto;
   border-radius: 999px;
   background: #0f766e;
   box-shadow: 0 0 0 4px #e6f3f1;
+}
+
+.message-row {
+  align-items: start;
+}
+
+.message-row-unread .compact-row-title strong {
+  font-weight: 900;
+}
+
+.message-row-title {
+  display: grid;
+  gap: 3px;
+}
+
+.message-title-line {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.message-title-line strong {
+  min-width: 0;
+}
+
+.message-preview {
+  max-width: 100%;
+}
+
+.message-row-body {
+  grid-column: 1 / -1;
+  padding: 4px 44px 2px;
+}
+
+.message-row-body p {
+  margin: 0;
+  color: #274950;
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .message-composer {

@@ -1,6 +1,7 @@
 const express = require("express");
 const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
+const { sendAppMessageEmail } = require("../services/emailService");
 
 const router = express.Router();
 
@@ -163,7 +164,7 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 
     const recipients = await db.many(
       `
-      SELECT id
+      SELECT id, email, name, username
       FROM users
       WHERE id = ANY($1::int[])
         AND organization_id = ANY($2::int[])
@@ -192,9 +193,38 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
       }
     });
 
+    let emailSentCount = 0;
+    let emailFailedCount = 0;
+    const emailErrors = [];
+
+    for (const recipient of recipients) {
+      if (!recipient.email) {
+        emailFailedCount += 1;
+        emailErrors.push(`No email address for user ${recipient.id}`);
+        continue;
+      }
+
+      try {
+        await sendAppMessageEmail({
+          to: recipient.email,
+          recipientName: recipient.name || recipient.username,
+          senderName: req.user.name || req.user.username,
+          title,
+          body,
+        });
+        emailSentCount += 1;
+      } catch (error) {
+        emailFailedCount += 1;
+        emailErrors.push(error instanceof Error ? error.message : "Email could not be sent");
+      }
+    }
+
     res.status(201).json({
       success: true,
       sentCount: recipients.length,
+      emailSentCount,
+      emailFailedCount,
+      emailError: emailErrors[0],
     });
   } catch (error) {
     next(error);
