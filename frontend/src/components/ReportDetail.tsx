@@ -41,7 +41,7 @@ type Props = {
 function formatDate(value?: string) {
   if (!value) return "-";
   try {
-    return new Date(value).toLocaleString("tr-TR");
+    return new Date(value).toLocaleString("en-US");
   } catch {
     return value;
   }
@@ -179,13 +179,13 @@ export default function ReportDetail({
         }}
       >
         <div style={{ fontSize: 15, fontWeight: 700, color: "#0f766e", letterSpacing: 0.5 }}>
-          Başarı Oranı
+          Success Rate
         </div>
         <div style={{ fontSize: 38, fontWeight: 800, color: "#06323f", marginTop: 6 }}>
           %{successRate}
         </div>
         <div style={{ marginTop: 4, color: "#334155", fontSize: 13 }}>
-          {yesCount} / {totalQuestions} soru başarılı
+          {yesCount} / {totalQuestions} questions passed
         </div>
       </div>
 
@@ -225,11 +225,11 @@ export default function ReportDetail({
         }}
       >
         <div style={{ fontSize: 18, fontWeight: 700, color: "#991b1b", marginBottom: 10 }}>
-          No Olarak İşaretlenen Maddeler
+          Items Marked No
         </div>
 
         {noItems.length === 0 ? (
-          <div style={{ color: "#166534", fontWeight: 600 }}>No olarak işaretlenen madde yok.</div>
+          <div style={{ color: "#166534", fontWeight: 600 }}>No items were marked No.</div>
         ) : (
           noItems.map((item, index) => (
             <div
@@ -242,7 +242,7 @@ export default function ReportDetail({
               <div style={{ fontWeight: 700 }}>
                 {index + 1}. {item.question}
               </div>
-              <div style={{ marginTop: 4 }}>Açıklama: {item.comment || "-"}</div>
+              <div style={{ marginTop: 4 }}>Comment: {item.comment || "-"}</div>
             </div>
           ))
         )}

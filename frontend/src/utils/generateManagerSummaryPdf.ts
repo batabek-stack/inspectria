@@ -22,18 +22,18 @@ function sanitizeText(value?: string | null) {
   const text = value && value.trim() ? value.trim() : "-";
 
   return text
-    .replace(/ı/g, "i")
-    .replace(/İ/g, "I")
-    .replace(/ş/g, "s")
-    .replace(/Ş/g, "S")
-    .replace(/ğ/g, "g")
-    .replace(/Ğ/g, "G")
-    .replace(/ü/g, "u")
-    .replace(/Ü/g, "U")
-    .replace(/ö/g, "o")
-    .replace(/Ö/g, "O")
-    .replace(/ç/g, "c")
-    .replace(/Ç/g, "C");
+    .replace(/\u0131/g, "i")
+    .replace(/\u0130/g, "I")
+    .replace(/\u015f/g, "s")
+    .replace(/\u015e/g, "S")
+    .replace(/\u011f/g, "g")
+    .replace(/\u011e/g, "G")
+    .replace(/\u00fc/g, "u")
+    .replace(/\u00dc/g, "U")
+    .replace(/\u00f6/g, "o")
+    .replace(/\u00d6/g, "O")
+    .replace(/\u00e7/g, "c")
+    .replace(/\u00c7/g, "C");
 }
 
 function formatDate(value?: string | Date) {
@@ -41,7 +41,7 @@ function formatDate(value?: string | Date) {
   try {
     const d = typeof value === "string" ? new Date(value) : value;
     if (Number.isNaN(d.getTime())) return "-";
-    return sanitizeText(d.toLocaleString("tr-TR"));
+    return sanitizeText(d.toLocaleString("en-US"));
   } catch {
     return "-";
   }

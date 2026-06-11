@@ -5,17 +5,17 @@ function normalizeForMatch(value?: string | null) {
   return String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c");
+    .replace(/\u0131/g, "i")
+    .replace(/\u015f/g, "s")
+    .replace(/\u011f/g, "g")
+    .replace(/\u00fc/g, "u")
+    .replace(/\u00f6/g, "o")
+    .replace(/\u00e7/g, "c");
 }
 
 export function isNegativeChecklistAnswer(answer?: string | null) {
   const normalized = normalizeForMatch(answer);
-  return ["no", "hayir", "hayır", "fail", "failed", "false", "olumsuz"].includes(normalized);
+  return ["no", "fail", "failed", "false"].includes(normalized);
 }
 
 export function getReportFailedItems(report: Report) {

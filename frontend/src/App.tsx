@@ -90,7 +90,7 @@ export default function App() {
         window.location.hash = "login?admin=templates";
         setRouteHash("#login?admin=templates");
         setTemplateImportNonce((value) => value + 1);
-        window.alert(`${result.title} template'i Templates içine import edildi.`);
+        window.alert(`${result.title} template was imported into Templates.`);
       } catch (err) {
         window.alert(err instanceof Error ? err.message : "Shared template could not be imported.");
         clearTemplateShareTokenFromUrl();

@@ -126,14 +126,14 @@ async function sendTemplateShareEmail({ to, senderName, templateTitle, importUrl
     to,
     subject: `${senderName} shared an Inspectria template with you`,
     text: [
-      `${senderName} sizinle ${templateTitle} templateini paylaştı.`,
-      "İmport etmek için lütfen aşağıdaki Import linkini tıklayınız.",
+      `${senderName} shared the ${templateTitle} template with you.`,
+      "Use the Import link below to import it.",
       "",
       `Import: ${importUrl}`,
     ].join("\n"),
     html: `
-      <p><strong>${safeSenderName}</strong> sizinle <strong>${safeTemplateTitle}</strong> templateini paylaştı.</p>
-      <p>İmport etmek için lütfen aşağıdaki Import butonunu tıklayınız.</p>
+      <p><strong>${safeSenderName}</strong> shared the <strong>${safeTemplateTitle}</strong> template with you.</p>
+      <p>Use the Import button below to import it.</p>
       <p>
         <a
           href="${safeImportUrl}"

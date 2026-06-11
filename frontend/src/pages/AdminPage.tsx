@@ -216,7 +216,7 @@ function extractImportedQuestions(rows: unknown[][]) {
 
   const firstRow = normalizedRows[0].map((cell) => cell.toLowerCase());
   const questionColumnIndex = firstRow.findIndex((cell) =>
-    ["question", "questions", "soru", "sorular"].includes(cell)
+    ["question", "questions"].includes(cell)
   );
   const hasHeader = questionColumnIndex >= 0;
   const columnIndex = hasHeader
@@ -274,7 +274,7 @@ function formatLimit(value: number, label: string) {
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
   try {
-    return new Date(value).toLocaleString("tr-TR");
+    return new Date(value).toLocaleString("en-US");
   } catch {
     return value;
   }
@@ -283,7 +283,7 @@ function formatDateTime(value?: string | null) {
 function formatDate(value?: string | null) {
   if (!value) return "-";
   try {
-    return new Date(value).toLocaleDateString("tr-TR");
+    return new Date(value).toLocaleDateString("en-US");
   } catch {
     return value;
   }
@@ -1030,7 +1030,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     );
 
     if (hasChoiceWithoutOptions) {
-      setError("Dropdown ve Check Box sorulari icin en az bir secenek girilmelidir.");
+      setError("Dropdown and Check Box questions require at least one option.");
       return;
     }
 
@@ -1165,7 +1165,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
     try {
       const result = await importTemplateFromMessage(inboxMessage.id);
-      setMessage(`${result.title} template'i Templates içine import edildi.`);
+      setMessage(`${result.title} template was imported into Templates.`);
       await load();
       setActiveAdminPage("templates");
     } catch (err) {
@@ -3050,7 +3050,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             <div className="admin-page-panel" style={styles.section}>
               <div className="admin-panel-heading">
                 <div>
-                  <h3 style={styles.title}>Organization &gt; Kullanıcı</h3>
+                  <h3 style={styles.title}>Organization &gt; User</h3>
                   <p>All organization users listed with their email addresses.</p>
                 </div>
               </div>
@@ -3064,7 +3064,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <strong>Organization</strong>
                     </div>
                     <div className="compact-row-title">
-                      <strong>Kullanıcı</strong>
+                      <strong>User</strong>
                     </div>
                     <div className="compact-row-title">
                       <strong>E-Mail Address</strong>

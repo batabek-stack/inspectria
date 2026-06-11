@@ -50,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        showStatus("Inspectria başlatılıyor...")
+        showStatus("Starting Inspectria...")
     }
 
     private func showStatus(_ message: String) {
@@ -157,7 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             } catch {
                 self.appendLog("Startup failed: \(error.localizedDescription)")
                 DispatchQueue.main.async {
-                    self.showStatus("Başlatılamadı: \(error.localizedDescription)")
+                    self.showStatus("Could not start: \(error.localizedDescription)")
                 }
             }
         }
@@ -170,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let pgData = projectRoot + "/backend/pgdata"
 
         guard FileManager.default.isExecutableFile(atPath: pgCtl) else {
-            throw InspectriaError("Bundled PostgreSQL bulunamadı.")
+            throw InspectriaError("Bundled PostgreSQL was not found.")
         }
 
         if run(pgCtl, ["-D", pgData, "status"], allowFailure: true) == 0 {
@@ -179,18 +179,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         if !FileManager.default.fileExists(atPath: pgData) {
             let code = run(initDb, ["-D", pgData, "-U", "inspectra", "-A", "trust"], allowFailure: false)
-            if code != 0 { throw InspectriaError("PostgreSQL data klasörü oluşturulamadı.") }
+            if code != 0 { throw InspectriaError("PostgreSQL data directory could not be created.") }
         }
 
         let code = run(pgCtl, ["-D", pgData, "-l", applicationLogPath(), "-o", "-p 5432", "start"], allowFailure: false)
-        if code != 0 { throw InspectriaError("PostgreSQL başlatılamadı.") }
+        if code != 0 { throw InspectriaError("PostgreSQL could not be started.") }
         _ = run(createdb, ["-h", "localhost", "-p", "5432", "-U", "inspectra", "inspectra"], allowFailure: true)
     }
 
     private func startBackend() throws {
         let node = findExecutable("node") ?? "/opt/homebrew/bin/node"
         guard FileManager.default.isExecutableFile(atPath: node) else {
-            throw InspectriaError("Node.js bulunamadı.")
+            throw InspectriaError("Node.js was not found.")
         }
 
         let process = Process()
@@ -214,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             if isHealthy() { return }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        throw InspectriaError("Inspectria backend zamanında yanıt vermedi.")
+        throw InspectriaError("Inspectria backend did not respond in time.")
     }
 
     private func isHealthy() -> Bool {

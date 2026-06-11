@@ -3,7 +3,7 @@ export function formatDate(value?: string | Date) {
   try {
     const d = typeof value === "string" ? new Date(value) : value;
     if (Number.isNaN(d.getTime())) return "-";
-    return d.toLocaleString("tr-TR");
+    return d.toLocaleString("en-US");
   } catch {
     return "-";
   }

@@ -671,13 +671,13 @@ function safeDownloadName(value, suffix) {
 function isNegativeAnswer(answer) {
   const normalized = normalizeText(answer)
     .toLowerCase()
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c");
-  return ["no", "hayir", "hayır", "fail", "failed", "false", "olumsuz"].includes(normalized);
+    .replace(/\u0131/g, "i")
+    .replace(/\u015f/g, "s")
+    .replace(/\u011f/g, "g")
+    .replace(/\u00fc/g, "u")
+    .replace(/\u00f6/g, "o")
+    .replace(/\u00e7/g, "c");
+  return ["no", "fail", "failed", "false"].includes(normalized);
 }
 
 async function getReportForAiDownload(reportId, user) {
