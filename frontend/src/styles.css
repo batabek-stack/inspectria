@@ -156,6 +156,10 @@ textarea {
   background: linear-gradient(180deg, #ffffff 0%, rgba(255, 255, 255, 0.96) 74%, rgba(255, 255, 255, 0) 100%);
 }
 
+.admin-module-nav-toggle {
+  display: none;
+}
+
 .support-page {
   display: grid;
   gap: 28px;
@@ -1960,6 +1964,36 @@ textarea {
     position: static;
     padding: 0;
     background: transparent;
+  }
+
+  .admin-module-nav-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border: 1px solid #b9d3d1;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #06323f;
+    cursor: pointer;
+    font-weight: 800;
+    box-shadow: 0 8px 20px rgba(3, 32, 42, 0.08);
+  }
+
+  .admin-module-nav-toggle span {
+    color: #0f766e;
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  .admin-module-nav-grid {
+    display: none !important;
+    margin-top: 10px;
+  }
+
+  .admin-module-nav-open .admin-module-nav-grid {
+    display: grid !important;
   }
 
   .admin-panel-heading {

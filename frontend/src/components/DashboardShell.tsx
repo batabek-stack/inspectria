@@ -18,15 +18,6 @@ export default function DashboardShell({ user, onLogout, children }: Props) {
           </div>
           <div className="app-userbar">
             <div style={styles.small}>Logged in as {user.name} ({user.role})</div>
-            <button
-              type="button"
-              style={styles.secondaryButton}
-              onClick={() => {
-                window.location.hash = "support";
-              }}
-            >
-              Support
-            </button>
             <button style={styles.secondaryButton} onClick={onLogout}>Logout</button>
           </div>
         </div>
