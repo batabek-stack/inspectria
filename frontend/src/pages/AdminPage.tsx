@@ -113,6 +113,7 @@ type AdminSectionKey =
   | "walkthroughs"
   | "users"
   | "reports"
+  | "support"
   | "account";
 
 const ANSWER_TYPE_LABELS: Record<AnswerType, string> = {
@@ -179,6 +180,11 @@ const ADMIN_SECTIONS: Array<{
     key: "reports",
     label: "Completed Reports",
     description: "Review reports and export files",
+  },
+  {
+    key: "support",
+    label: "Support",
+    description: "Role guide and support tickets",
   },
   {
     key: "account",
@@ -498,6 +504,7 @@ function IyzicoCheckout({ content }: { content: string }) {
 export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const isPlatformAdmin = user.role === "platform_admin";
   const [isDesktop, setIsDesktop] = useState(isDesktopViewport);
+  const [isMobileNavigationOpen, setIsMobileNavigationOpen] = useState(false);
   const [activeAdminPage, setActiveAdminPage] = useState<AdminSectionKey>(
     initialSection || (isPlatformAdmin ? "organizations" : isDesktopViewport() ? "dashboard" : "templates")
   );
@@ -719,7 +726,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 769px)");
-    const syncDesktopState = () => setIsDesktop(mediaQuery.matches);
+    const syncDesktopState = () => {
+      setIsDesktop(mediaQuery.matches);
+      if (mediaQuery.matches) setIsMobileNavigationOpen(false);
+    };
 
     syncDesktopState();
     mediaQuery.addEventListener("change", syncDesktopState);
@@ -2382,7 +2392,21 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       ) : (
         <>
           <div
-            className="admin-module-nav"
+            className={`admin-module-nav${isMobileNavigationOpen ? " admin-module-nav-open" : ""}`}
+          >
+            <button
+              type="button"
+              className="admin-module-nav-toggle"
+              onClick={() => setIsMobileNavigationOpen((isOpen) => !isOpen)}
+              aria-expanded={isMobileNavigationOpen}
+              aria-controls="admin-module-nav-grid"
+            >
+              {isMobileNavigationOpen ? "Close menu" : "Menu"}
+              <span aria-hidden="true">{isMobileNavigationOpen ? "−" : "+"}</span>
+            </button>
+            <div
+              id="admin-module-nav-grid"
+              className="admin-module-nav-grid"
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
@@ -2412,7 +2436,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   key={section.key}
                   type="button"
                   onClick={() => {
+                    if (section.key === "support") {
+                      window.location.hash = "support";
+                      return;
+                    }
                     setActiveAdminPage(section.key);
+                    setIsMobileNavigationOpen(false);
                     setSelectedReport(null);
                     setMessage("");
                     setError("");
@@ -2436,6 +2465,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 </button>
               );
             })}
+            </div>
           </div>
 
           {message ? (

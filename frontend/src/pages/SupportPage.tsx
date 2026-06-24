@@ -10,7 +10,7 @@ type Props = {
 };
 
 type RoleGuide = {
-  key: "user" | "admin" | "topLevel" | "platform_admin";
+  key: "user" | "admin" | "topLevel";
   title: string;
   description: string;
   items: string[];
@@ -20,48 +20,37 @@ const ROLE_GUIDES: RoleGuide[] = [
   {
     key: "user",
     title: "User",
-    description: "Günlük kontrol ve saha denetim çalışmalarını yürütür.",
+    description: "Complete day-to-day control and on-site inspection work.",
     items: [
-      "Size atanmış checklist'leri açıp doldurabilir; yanıt, not ve fotoğraf ekleyebilirsiniz.",
-      "Size açık olan organizasyon raporlarını görüntüleyebilir, PDF veya Excel olarak dışa aktarabilirsiniz.",
-      "Yönetici tarafından sizinle paylaşılan template'leri seçip kullanabilirsiniz.",
-      "Saha kontrolleri için Walkthrough listeleri oluşturabilir, taslak kaydedip daha sonra tamamlayabilirsiniz.",
-      "Mesajlar alanından organizasyonunuzdaki duyuru ve template paylaşımlarını takip edebilirsiniz.",
+      "Open and complete checklists assigned to you, including answers, notes, and photos.",
+      "View organization reports available to you and export them as PDF or Excel files.",
+      "Select and use templates shared with you by your administrator.",
+      "Create walkthrough lists for on-site checks, save drafts, and complete them later.",
+      "Follow announcements and shared templates from your organization in Messages.",
     ],
   },
   {
     key: "admin",
     title: "Organization Admin",
-    description: "Kendi organizasyonunuzdaki kontrol süreçlerini ve kullanıcıları yönetir.",
+    description: "Manage control processes and users in your organization.",
     items: [
-      "Templates alanından checklist şablonları oluşturabilir, düzenleyebilir ve paylaşabilirsiniz.",
-      "Assignments alanından bir template ve kullanıcı seçerek kontrol görevleri atayabilirsiniz.",
-      "User Management alanından kullanıcı oluşturabilir, düzenleyebilir, onaylayabilir ve rollerini belirleyebilirsiniz.",
-      "Completed Reports alanından tamamlanan raporları inceleyebilir, PDF/Excel çıktısı alabilir ve aksiyon planı oluşturabilirsiniz.",
-      "Walkthrough alanından sahada kullanılacak serbest denetim listelerini yönetebilirsiniz.",
+      "Create, edit, and share checklist templates in Templates.",
+      "Assign control tasks by choosing a template and a user in Assignments.",
+      "Create, edit, approve, and assign roles to users in User Management.",
+      "Review completed reports, export PDF or Excel files, and create action plans.",
+      "Manage flexible on-site inspection lists in Walkthrough.",
     ],
   },
   {
     key: "topLevel",
     title: "Top Level Admin (Enterprise)",
-    description: "Enterprise planındaki üst organizasyon yöneticisi, bağlı birimleri ayrı ayrı yönetebilir.",
+    description: "An Enterprise top-level administrator can manage connected units separately.",
     items: [
-      "Sub Organizations alanında Create Sub-Organization ile yeni bir alt organizasyon oluşturun.",
-      "Formdaki yönetici bilgilerini girerek alt organizasyonun ilk admin kullanıcısını aynı akışta tanımlayın.",
-      "User Management içinde ilgili organizasyonu seçip yeni kullanıcılar oluşturun; gerektiğinde admin rolü atayın.",
-      "Templates'te hazırladığınız şablonları Assignments üzerinden doğru kullanıcıya ve organizasyona atayın.",
-      "Her alt organizasyonun raporlarını ve kullanıcılarını kendi erişim sınırları içinde ayrı olarak takip edin.",
-    ],
-  },
-  {
-    key: "platform_admin",
-    title: "Platform Admin",
-    description: "Inspectria platformundaki organizasyonları, planları ve ilk yönetici hesaplarını yönetir.",
-    items: [
-      "Organizations alanından üst seviye organizasyonları ve ilk admin hesaplarını oluşturabilirsiniz.",
-      "Billing alanından plan, abonelik ve kullanım limitlerini takip edebilirsiniz.",
-      "Organization User List üzerinden tüm organizasyonlardaki kullanıcıları görüntüleyebilirsiniz.",
-      "Bir organizasyonun kendi operasyonunu yönetmesi için uygun admin kullanıcılarını tanımlayabilirsiniz.",
+      "Create a new sub-organization from Sub Organizations with Create Sub-Organization.",
+      "Enter administrator details in the form to create the first admin for that sub-organization in the same flow.",
+      "Choose the relevant organization in User Management to create new users and assign admin access when needed.",
+      "Assign templates you create to the correct users and organizations through Assignments.",
+      "Track reports and users for each sub-organization within their own access boundaries.",
     ],
   },
 ];
@@ -81,9 +70,9 @@ export default function SupportPage({ user, onLogout }: Props) {
       await createSupportTicket({ subject, message });
       setSubject("");
       setMessage("");
-      setStatus("Ticket'ınız Inspectria Support ekibine iletildi. En kısa sürede dönüş yapacağız.");
+      setStatus("Your ticket has been sent to the Inspectria Support team. We will get back to you as soon as possible.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Ticket gönderilemedi. Lütfen tekrar deneyin.");
+      setStatus(error instanceof Error ? error.message : "Your ticket could not be sent. Please try again.");
     } finally {
       setSending(false);
     }
@@ -95,28 +84,28 @@ export default function SupportPage({ user, onLogout }: Props) {
         <div className="support-hero">
           <div>
             <span>INSPECTRIA SUPPORT</span>
-            <h1>Nasıl yardımcı olabiliriz?</h1>
+            <h1>How can we help?</h1>
             <p>
-              Rolünüze göre yapabileceklerinizi inceleyin veya yaşadığınız sorunu doğrudan
-              Support ekibimize iletin.
+              Explore what you can do based on your role, or send an issue directly to our
+              Support team.
             </p>
           </div>
           <button type="button" style={styles.secondaryButton} onClick={() => { window.location.hash = "top"; }}>
-            Panele dön
+            Back to dashboard
           </button>
         </div>
 
         <section className="support-section" aria-labelledby="support-roles-title">
           <div className="support-section-heading">
-            <span>ROL REHBERİ</span>
-            <h2 id="support-roles-title">Inspectria'da neler yapabilirsiniz?</h2>
+            <span>ROLE GUIDE</span>
+            <h2 id="support-roles-title">What can you do in Inspectria?</h2>
           </div>
           <div className="support-role-grid">
             {ROLE_GUIDES.map((guide) => {
               const isCurrentRole = guide.key === user.role || (guide.key === "topLevel" && user.role === "admin");
               return (
                 <article className={`support-role-card${isCurrentRole ? " support-role-card-current" : ""}`} key={guide.key}>
-                  {isCurrentRole ? <div className="support-current-role">SİZİN ROLÜNÜZ</div> : null}
+                  {isCurrentRole ? <div className="support-current-role">YOUR ROLE</div> : null}
                   <h3>{guide.title}</h3>
                   <p>{guide.description}</p>
                   <ul>
@@ -130,26 +119,26 @@ export default function SupportPage({ user, onLogout }: Props) {
 
         <section className="support-ticket-section" aria-labelledby="ticket-title">
           <div className="support-ticket-copy">
-            <span>TICKET OLUŞTURUN</span>
-            <h2 id="ticket-title">Bir sorun mu yaşıyorsunuz?</h2>
+            <span>CREATE A TICKET</span>
+            <h2 id="ticket-title">Are you experiencing an issue?</h2>
             <p>
-              Sorununuzu mümkün olduğunca ayrıntılı yazın. Ticket; hesabınız, rolünüz ve
-              organizasyon bilgilerinizle birlikte Inspectria Support ekibine gönderilir.
+              Describe your issue in as much detail as possible. Your ticket will be sent to
+              the Inspectria Support team together with your account, role, and organization details.
             </p>
-            <p className="support-ticket-email">Gönderim adresi: info@inspectria.com</p>
+            <p className="support-ticket-email">Sent to: info@inspectria.com</p>
           </div>
           <form className="support-ticket-form" onSubmit={submitTicket}>
             <label>
-              Konu
-              <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={180} required placeholder="Örn. Checklist ataması görünmüyor" />
+              Subject
+              <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={180} required placeholder="For example: I cannot see my checklist assignment" />
             </label>
             <label>
-              Sorununuz
-              <textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={4000} required placeholder="Ne yapmak istediğinizi ve karşılaştığınız durumu yazın." />
+              Your issue
+              <textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={4000} required placeholder="Tell us what you were trying to do and what happened." />
             </label>
-            {status ? <div className={status.startsWith("Ticket'") ? "support-ticket-success" : "support-ticket-error"}>{status}</div> : null}
+            {status ? <div className={status.startsWith("Your ticket has") ? "support-ticket-success" : "support-ticket-error"}>{status}</div> : null}
             <button type="submit" style={styles.button} disabled={sending}>
-              {sending ? "Gönderiliyor..." : "Support ticket gönder"}
+              {sending ? "Sending..." : "Send support ticket"}
             </button>
           </form>
         </section>
