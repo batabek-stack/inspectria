@@ -127,27 +127,32 @@ export default function ReportDetail({
         </div>
         <div className="responsive-report-actions" style={{ ...styles.row }}>
           {onBack ? (
-            <button style={styles.secondaryButton} onClick={onBack}>
+            <button type="button" style={styles.secondaryButton} onClick={onBack}>
               Back
             </button>
           ) : null}
           {onDownloadPdf ? (
-            <button style={styles.button} onClick={() => onDownloadPdf(report)}>
+            <button type="button" style={styles.button} onClick={() => onDownloadPdf(report)}>
               Download PDF
             </button>
           ) : null}
           {onEmailReport ? (
-            <button style={styles.secondaryButton} onClick={() => onEmailReport(report)}>
+            <button
+              type="button"
+              style={styles.secondaryButton}
+              onClick={() => onEmailReport(report)}
+            >
               Email Report
             </button>
           ) : null}
           {onDeleteReport ? (
-            <button style={styles.secondaryButton} onClick={() => onDeleteReport(report)}>
+            <button type="button" style={styles.secondaryButton} onClick={() => onDeleteReport(report)}>
               Delete Report
             </button>
           ) : null}
           {onDownloadActionPlan ? (
             <button
+              type="button"
               style={styles.button}
               onClick={() => onDownloadActionPlan(report)}
               disabled={actionPlanLoading}
@@ -157,6 +162,7 @@ export default function ReportDetail({
           ) : null}
           {onDownloadManagerSummary ? (
             <button
+              type="button"
               style={styles.button}
               onClick={() => onDownloadManagerSummary(report)}
               disabled={managerSummaryLoading}

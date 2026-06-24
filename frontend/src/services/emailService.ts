@@ -19,10 +19,19 @@ export type ContactPayload = {
   website?: string;
 };
 
+export type SupportTicketPayload = {
+  subject: string;
+  message: string;
+};
+
 export function emailReport(payload: EmailReportPayload) {
   return apiPost<{ success: boolean }>("/emails/report", payload);
 }
 
 export function sendContactMessage(payload: ContactPayload) {
   return apiPost<{ success: boolean }>("/emails/contact", payload);
+}
+
+export function createSupportTicket(payload: SupportTicketPayload) {
+  return apiPost<{ success: boolean }>("/emails/support-ticket", payload);
 }

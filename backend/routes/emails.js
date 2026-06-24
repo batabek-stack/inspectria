@@ -213,6 +213,60 @@ router.post("/contact", async (req, res, next) => {
   }
 });
 
+router.post("/support-ticket", authRequired, async (req, res, next) => {
+  const { subject = "", message = "" } = req.body || {};
+
+  try {
+    const cleanSubject = cleanText(subject, 180);
+    const cleanMessage = cleanText(message, 4000);
+    const senderEmail = validateRecipient(req.user.email, "account email");
+
+    if (!cleanSubject || !cleanMessage) {
+      return res.status(400).json({ message: "Subject and message are required." });
+    }
+
+    const supportRecipient = "info@inspectria.com";
+    const userName = cleanText(req.user.name || req.user.username, 120);
+    const organizationName = cleanText(req.user.organizationName, 160);
+    const plainText = [
+      "New Inspectria support ticket",
+      "",
+      `Subject: ${cleanSubject}`,
+      `User: ${userName}`,
+      `Email: ${senderEmail}`,
+      `Role: ${req.user.role}`,
+      organizationName ? `Organization: ${organizationName}` : "",
+      "",
+      "Message:",
+      cleanMessage,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    await sendReportEmail({
+      to: supportRecipient,
+      replyTo: senderEmail,
+      subject: `[Support] ${cleanSubject}`,
+      text: plainText,
+      html: `<p>${escapeHtml(plainText).replace(/\n/g, "<br />")}</p>`,
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    if (error.message && error.message.includes("valid email")) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    if (error.message === "Email delivery is not configured.") {
+      return res.status(503).json({
+        message: "Email delivery is not configured. Please try again later.",
+      });
+    }
+
+    next(error);
+  }
+});
+
 router.post("/report", authRequired, async (req, res, next) => {
   const {
     reportType = "checklist",
