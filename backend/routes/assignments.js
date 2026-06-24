@@ -104,4 +104,61 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
   }
 });
 
+router.post("/self", authRequired, async (req, res, next) => {
+  try {
+    if (req.user.role !== "user") {
+      return res.status(403).json({ message: "Only users can start a template themselves" });
+    }
+
+    const checklistId = Number(req.body?.checklistId);
+    if (!checklistId) {
+      return res.status(400).json({ message: "checklistId is required" });
+    }
+
+    const checklist = await db.one(
+      `
+      SELECT id, organization_id
+      FROM checklists
+      WHERE id = $1 AND organization_id = $2
+    `,
+      [checklistId, req.user.organizationId]
+    );
+
+    if (!checklist) {
+      return res.status(404).json({ message: "Checklist not found" });
+    }
+
+    const existingAssignment = await db.one(
+      `
+      SELECT id
+      FROM assignments
+      WHERE checklist_id = $1
+        AND assigned_to_user_id = $2
+        AND status = 'assigned'
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+      [checklist.id, req.user.id]
+    );
+
+    if (existingAssignment) {
+      return res.json({ success: true, assignmentId: existingAssignment.id });
+    }
+
+    const assignment = await db.one(
+      `
+      INSERT INTO assignments
+        (organization_id, checklist_id, assigned_to_user_id, assigned_by_user_id, assigned_at, status)
+      VALUES ($1, $2, $3, $3, NOW(), 'assigned')
+      RETURNING id
+    `,
+      [checklist.organization_id, checklist.id, req.user.id]
+    );
+
+    res.json({ success: true, assignmentId: assignment.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

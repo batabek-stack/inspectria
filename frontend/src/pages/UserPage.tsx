@@ -16,7 +16,7 @@ import DesktopFilePicker from "../components/DesktopFilePicker";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import ReportDetail from "../components/ReportDetail";
 import WalkthroughDetail from "../components/WalkthroughDetail";
-import { getAssignments } from "../services/assignmentService";
+import { getAssignments, startTemplate } from "../services/assignmentService";
 import { getChecklists } from "../services/checklistService";
 import {
   apiPost,
@@ -162,6 +162,7 @@ export default function UserPage({ user, onLogout }: Props) {
   const [reports, setReports] = useState<Report[]>([]);
   const [walkthroughs, setWalkthroughs] = useState<Walkthrough[]>([]);
   const [activeAssignmentId, setActiveAssignmentId] = useState<number | null>(null);
+  const [startingTemplateId, setStartingTemplateId] = useState<number | null>(null);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [selectedWalkthrough, setSelectedWalkthrough] = useState<Walkthrough | null>(null);
   const [form, setForm] = useState<Record<number, FillItem>>({});
@@ -396,6 +397,25 @@ export default function UserPage({ user, onLogout }: Props) {
       latestFormRef.current = merged;
       writeLocalDraft(assignment.id, merged);
       setIsRestoringDraft(false);
+    }
+  };
+
+  const openTemplate = async (checklist: Checklist) => {
+    try {
+      setStartingTemplateId(checklist.id);
+      const result = await startTemplate(checklist.id);
+      const refreshedAssignments = await getAssignments();
+      setAssignments(refreshedAssignments);
+
+      const assignment = refreshedAssignments.find((item) => item.id === result.assignmentId);
+      if (!assignment) throw new Error("Template assignment could not be opened.");
+
+      await openAssignment(assignment);
+      setMessage("Template opened. You can complete it now or save it as a draft.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Template could not be opened.");
+    } finally {
+      setStartingTemplateId(null);
     }
   };
 
@@ -1002,6 +1022,32 @@ export default function UserPage({ user, onLogout }: Props) {
                     </button>
                   </div>
                 ))
+            )}
+          </div>
+
+          <div style={styles.section}>
+            <h3 style={styles.title}>Available Templates</h3>
+            <div style={styles.small}>
+              Choose any template created for your organization and complete it without waiting for an assignment.
+            </div>
+
+            {checklists.length === 0 ? (
+              <div style={{ ...styles.small, marginTop: 12 }}>No templates are available for your organization.</div>
+            ) : (
+              checklists.map((checklist) => (
+                <div key={checklist.id} style={styles.section}>
+                  <strong>{checklist.title}</strong>
+                  <br />
+                  <button
+                    type="button"
+                    style={{ ...styles.button, marginTop: 10 }}
+                    onClick={() => openTemplate(checklist)}
+                    disabled={startingTemplateId === checklist.id}
+                  >
+                    {startingTemplateId === checklist.id ? "Opening Template..." : "Fill Template"}
+                  </button>
+                </div>
+              ))
             )}
           </div>
 
