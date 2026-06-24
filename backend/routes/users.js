@@ -128,7 +128,11 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
         INSERT INTO users
         (organization_id, email, username, password_hash, name, role, active, approval_status, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, TRUE, 'approved', NOW())
-      RETURNING id
+      RETURNING
+        id,
+        organization_id AS "organizationId",
+        email,
+        role
     `,
       [
         targetOrganizationId,
@@ -140,9 +144,32 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
       ]
     );
 
+    let welcomeEmailSent = false;
+    let welcomeEmailError = "";
+
+    try {
+      const planCode = await getOrganizationPlanCode(result.organizationId);
+      await sendWelcomeEmail({
+        to: result.email,
+        role: result.role,
+        isEnterprise: planCode === "enterprise",
+      });
+      welcomeEmailSent = true;
+    } catch (error) {
+      welcomeEmailError =
+        error instanceof Error ? error.message : "Welcome email could not be sent";
+      console.error("Welcome email failed for newly created user", {
+        userId: result.id,
+        email: result.email,
+        error: welcomeEmailError,
+      });
+    }
+
     res.json({
       success: true,
       userId: result.id,
+      welcomeEmailSent,
+      welcomeEmailError: welcomeEmailError || undefined,
     });
   } catch (error) {
     next(error);
@@ -302,7 +329,7 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
 
     if (shouldSendWelcomeEmail) {
       try {
-        const planCode = await getOrganizationPlanCode(updatedUser.organizationId);
+      const planCode = await getOrganizationPlanCode(updatedUser.organizationId);
         await sendWelcomeEmail({
           to: updatedUser.email,
           role: updatedUser.role,

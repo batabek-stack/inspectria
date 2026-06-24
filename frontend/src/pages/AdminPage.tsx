@@ -1655,12 +1655,16 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     setError("");
 
     try {
-      await updateUser(targetUser.id, {
+      const result = await updateUser(targetUser.id, {
         approvalStatus: "approved",
         active: true,
         role: "admin",
       });
-      setMessage(`${targetUser.name} approved as organization admin.`);
+      setMessage(
+        result.welcomeEmailSent
+          ? `${targetUser.name} approved as organization admin. Welcome email sent.`
+          : `${targetUser.name} approved as organization admin. Welcome email could not be sent: ${result.welcomeEmailError || "unknown error"}`
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Organization admin could not be approved");
@@ -1687,7 +1691,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     }
 
     try {
-      await createUser({
+      const result = await createUser({
         email: newEmail.trim(),
         username: newUsername.trim(),
         password: newPassword,
@@ -1702,7 +1706,11 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       setNewName("");
       setNewRole("user");
       setNewUserOrganizationId(0);
-      setMessage("User created successfully.");
+      setMessage(
+        result.welcomeEmailSent
+          ? "User created successfully. Welcome email sent."
+          : `User created successfully, but the welcome email could not be sent: ${result.welcomeEmailError || "unknown error"}`
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "User could not be created");
@@ -1848,15 +1856,19 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     }
 
     try {
-      await updateUser(targetUser.id, {
+      const result = await updateUser(targetUser.id, {
         email: pendingForm.email.trim(),
         username: pendingForm.username.trim(),
         name: pendingForm.name.trim(),
         approvalStatus: "approved",
         active: true,
-        role: "user",
+        role: targetUser.role === "admin" ? "admin" : "user",
       });
-      setMessage(`${targetUser.username} approved successfully.`);
+      setMessage(
+        result.welcomeEmailSent
+          ? `${targetUser.username} approved successfully. Welcome email sent.`
+          : `${targetUser.username} approved successfully, but the welcome email could not be sent: ${result.welcomeEmailError || "unknown error"}`
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "User could not be approved");

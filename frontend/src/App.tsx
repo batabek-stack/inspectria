@@ -7,6 +7,7 @@ import UserPage from "./pages/UserPage";
 import LandingPage from "./pages/LandingPage";
 import LegalPage, { getLegalPageFromHash, isLegalPageHash } from "./pages/LegalPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import SupportPage from "./pages/SupportPage";
 import { importSharedChecklist } from "./services/checklistService";
 
 function isLoginRoute(routeHash: string) {
@@ -138,6 +139,10 @@ export default function App() {
         }}
       />
     );
+  }
+
+  if (routeHash === "#support") {
+    return <SupportPage user={session.user} onLogout={handleLogout} />;
   }
 
   return session.user.role === "admin" || session.user.role === "platform_admin"

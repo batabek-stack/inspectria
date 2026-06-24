@@ -13,7 +13,12 @@ export function createUser(payload: {
   role: "admin" | "user";
   organizationId?: number;
 }) {
-  return apiPost<{ success: boolean; userId: number }>("/users", payload);
+  return apiPost<{
+    success: boolean;
+    userId: number;
+    welcomeEmailSent: boolean;
+    welcomeEmailError?: string;
+  }>("/users", payload);
 }
 
 export function updateUser(
@@ -28,7 +33,12 @@ export function updateUser(
     approvalStatus: "pending" | "approved" | "rejected";
   }>
 ) {
-  return apiPut<{ success: boolean; user: User }>(`/users/${id}`, payload);
+  return apiPut<{
+    success: boolean;
+    user: User;
+    welcomeEmailSent: boolean;
+    welcomeEmailError?: string;
+  }>(`/users/${id}`, payload);
 }
 
 export function createPasswordResetLink(id: number) {
