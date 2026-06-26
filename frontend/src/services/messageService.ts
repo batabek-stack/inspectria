@@ -24,7 +24,7 @@ export async function markMessageRead(messageId: number) {
 }
 
 export async function importTemplateFromMessage(messageId: number) {
-  return apiPost<{ success: boolean; checklistId: number; title: string }>(
+  return apiPost<{ success: boolean; checklistId: number; title: string; reused?: boolean }>(
     `/messages/${messageId}/import-template`,
     {}
   );

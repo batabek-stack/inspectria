@@ -99,7 +99,7 @@ async function initializeSubscriptionCheckout({
   organizationName,
 }) {
   return iyzicoRequest("POST", "/v2/subscription/checkoutform/initialize", {
-    locale: process.env.IYZICO_LOCALE || "tr",
+    locale: process.env.IYZICO_LOCALE || "en",
     callbackUrl,
     pricingPlanReferenceCode,
     subscriptionInitialStatus: "ACTIVE",

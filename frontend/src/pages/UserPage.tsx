@@ -12,7 +12,6 @@ import {
 } from "../types";
 import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
-import DesktopFilePicker from "../components/DesktopFilePicker";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import ReportDetail from "../components/ReportDetail";
 import WalkthroughDetail from "../components/WalkthroughDetail";
@@ -21,7 +20,6 @@ import { getChecklists } from "../services/checklistService";
 import {
   apiPost,
   createServerDownload,
-  copyLocalImageToUploads,
   FILE_BASE,
   uploadPhotos,
 } from "../services/api";
@@ -48,6 +46,8 @@ import {
   revokeDownload,
 } from "../utils/downloadFile";
 import { getMessages, markMessageRead } from "../services/messageService";
+
+const AUTO_LOGOFF_SAVE_EVENT = "inspectria:auto-logoff-save";
 
 type FillItem = {
   itemId: number;
@@ -411,7 +411,11 @@ export default function UserPage({ user, onLogout }: Props) {
       if (!assignment) throw new Error("Template assignment could not be opened.");
 
       await openAssignment(assignment);
-      setMessage("Template opened. You can complete it now or save it as a draft.");
+      setMessage(
+        result.reused
+          ? "Existing template draft opened. You can continue from where you left off."
+          : "Template opened. You can complete it now or save it as a draft."
+      );
     } catch (error) {
       alert(error instanceof Error ? error.message : "Template could not be opened.");
     } finally {
@@ -444,34 +448,6 @@ export default function UserPage({ user, onLogout }: Props) {
     } catch (error) {
       console.error(error);
       alert("Photo upload failed.");
-    } finally {
-      setUploadingItemId(null);
-    }
-  };
-
-  const handleAddDesktopPhoto = async (itemId: number, path: string) => {
-    try {
-      setUploadingItemId(itemId);
-      const uploaded = await copyLocalImageToUploads(path);
-
-      setForm((prev) => {
-        const nextForm = {
-          ...prev,
-          [itemId]: {
-            ...prev[itemId],
-            photos: [...(prev[itemId]?.photos || []), ...uploaded],
-          },
-        };
-
-        if (activeAssignmentIdRef.current) {
-          persistDraft(activeAssignmentIdRef.current, nextForm);
-        }
-
-        return nextForm;
-      });
-    } catch (error) {
-      console.error(error);
-      alert("Photo selection failed.");
     } finally {
       setUploadingItemId(null);
     }
@@ -593,11 +569,13 @@ export default function UserPage({ user, onLogout }: Props) {
 
     window.addEventListener("pagehide", flushDraft);
     window.addEventListener("beforeunload", flushDraft);
+    window.addEventListener(AUTO_LOGOFF_SAVE_EVENT, flushDraft);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("pagehide", flushDraft);
       window.removeEventListener("beforeunload", flushDraft);
+      window.removeEventListener(AUTO_LOGOFF_SAVE_EVENT, flushDraft);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [isRestoringDraft]);
@@ -852,27 +830,6 @@ export default function UserPage({ user, onLogout }: Props) {
     }
   };
 
-  const handleWalkthroughDesktopPhoto = async (
-    sectionIndex: number,
-    itemIndex: number,
-    path: string
-  ) => {
-    const key = `${sectionIndex}-${itemIndex}`;
-    try {
-      setWalkthroughUploadingKey(key);
-      const uploaded = await copyLocalImageToUploads(path);
-      const currentPhotos = walkthroughSections[sectionIndex]?.items[itemIndex]?.photos || [];
-      updateWalkthroughItem(sectionIndex, itemIndex, {
-        photos: [...currentPhotos, ...uploaded],
-      });
-    } catch (error) {
-      console.error(error);
-      alert("Photo selection failed.");
-    } finally {
-      setWalkthroughUploadingKey(null);
-    }
-  };
-
   const removeWalkthroughPhoto = (sectionIndex: number, itemIndex: number, photoIndex: number) => {
     const currentPhotos = walkthroughSections[sectionIndex]?.items[itemIndex]?.photos || [];
     updateWalkthroughItem(sectionIndex, itemIndex, {
@@ -931,6 +888,15 @@ export default function UserPage({ user, onLogout }: Props) {
   const sectionCount = activeChecklist?.sections.length || 0;
   const isFirstSection = activeSectionIndex === 0;
   const isLastSection = activeSectionIndex >= sectionCount - 1;
+  const activeAssignments = assignments.filter((assignment) => assignment.status === "assigned");
+  const adminAssignedAssignments = activeAssignments.filter(
+    (assignment) => !assignment.isSelfStarted
+  );
+  const selfStartedChecklistIds = new Set(
+    activeAssignments
+      .filter((assignment) => assignment.isSelfStarted)
+      .map((assignment) => assignment.checklist_id)
+  );
 
   const goToSection = (nextIndex: number) => {
     setActiveSectionIndex(Math.max(0, Math.min(nextIndex, sectionCount - 1)));
@@ -1003,11 +969,10 @@ export default function UserPage({ user, onLogout }: Props) {
           <div style={styles.section}>
             <h3 style={styles.title}>My Assignments</h3>
 
-            {assignments.filter((a) => a.status === "assigned").length === 0 ? (
+            {adminAssignedAssignments.length === 0 ? (
               <div style={styles.small}>No active assignments.</div>
             ) : (
-              assignments
-                .filter((a) => a.status === "assigned")
+              adminAssignedAssignments
                 .map((a) => (
                   <div key={a.id} style={styles.section}>
                     <strong>{a.checklistTitle}</strong>
@@ -1034,20 +999,34 @@ export default function UserPage({ user, onLogout }: Props) {
             {checklists.length === 0 ? (
               <div style={{ ...styles.small, marginTop: 12 }}>No templates are available for your organization.</div>
             ) : (
-              checklists.map((checklist) => (
-                <div key={checklist.id} style={styles.section}>
-                  <strong>{checklist.title}</strong>
-                  <br />
-                  <button
-                    type="button"
-                    style={{ ...styles.button, marginTop: 10 }}
-                    onClick={() => openTemplate(checklist)}
-                    disabled={startingTemplateId === checklist.id}
-                  >
-                    {startingTemplateId === checklist.id ? "Opening Template..." : "Fill Template"}
-                  </button>
-                </div>
-              ))
+              checklists.map((checklist) => {
+                const hasOpenDraft = selfStartedChecklistIds.has(checklist.id);
+
+                return (
+                  <div key={checklist.id} style={styles.section}>
+                    <strong>{checklist.title}</strong>
+                    {hasOpenDraft ? (
+                      <>
+                        <br />
+                        <span style={styles.small}>You have an open draft for this template.</span>
+                      </>
+                    ) : null}
+                    <br />
+                    <button
+                      type="button"
+                      style={{ ...styles.button, marginTop: 10 }}
+                      onClick={() => openTemplate(checklist)}
+                      disabled={startingTemplateId === checklist.id}
+                    >
+                      {startingTemplateId === checklist.id
+                        ? "Opening Template..."
+                        : hasOpenDraft
+                          ? "Continue Template"
+                          : "Fill Template"}
+                    </button>
+                  </div>
+                );
+              })
             )}
           </div>
 
@@ -1179,27 +1158,23 @@ export default function UserPage({ user, onLogout }: Props) {
                           <label style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>
                             Add Photos
                           </label>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            style={{ display: "block", marginTop: 8, marginBottom: 8 }}
-                            onChange={(e) => {
-                              handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
-                              e.currentTarget.value = "";
-                            }}
-                          />
+                          <label className="file-upload-button">
+                            <span>Choose File</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={(e) => {
+                                handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
+                                e.currentTarget.value = "";
+                              }}
+                            />
+                          </label>
                           {walkthroughUploadingKey === uploadKey ? (
                             <div style={{ marginTop: 8, color: "#0f766e", fontSize: 13 }}>
                               Uploading photos...
                             </div>
                           ) : null}
-                          <DesktopFilePicker
-                            kind="image"
-                            onSelect={(file) =>
-                              handleWalkthroughDesktopPhoto(sectionIndex, itemIndex, file.path)
-                            }
-                          />
                         </div>
 
                         {(item.photos || []).length > 0 ? (
@@ -1627,17 +1602,19 @@ export default function UserPage({ user, onLogout }: Props) {
                     >
                       Add Photos
                     </label>
-                    <input
-                      id={`photo-upload-${item.id}`}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      style={{ display: "block", marginTop: 8, marginBottom: 8 }}
-                      onChange={(e) => {
-                        handleAddPhotos(item.id, e.target.files);
-                        e.currentTarget.value = "";
-                      }}
-                    />
+                    <label className="file-upload-button" htmlFor={`photo-upload-${item.id}`}>
+                      <span>Choose File</span>
+                      <input
+                        id={`photo-upload-${item.id}`}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => {
+                          handleAddPhotos(item.id, e.target.files);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
                     {uploadingItemId === item.id ? (
                       <div style={{ marginTop: 8, color: "#0f766e", fontSize: 13 }}>
                         Uploading photos...
@@ -1646,10 +1623,6 @@ export default function UserPage({ user, onLogout }: Props) {
                     <div style={{ ...styles.small, marginTop: 8 }}>
                       You can also drag and drop photos here.
                     </div>
-                    <DesktopFilePicker
-                      kind="image"
-                      onSelect={(file) => handleAddDesktopPhoto(item.id, file.path)}
-                    />
                   </div>
 
                   {form[item.id]?.photos?.length > 0 && (

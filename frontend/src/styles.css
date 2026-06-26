@@ -85,6 +85,126 @@ textarea {
   font: inherit;
 }
 
+.file-upload-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 9px 14px;
+  border: 1px solid #b9d3d1;
+  border-radius: 8px;
+  background: #e6f3f1;
+  color: #06323f;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: 0 6px 14px rgba(3, 32, 42, 0.06);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.file-upload-button:hover,
+.file-upload-button:focus-within {
+  border-color: #0f766e;
+  background: #d9f3ee;
+  color: #06323f;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.14);
+}
+
+.file-upload-button input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.app-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(6, 35, 47, 0.48);
+}
+
+.app-modal {
+  width: min(100%, 620px);
+  max-height: min(90vh, 720px);
+  overflow: auto;
+  border: 1px solid #b9d3d1;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 22px 58px rgba(3, 32, 42, 0.22);
+}
+
+.app-modal-heading {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #d7e6e4;
+  background: #eef8f6;
+}
+
+.app-modal-heading span {
+  display: block;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-modal-heading h3 {
+  margin: 5px 0 0;
+  color: #06323f;
+}
+
+.app-modal-body {
+  padding: 18px 20px;
+  color: #244a54;
+  line-height: 1.5;
+}
+
+.app-modal-body p {
+  margin: 0 0 12px;
+}
+
+.app-modal-body ul {
+  margin: 0 0 14px;
+  padding-left: 20px;
+}
+
+.excel-import-column-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+
+.excel-import-column-grid strong {
+  padding: 10px 12px;
+  border: 1px solid #b9d3d1;
+  border-radius: 8px;
+  background: #fbfefd;
+  color: #06323f;
+  text-align: center;
+}
+
+.app-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid #d7e6e4;
+}
+
 .password-input {
   position: relative;
   flex: 1 1 180px;
@@ -783,13 +903,33 @@ textarea {
   max-width: 160px !important;
 }
 
-.template-row-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
+.template-row {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.template-row-actions img {
+.template-row-primary-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.template-row-primary-actions button {
+  min-height: 34px;
+  padding: 7px 10px !important;
+}
+
+.compact-row-actions.template-row-actions {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr) auto;
+  align-items: start;
+  width: 100%;
+}
+
+.compact-row-actions.template-row-actions img {
   border: 1px solid #d7e6e4;
   border-radius: 8px;
   object-fit: contain;
@@ -798,6 +938,12 @@ textarea {
 .template-section-list {
   display: grid;
   gap: 6px;
+  max-height: min(42vh, 360px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #d7e6e4;
+  border-radius: 8px;
+  background: #ffffff;
   color: #5e7378;
   font-size: 13px;
 }
@@ -807,6 +953,7 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+  grid-column: 1 / -1;
 }
 
 .compact-list {
@@ -2061,7 +2208,31 @@ textarea {
     grid-template-columns: 1fr !important;
   }
 
+  .app-modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .app-modal-actions button {
+    width: 100%;
+  }
+
+  .excel-import-column-grid {
+    grid-template-columns: 1fr;
+  }
+
   .compact-row {
+    grid-template-columns: 1fr;
+  }
+
+  .template-row {
+    grid-template-columns: 1fr;
+  }
+
+  .template-row-primary-actions {
+    padding-left: 44px;
+  }
+
+  .compact-row-actions.template-row-actions {
     grid-template-columns: 1fr;
   }
 

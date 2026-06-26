@@ -40,6 +40,12 @@ type PdfPhotoData = {
   height: number;
 };
 
+type PdfImageData = {
+  dataUrl: string;
+  width: number;
+  height: number;
+};
+
 const PAGE = {
   width: 210,
   height: 297,
@@ -65,6 +71,8 @@ const MAX_PHOTO_LONG_EDGE_PX = 1100;
 const MIN_PHOTO_LONG_EDGE_PX = 520;
 const MAX_PHOTO_QUALITY = 0.72;
 const MIN_PHOTO_QUALITY = 0.38;
+const LOGO_PATH = "/inspectra-logo.png";
+const SITE_URL = "www.inspectria.com";
 
 function sanitizeText(value?: string | null) {
   const text = value && value.trim() ? value.trim() : "-";
@@ -234,6 +242,36 @@ async function loadImageAsDataUrl(src: string, totalPhotos: number): Promise<Pdf
   }
 }
 
+async function loadLogoImage(): Promise<PdfImageData | null> {
+  try {
+    const response = await fetch(LOGO_PATH);
+    const blob = await response.blob();
+    const dataUrl = await readImageAsDataUrl(blob);
+    const image = await createImageElement(dataUrl);
+
+    return {
+      dataUrl,
+      width: image.naturalWidth || 1,
+      height: image.naturalHeight || 1,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function drawLogo(
+  doc: jsPDF,
+  logo: PdfImageData | null,
+  x: number,
+  y: number,
+  width: number
+) {
+  if (!logo) return;
+
+  const height = width / (logo.width / logo.height || 1);
+  doc.addImage(logo.dataUrl, "PNG", x, y, width, height, undefined, "FAST");
+}
+
 function getPhotoDrawSize(photo: PdfPhotoData, maxWidth: number) {
   const aspectRatio = photo.width / photo.height;
   const isPortrait = photo.height > photo.width * 1.08;
@@ -266,6 +304,7 @@ export async function generateChecklistPdf(
 
   const contentWidth = PAGE.width - PAGE.marginX * 2;
   const totalPhotos = report.items.reduce((total, item) => total + (item.photos?.length || 0), 0);
+  const logo = await loadLogoImage();
   let cursorY = PAGE.top;
   let pageNumber = 1;
 
@@ -279,20 +318,24 @@ export async function generateChecklistPdf(
     totalQuestions > 0 ? Math.round((yesCount / totalQuestions) * 100) : 0;
 
   const drawPageHeader = (isFirstPage = false) => {
+    const headerLogoWidth = 16;
+    const headerTextX = PAGE.marginX + headerLogoWidth + 5;
+
     doc.setFillColor(...COLORS.headerBg);
     doc.rect(0, 0, PAGE.width, 24, "F");
+    drawLogo(doc, logo, PAGE.marginX, 4, headerLogoWidth);
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(isFirstPage ? 16 : 12);
     doc.setTextColor(...COLORS.text);
-    doc.text(sanitizeText(report.hotelName || "Inspectria Report"), PAGE.marginX, 11);
+    doc.text(sanitizeText(report.hotelName || "Inspectria Report"), headerTextX, 11);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(...COLORS.muted);
     doc.text(
       sanitizeText(report.reportTitle || report.checklistTitle || "Checklist Completion Report"),
-      PAGE.marginX,
+      headerTextX,
       17
     );
 
@@ -303,13 +346,23 @@ export async function generateChecklistPdf(
   };
 
   const drawPageFooter = () => {
+    const footerLogoWidth = 8;
+
     doc.setDrawColor(...COLORS.line);
     doc.line(PAGE.marginX, PAGE.height - 12, PAGE.width - PAGE.marginX, PAGE.height - 12);
+    drawLogo(
+      doc,
+      logo,
+      PAGE.width - PAGE.marginX - footerLogoWidth,
+      PAGE.height - 11,
+      footerLogoWidth
+    );
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...COLORS.muted);
-    doc.text(`Generated: ${formatDate(new Date())}`, PAGE.marginX, PAGE.height - 7);
+    doc.text(SITE_URL, PAGE.marginX, PAGE.height - 9);
+    doc.text(`Generated: ${formatDate(new Date())}`, PAGE.marginX, PAGE.height - 5);
     doc.text(`Page ${pageNumber}`, PAGE.width - PAGE.marginX - 14, PAGE.height - 7);
   };
 

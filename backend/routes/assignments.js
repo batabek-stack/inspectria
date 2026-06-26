@@ -31,7 +31,8 @@ router.get("/", authRequired, async (req, res, next) => {
         c.title AS "checklistTitle",
         c.image_path AS "checklistImagePath",
         u1.name AS "assignedToName",
-        u2.name AS "assignedByName"
+        u2.name AS "assignedByName",
+        a.assigned_to_user_id = a.assigned_by_user_id AS "isSelfStarted"
       FROM assignments a
       JOIN checklists c ON a.checklist_id = c.id
       JOIN users u1 ON a.assigned_to_user_id = u1.id
@@ -142,7 +143,7 @@ router.post("/self", authRequired, async (req, res, next) => {
     );
 
     if (existingAssignment) {
-      return res.json({ success: true, assignmentId: existingAssignment.id });
+      return res.json({ success: true, assignmentId: existingAssignment.id, reused: true });
     }
 
     const assignment = await db.one(
@@ -155,7 +156,7 @@ router.post("/self", authRequired, async (req, res, next) => {
       [checklist.organization_id, checklist.id, req.user.id]
     );
 
-    res.json({ success: true, assignmentId: assignment.id });
+    res.json({ success: true, assignmentId: assignment.id, reused: false });
   } catch (error) {
     next(error);
   }
