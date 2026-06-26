@@ -145,6 +145,7 @@ export type Assignment = {
   checklistImagePath?: string;
   assignedToName: string;
   assignedByName: string;
+  isSelfStarted?: boolean;
 };
 
 export type Report = {

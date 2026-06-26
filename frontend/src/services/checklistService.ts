@@ -74,7 +74,7 @@ export async function shareChecklist(checklistId: number, email: string) {
 }
 
 export async function importSharedChecklist(token: string) {
-  return apiPost<{ success: boolean; checklistId: number; title: string }>(
+  return apiPost<{ success: boolean; checklistId: number; title: string; reused?: boolean }>(
     "/checklists/shared/import",
     { token }
   );

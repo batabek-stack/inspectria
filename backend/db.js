@@ -150,6 +150,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS checklists (
       id SERIAL PRIMARY KEY,
       organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      imported_from_checklist_id INTEGER REFERENCES checklists(id) ON DELETE SET NULL,
       title TEXT NOT NULL,
       image_path TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -498,6 +499,16 @@ async function initDb() {
   `);
 
   await ensureColumn("checklists", "organization_id", "organization_id INTEGER");
+  await ensureColumn(
+    "checklists",
+    "imported_from_checklist_id",
+    "imported_from_checklist_id INTEGER REFERENCES checklists(id) ON DELETE SET NULL"
+  );
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_checklists_imported_from
+      ON checklists(organization_id, imported_from_checklist_id)
+      WHERE imported_from_checklist_id IS NOT NULL
+  `);
   await ensureColumn("checklists", "image_path", "image_path TEXT NOT NULL DEFAULT ''");
   await ensureColumn("assignments", "organization_id", "organization_id INTEGER");
   await ensureColumn("reports", "organization_id", "organization_id INTEGER");

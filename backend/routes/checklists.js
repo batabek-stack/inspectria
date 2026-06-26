@@ -76,6 +76,22 @@ function makeQuestionText(question, standard) {
   return `${cleanQuestion} (Standart: ${cleanStandard})`;
 }
 
+function normalizeImportAnswerType(value) {
+  const normalized = normalizeText(value)
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/^YES_?\/_?NO_?\/_?N\/?A$/, "FORMAT1")
+    .replace(/^YES_?NO_?N\/?A$/, "FORMAT1")
+    .replace(/^YES_NO_NA$/, "FORMAT1")
+    .replace(/^YES_NO_N\/A$/, "FORMAT1");
+
+  return ANSWER_TYPES.has(normalized) ? normalized : "FORMAT1";
+}
+
+function looksLikeAnswerType(value) {
+  return normalizeImportAnswerType(value) !== "FORMAT1" || /^format\s*1$/i.test(normalizeText(value));
+}
+
 function fallbackImportSections(rows) {
   const sanitizedRows = sanitizeImportRows(rows);
   if (sanitizedRows.length === 0) return [];
@@ -83,19 +99,30 @@ function fallbackImportSections(rows) {
   const hasHeader = looksLikeHeader(sanitizedRows[0]);
   const headers = hasHeader ? sanitizedRows[0].map(normalizeHeader) : [];
   const sourceRows = hasHeader ? sanitizedRows.slice(1) : sanitizedRows;
+  const hasMultiColumnRows = sourceRows.some((row) => row[0] && row[1]);
+  const secondColumnLooksLikeAnswerType = sourceRows.some((row) => looksLikeAnswerType(row[1] || ""));
   const sectionIndex = hasHeader
     ? findHeaderIndex(headers, ["section", "bölüm", "bolum", "kategori", "alan"])
-    : sourceRows.some((row) => row[0] && row[1])
+    : hasMultiColumnRows && !secondColumnLooksLikeAnswerType
       ? 0
       : -1;
   const questionIndex = hasHeader
     ? findHeaderIndex(headers, ["question", "questions", "soru", "criteria", "kriter", "kontrol"])
-    : sourceRows.some((row) => row[0] && row[1])
-      ? 1
+    : hasMultiColumnRows
+      ? secondColumnLooksLikeAnswerType
+        ? 0
+        : 1
       : 0;
+  const answerTypeIndex = hasHeader
+    ? findHeaderIndex(headers, ["answer type", "answer format", "type", "format", "yanıt tipi", "yanit tipi"])
+    : secondColumnLooksLikeAnswerType
+      ? 1
+      : sourceRows.some((row) => looksLikeAnswerType(row[2] || ""))
+        ? 2
+        : -1;
   const standardIndex = hasHeader
     ? findHeaderIndex(headers, ["standard", "standart", "limit", "expected", "beklenen"])
-    : sourceRows.some((row) => row[2])
+    : answerTypeIndex < 0 && sourceRows.some((row) => row[2])
       ? 2
       : -1;
 
@@ -121,6 +148,7 @@ function fallbackImportSections(rows) {
 
     const explicitSection = sectionIndex >= 0 ? normalizeText(row[sectionIndex]) : "";
     const rawQuestion = questionIndex >= 0 ? normalizeText(row[questionIndex]) : "";
+    const rawAnswerType = answerTypeIndex >= 0 ? normalizeText(row[answerTypeIndex]) : "";
     const rawStandard = standardIndex >= 0 ? normalizeText(row[standardIndex]) : "";
 
     if (!rawQuestion && filledCells.length === 1) {
@@ -135,7 +163,7 @@ function fallbackImportSections(rows) {
 
     ensureSection(sectionTitle).items.push({
       question,
-      answerType: "FORMAT1",
+      answerType: normalizeImportAnswerType(rawAnswerType),
       options: [],
     });
   });
@@ -182,6 +210,9 @@ function buildChecklistImportPayload({ rows, fileName, sheetName }) {
           "You convert external spreadsheet checklists into Inspectria checklist templates.",
           "Return JSON only with: title, sections, warnings.",
           "Every source row that contains an inspection criterion, control point, or question must become exactly one checklist item.",
+          "Question is the only required import column. Section and Answer Type columns are optional.",
+          "If Section is missing or blank, put all questions into one section named Imported Questions.",
+          "If Answer Type is missing or blank, use FORMAT1.",
           "Create sections from explicit Section/Bolum/Kategori columns, standalone heading rows, or logical groups.",
           "Do not create questions from header rows, notes, standards-only rows, or empty rows.",
           "If a row has both a criterion/question and a standard/limit, include the standard inside the question text in the same language.",
@@ -374,9 +405,14 @@ function isValidEmail(value) {
 }
 
 async function copyChecklistToOrganization(client, sourceChecklistId, targetOrganizationId, titleSuffix = "") {
+  await client.query("SELECT pg_advisory_xact_lock($1::int, $2::int)", [
+    Number(targetOrganizationId),
+    Number(sourceChecklistId),
+  ]);
+
   const source = await client.query(
     `
-    SELECT id, title, image_path
+    SELECT id, organization_id, title, image_path
     FROM checklists
     WHERE id = $1
   `,
@@ -388,14 +424,44 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
     throw Object.assign(new Error("Shared template not found"), { statusCode: 404 });
   }
 
+  if (checklist.organization_id === targetOrganizationId) {
+    return {
+      id: checklist.id,
+      title: checklist.title,
+      reused: true,
+    };
+  }
+
+  const existingImport = await client.query(
+    `
+    SELECT id, title
+    FROM checklists
+    WHERE organization_id = $1
+      AND imported_from_checklist_id = $2
+    ORDER BY id DESC
+    LIMIT 1
+  `,
+    [targetOrganizationId, sourceChecklistId]
+  );
+
+  if (existingImport.rows[0]) {
+    return {
+      id: existingImport.rows[0].id,
+      title: existingImport.rows[0].title,
+      reused: true,
+    };
+  }
+
   const checklistResult = await client.query(
     `
-    INSERT INTO checklists (organization_id, title, image_path, created_at)
-    VALUES ($1, $2, $3, NOW())
+    INSERT INTO checklists
+      (organization_id, imported_from_checklist_id, title, image_path, created_at)
+    VALUES ($1, $2, $3, $4, NOW())
     RETURNING id
   `,
     [
       targetOrganizationId,
+      sourceChecklistId,
       `${checklist.title}${titleSuffix}`.trim(),
       checklist.image_path || "",
     ]
@@ -455,6 +521,7 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
   return {
     id: nextChecklistId,
     title: checklist.title,
+    reused: false,
   };
 }
 
@@ -801,6 +868,7 @@ router.post("/shared/import", authRequired, adminOnly, async (req, res, next) =>
       success: true,
       checklistId: imported.id,
       title: imported.title,
+      reused: imported.reused,
     });
   } catch (error) {
     next(error);

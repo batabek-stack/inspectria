@@ -6,9 +6,14 @@ const { sendAppMessageEmail } = require("../services/emailService");
 const router = express.Router();
 
 async function copyChecklistToOrganization(client, sourceChecklistId, targetOrganizationId) {
+  await client.query("SELECT pg_advisory_xact_lock($1::int, $2::int)", [
+    Number(targetOrganizationId),
+    Number(sourceChecklistId),
+  ]);
+
   const source = await client.query(
     `
-    SELECT id, title, image_path
+    SELECT id, organization_id, title, image_path
     FROM checklists
     WHERE id = $1
   `,
@@ -20,13 +25,42 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
     throw Object.assign(new Error("Shared template not found"), { statusCode: 404 });
   }
 
+  if (checklist.organization_id === targetOrganizationId) {
+    return {
+      id: checklist.id,
+      title: checklist.title,
+      reused: true,
+    };
+  }
+
+  const existingImport = await client.query(
+    `
+    SELECT id, title
+    FROM checklists
+    WHERE organization_id = $1
+      AND imported_from_checklist_id = $2
+    ORDER BY id DESC
+    LIMIT 1
+  `,
+    [targetOrganizationId, sourceChecklistId]
+  );
+
+  if (existingImport.rows[0]) {
+    return {
+      id: existingImport.rows[0].id,
+      title: existingImport.rows[0].title,
+      reused: true,
+    };
+  }
+
   const checklistResult = await client.query(
     `
-    INSERT INTO checklists (organization_id, title, image_path, created_at)
-    VALUES ($1, $2, $3, NOW())
+    INSERT INTO checklists
+      (organization_id, imported_from_checklist_id, title, image_path, created_at)
+    VALUES ($1, $2, $3, $4, NOW())
     RETURNING id
   `,
-    [targetOrganizationId, checklist.title, checklist.image_path || ""]
+    [targetOrganizationId, sourceChecklistId, checklist.title, checklist.image_path || ""]
   );
 
   const nextChecklistId = checklistResult.rows[0].id;
@@ -83,6 +117,7 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
   return {
     id: nextChecklistId,
     title: checklist.title,
+    reused: false,
   };
 }
 
@@ -332,6 +367,7 @@ router.post("/:id/import-template", authRequired, adminOnly, async (req, res, ne
       success: true,
       checklistId: imported.id,
       title: imported.title,
+      reused: imported.reused,
     });
   } catch (error) {
     next(error);

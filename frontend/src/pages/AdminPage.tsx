@@ -16,7 +16,6 @@ import {
 } from "../types";
 import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
-import DesktopFilePicker from "../components/DesktopFilePicker";
 import PasswordInput from "../components/PasswordInput";
 import ReportDetail from "../components/ReportDetail";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
@@ -67,9 +66,7 @@ import {
 } from "../services/aiActionPlanService";
 import {
   createServerDownload,
-  copyLocalImageToUploads,
   FILE_BASE,
-  getLocalFileBlob,
   uploadPhotos,
 } from "../services/api";
 import {
@@ -84,6 +81,8 @@ import {
   markMessageRead,
   sendAppMessage,
 } from "../services/messageService";
+
+const AUTO_LOGOFF_SAVE_EVENT = "inspectria:auto-logoff-save";
 
 type Props = {
   user: User;
@@ -100,6 +99,14 @@ type QuestionForm = {
   question: string;
   answerType: AnswerType;
   options: string[];
+};
+
+type TemplateDraft = {
+  editingId: number | null;
+  title: string;
+  templateImagePath: string;
+  sections: SectionForm[];
+  savedAt: string;
 };
 
 type AdminSectionKey =
@@ -125,6 +132,13 @@ const ANSWER_TYPE_LABELS: Record<AnswerType, string> = {
 };
 
 const ALLOWED_IMPORT_EXTENSIONS = new Set([".xlsx", ".csv"]);
+const IMPORT_ANSWER_TYPES = new Set<AnswerType>([
+  "FORMAT1",
+  "DATE",
+  "TEXT",
+  "MULTIPLE_CHOICE",
+  "RADIO_BUTTON",
+]);
 
 const ADMIN_SECTIONS: Array<{
   key: AdminSectionKey;
@@ -214,6 +228,29 @@ function normalizeQuestionForm(item: {
   };
 }
 
+function normalizeDraftSections(value: unknown): SectionForm[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((section) => {
+      if (!section || typeof section !== "object") return null;
+      const source = section as { title?: unknown; items?: unknown };
+      const items = Array.isArray(source.items)
+        ? source.items
+            .filter((item): item is Parameters<typeof normalizeQuestionForm>[0] =>
+              Boolean(item && typeof item === "object")
+            )
+            .map(normalizeQuestionForm)
+        : [];
+
+      return {
+        title: typeof source.title === "string" ? source.title : "",
+        items: items.length ? items : [createEmptyQuestion()],
+      };
+    })
+    .filter((section): section is SectionForm => Boolean(section));
+}
+
 function normalizeImportRows(rows: unknown[][]) {
   return rows
     .map((row) => row.map((cell) => String(cell || "").trim()))
@@ -247,6 +284,25 @@ function buildImportedQuestion(question: string, standard: string) {
   return `${cleanQuestion} (Standart: ${cleanStandard})`;
 }
 
+function normalizeImportAnswerType(value: string): AnswerType {
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/^YES_?\/_?NO_?\/_?N\/?A$/, "FORMAT1")
+    .replace(/^YES_?NO_?N\/?A$/, "FORMAT1")
+    .replace(/^YES_NO_NA$/, "FORMAT1")
+    .replace(/^YES_NO_N\/A$/, "FORMAT1");
+
+  return IMPORT_ANSWER_TYPES.has(normalized as AnswerType)
+    ? (normalized as AnswerType)
+    : "FORMAT1";
+}
+
+function looksLikeAnswerType(value: string) {
+  return normalizeImportAnswerType(value) !== "FORMAT1" || /^format\s*1$/i.test(value.trim());
+}
+
 function buildLocalImportSections(rows: string[][]): SectionForm[] {
   if (rows.length === 0) return [];
 
@@ -254,19 +310,29 @@ function buildLocalImportSections(rows: string[][]): SectionForm[] {
   const headers = hasHeader ? rows[0].map(normalizeImportHeader) : [];
   const sourceRows = hasHeader ? rows.slice(1) : rows;
   const hasMultiColumnRows = sourceRows.some((row) => row[0] && row[1]);
+  const secondColumnLooksLikeAnswerType = sourceRows.some((row) => looksLikeAnswerType(row[1] || ""));
   const sectionIndex = hasHeader
     ? findImportHeaderIndex(headers, ["section", "bölüm", "bolum", "kategori", "alan"])
-    : hasMultiColumnRows
+    : hasMultiColumnRows && !secondColumnLooksLikeAnswerType
       ? 0
       : -1;
   const questionIndex = hasHeader
     ? findImportHeaderIndex(headers, ["question", "questions", "soru", "criteria", "kriter", "kontrol"])
     : hasMultiColumnRows
-      ? 1
+      ? secondColumnLooksLikeAnswerType
+        ? 0
+        : 1
       : 0;
+  const answerTypeIndex = hasHeader
+    ? findImportHeaderIndex(headers, ["answer type", "answer format", "type", "format", "yanıt tipi", "yanit tipi"])
+    : secondColumnLooksLikeAnswerType
+      ? 1
+      : sourceRows.some((row) => looksLikeAnswerType(row[2] || ""))
+        ? 2
+        : -1;
   const standardIndex = hasHeader
     ? findImportHeaderIndex(headers, ["standard", "standart", "limit", "expected", "beklenen"])
-    : sourceRows.some((row) => row[2])
+    : answerTypeIndex < 0 && sourceRows.some((row) => row[2])
       ? 2
       : -1;
   const sections: SectionForm[] = [];
@@ -291,6 +357,7 @@ function buildLocalImportSections(rows: string[][]): SectionForm[] {
 
     const explicitSection = sectionIndex >= 0 ? String(row[sectionIndex] || "").trim() : "";
     const rawQuestion = questionIndex >= 0 ? String(row[questionIndex] || "").trim() : "";
+    const rawAnswerType = answerTypeIndex >= 0 ? String(row[answerTypeIndex] || "").trim() : "";
     const rawStandard = standardIndex >= 0 ? String(row[standardIndex] || "").trim() : "";
 
     if (!rawQuestion && filledCells.length === 1) {
@@ -304,7 +371,7 @@ function buildLocalImportSections(rows: string[][]): SectionForm[] {
 
     ensureSection(explicitSection || currentSectionTitle).items.push({
       question,
-      answerType: "FORMAT1",
+      answerType: normalizeImportAnswerType(rawAnswerType),
       options: [""],
     });
   });
@@ -538,6 +605,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [title, setTitle] = useState("");
   const [templateImagePath, setTemplateImagePath] = useState("");
   const [templateImageUploading, setTemplateImageUploading] = useState(false);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [sections, setSections] = useState<SectionForm[]>([
     {
       title: "",
@@ -561,6 +629,83 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     report: Report;
     summary: ManagerSummaryResponse;
   } | null>(null);
+  const templateDraftKey = `inspectria_template_draft_${user.id}`;
+
+  const hasTemplateDraftContent = (draft: Omit<TemplateDraft, "savedAt">) =>
+    Boolean(
+      draft.title.trim() ||
+      draft.templateImagePath ||
+      draft.sections.some(
+        (section) =>
+          section.title.trim() ||
+          section.items.some(
+            (item) =>
+              item.question.trim() ||
+              item.answerType !== "FORMAT1" ||
+              item.options.some((option) => option.trim())
+          )
+      )
+    );
+
+  const clearTemplateDraft = () => {
+    localStorage.removeItem(templateDraftKey);
+  };
+
+  const saveTemplateDraft = () => {
+    const draft = {
+      editingId,
+      title,
+      templateImagePath,
+      sections,
+    };
+
+    if (!hasTemplateDraftContent(draft)) {
+      clearTemplateDraft();
+      return;
+    }
+
+    localStorage.setItem(
+      templateDraftKey,
+      JSON.stringify({
+        ...draft,
+        savedAt: new Date().toISOString(),
+      } satisfies TemplateDraft)
+    );
+  };
+
+  const restoreTemplateDraft = () => {
+    const rawDraft = localStorage.getItem(templateDraftKey);
+    if (!rawDraft) return;
+
+    try {
+      const parsed = JSON.parse(rawDraft) as Partial<TemplateDraft>;
+      const restored = {
+        editingId: typeof parsed.editingId === "number" ? parsed.editingId : null,
+        title: typeof parsed.title === "string" ? parsed.title : "",
+        templateImagePath:
+          typeof parsed.templateImagePath === "string" ? parsed.templateImagePath : "",
+        sections: normalizeDraftSections(parsed.sections),
+      };
+
+      if (!restored.sections.length) {
+        restored.sections = [{ title: "", items: [createEmptyQuestion()] }];
+      }
+
+      if (!hasTemplateDraftContent(restored)) {
+        clearTemplateDraft();
+        return;
+      }
+
+      setEditingId(restored.editingId);
+      setTitle(restored.title);
+      setTemplateImagePath(restored.templateImagePath);
+      setSections(restored.sections);
+      setActiveAdminPage("templates");
+      setMessage("Template draft restored from auto logoff. Continue editing and save when ready.");
+    } catch {
+      clearTemplateDraft();
+    }
+  };
 
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgPlan, setNewOrgPlan] = useState("standard");
@@ -725,6 +870,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   }, []);
 
   useEffect(() => {
+    restoreTemplateDraft();
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(AUTO_LOGOFF_SAVE_EVENT, saveTemplateDraft);
+    return () => window.removeEventListener(AUTO_LOGOFF_SAVE_EVENT, saveTemplateDraft);
+  }, [editingId, title, templateImagePath, sections]);
+
+  useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 769px)");
     const syncDesktopState = () => {
       setIsDesktop(mediaQuery.matches);
@@ -776,6 +930,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   };
 
   const resetTemplateForm = () => {
+    clearTemplateDraft();
     setEditingId(null);
     setTitle("");
     setTemplateImagePath("");
@@ -1006,24 +1161,25 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     }
   };
 
-  const handleTemplateImageFromDesktop = async (path: string) => {
-    try {
-      setTemplateImageUploading(true);
-      setError("");
-      const uploaded = await copyLocalImageToUploads(path);
-      setTemplateImagePath(uploaded[0] || "");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Template image could not be selected");
-    } finally {
-      setTemplateImageUploading(false);
-    }
-  };
-
-  const handleImportQuestionsFromExcel = async (file: File | null) => {
+  const handleImportQuestionsFromExcel = (file: File | null) => {
     if (!file) return;
 
     setMessage("");
     setError("");
+    setPendingImportFile(file);
+  };
+
+  const cancelExcelImport = () => {
+    setPendingImportFile(null);
+  };
+
+  const continueExcelImport = async () => {
+    const file = pendingImportFile;
+    if (!file) return;
+
+    setMessage("");
+    setError("");
+    setPendingImportFile(null);
 
     try {
       const extension = getFileExtension(file.name);
@@ -1103,12 +1259,6 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Excel import failed");
     }
-  };
-
-  const handleImportQuestionsFromDesktop = async (path: string, name: string) => {
-    const blob = await getLocalFileBlob(path);
-    const file = new File([blob], name);
-    await handleImportQuestionsFromExcel(file);
   };
 
   const saveChecklist = async () => {
@@ -1203,6 +1353,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         email: prev[checklistId]?.email || "",
         sending: false,
       },
+    }));
+    setExpandedRows((current) => ({
+      ...current,
+      [`template-${checklistId}`]: !shareForms[checklistId]?.open || current[`template-${checklistId}`],
     }));
   };
 
@@ -1305,7 +1459,11 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
     try {
       const result = await importTemplateFromMessage(inboxMessage.id);
-      setMessage(`${result.title} template was imported into Templates.`);
+      setMessage(
+        result.reused
+          ? `${result.title} template already exists in Templates.`
+          : `${result.title} template was imported into Templates.`
+      );
       await load();
       setActiveAdminPage("templates");
     } catch (err) {
@@ -2066,26 +2224,6 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     }
   };
 
-  const handleWalkthroughDesktopPhoto = async (
-    sectionIndex: number,
-    itemIndex: number,
-    path: string
-  ) => {
-    const key = `${sectionIndex}-${itemIndex}`;
-    try {
-      setWalkthroughUploadingKey(key);
-      const uploaded = await copyLocalImageToUploads(path);
-      const currentPhotos = walkthroughSections[sectionIndex]?.items[itemIndex]?.photos || [];
-      updateWalkthroughItem(sectionIndex, itemIndex, {
-        photos: [...currentPhotos, ...uploaded],
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Photo selection failed");
-    } finally {
-      setWalkthroughUploadingKey(null);
-    }
-  };
-
   const removeWalkthroughPhoto = (sectionIndex: number, itemIndex: number, photoIndex: number) => {
     const currentPhotos = walkthroughSections[sectionIndex]?.items[itemIndex]?.photos || [];
     updateWalkthroughItem(sectionIndex, itemIndex, {
@@ -2286,6 +2424,57 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   return (
     <DashboardShell user={user} onLogout={onLogout}>
+      {pendingImportFile ? (
+        <div className="app-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="excel-import-title">
+          <div className="app-modal">
+            <div className="app-modal-heading">
+              <div>
+                <span>Excel Import</span>
+                <h3 id="excel-import-title">Check your file format before importing</h3>
+              </div>
+            </div>
+            <div className="app-modal-body">
+              <p>
+                The simplest import format is one Question column. Section and Answer Type are optional.
+                If you include all columns, use this order:
+              </p>
+              <div className="excel-import-column-grid">
+                <strong>Section</strong>
+                <strong>Question</strong>
+                <strong>Answer Type</strong>
+              </div>
+              <p>
+                If Section is blank or missing, all questions will be imported into one section named
+                Imported Questions. If Answer Type is blank or missing, questions will use FORMAT1
+                with YES / NO / N/A answer buttons.
+              </p>
+              <p>
+                When you do provide Answer Type, use one of these formats:
+              </p>
+              <ul>
+                <li><strong>FORMAT1</strong> - standard YES / NO / N/A answer buttons.</li>
+                <li><strong>DATE</strong> - date picker answer.</li>
+                <li><strong>TEXT</strong> - free-text answer field.</li>
+                <li><strong>MULTIPLE_CHOICE</strong> - single selected option.</li>
+                <li><strong>RADIO_BUTTON</strong> - selectable option list.</li>
+              </ul>
+              <p>
+                Selected file: <strong>{pendingImportFile.name}</strong>. If the file needs
+                formatting, cancel now, update the spreadsheet, and choose the file again.
+              </p>
+            </div>
+            <div className="app-modal-actions">
+              <button type="button" style={styles.secondaryButton} onClick={cancelExcelImport}>
+                Cancel
+              </button>
+              <button type="button" style={styles.button} onClick={continueExcelImport}>
+                Continue Import
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {selectedWalkthrough ? (
         <WalkthroughDetail
           walkthrough={selectedWalkthrough}
@@ -3608,25 +3797,23 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <label style={{ display: "block", fontWeight: 700, marginBottom: 8 }}>
                 Import Checklist from Excel
               </label>
-              <input
-                id="question-import-file"
-                type="file"
-                accept=".xlsx,.csv"
-                style={{ display: "block", marginTop: 8, marginBottom: 8 }}
-                onChange={(e) => {
-                  handleImportQuestionsFromExcel(e.target.files?.[0] || null);
-                  e.target.value = "";
-                }}
-              />
+              <label className="file-upload-button">
+                <span>Choose File</span>
+                <input
+                  id="question-import-file"
+                  type="file"
+                  accept=".xlsx,.csv"
+                  onChange={(e) => {
+                    handleImportQuestionsFromExcel(e.target.files?.[0] || null);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
               <div style={{ ...styles.small, marginTop: 8 }}>
                 Use .xlsx or .csv files only. Macro-enabled and legacy Excel files are blocked.
                 AI reviews the sheet, creates sections, and turns each checklist row into one
                 question. You can also drag and drop the file here.
               </div>
-              <DesktopFilePicker
-                kind="spreadsheet"
-                onSelect={(file) => handleImportQuestionsFromDesktop(file.path, file.name)}
-              />
             </div>
 
             <div
@@ -3640,26 +3827,24 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <label style={{ display: "block", fontWeight: 700, marginBottom: 8 }}>
                 Template Image
               </label>
-              <input
-                id="template-image-file"
-                type="file"
-                accept="image/*"
-                style={{ display: "block", marginTop: 8, marginBottom: 8 }}
-                onChange={(e) => {
-                  handleTemplateImageUpload(e.target.files);
-                  e.currentTarget.value = "";
-                }}
-              />
+              <label className="file-upload-button">
+                <span>Choose File</span>
+                <input
+                  id="template-image-file"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    handleTemplateImageUpload(e.target.files);
+                    e.currentTarget.value = "";
+                  }}
+                />
+              </label>
               {templateImageUploading ? (
                 <div style={{ ...styles.small, marginTop: 8 }}>Uploading image...</div>
               ) : null}
               <div style={{ ...styles.small, marginTop: 8 }}>
                 You can also drag and drop an image here.
               </div>
-              <DesktopFilePicker
-                kind="image"
-                onSelect={(file) => handleTemplateImageFromDesktop(file.path)}
-              />
               {templateImagePath ? (
                 <div style={{ marginTop: 12 }}>
                   <img
@@ -3926,21 +4111,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <div className="compact-row-meta">
                         <span>{sectionCount} sections</span>
                       </div>
-                      <div className="compact-row-actions template-row-actions">
-                        {(c.image_path || c.imagePath) ? (
-                          <img
-                            src={(c.image_path || c.imagePath || "").startsWith("http") ? (c.image_path || c.imagePath) : `${FILE_BASE}${c.image_path || c.imagePath}`}
-                            alt={c.title}
-                          />
-                        ) : null}
-                        <div className="template-section-list">
-                          {Array.isArray(c.sections) &&
-                            c.sections.map((section) => (
-                              <div key={section.id}>
-                                <strong>{section.title}</strong> ({section.items.length} questions)
-                              </div>
-                            ))}
-                        </div>
+                      <div className="template-row-primary-actions">
                         <button
                           style={styles.secondaryButton}
                           onClick={() => startEditTemplate(c)}
@@ -3957,8 +4128,30 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           style={styles.secondaryButton}
                           onClick={() => toggleTemplateShareForm(c.id)}
                         >
-                          Share Template
+                          Share
                         </button>
+                        <button
+                          style={{ ...styles.button, background: "#b91c1c" }}
+                          onClick={() => handleDeleteTemplate(c.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                      <div className="compact-row-actions template-row-actions">
+                        {(c.image_path || c.imagePath) ? (
+                          <img
+                            src={(c.image_path || c.imagePath || "").startsWith("http") ? (c.image_path || c.imagePath) : `${FILE_BASE}${c.image_path || c.imagePath}`}
+                            alt={c.title}
+                          />
+                        ) : null}
+                        <div className="template-section-list">
+                          {Array.isArray(c.sections) &&
+                            c.sections.map((section) => (
+                              <div key={section.id}>
+                                <strong>{section.title}</strong> ({section.items.length} questions)
+                              </div>
+                            ))}
+                        </div>
                         {shareForm.open ? (
                           <div className="template-share-form">
                             <input
@@ -3985,12 +4178,6 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             </button>
                           </div>
                         ) : null}
-                        <button
-                          style={styles.button}
-                          onClick={() => handleDeleteTemplate(c.id)}
-                        >
-                          Delete
-                        </button>
                         <button
                           style={{ ...styles.button, background: "#b91c1c" }}
                           onClick={() => handleForceDeleteTemplate(c.id)}
@@ -4553,27 +4740,23 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             <label style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>
                               Add Photos
                             </label>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              style={{ display: "block", marginTop: 8, marginBottom: 8 }}
-                              onChange={(e) => {
-                                handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
-                                e.currentTarget.value = "";
-                              }}
-                            />
+                            <label className="file-upload-button">
+                              <span>Choose File</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                onChange={(e) => {
+                                  handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
                             {walkthroughUploadingKey === uploadKey ? (
                               <div style={{ marginTop: 8, color: "#0f766e", fontSize: 13 }}>
                                 Uploading photos...
                               </div>
                             ) : null}
-                            <DesktopFilePicker
-                              kind="image"
-                              onSelect={(file) =>
-                                handleWalkthroughDesktopPhoto(sectionIndex, itemIndex, file.path)
-                              }
-                            />
                           </div>
 
                           {(item.photos || []).length > 0 ? (
