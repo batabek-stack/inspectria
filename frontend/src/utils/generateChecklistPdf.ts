@@ -530,8 +530,7 @@ export async function generateChecklistPdf(
 
   const drawItemBlock = async (item: ChecklistPdfItem, index: number) => {
     const title = sanitizeText(item.title || item.question);
-    const answer = normalizeAnswer(item.answer);
-    const noteText = sanitizeText(item.comment || "");
+    const noteText = item.comment?.trim() || "";
 
     const questionLines = doc.splitTextToSize(`${index + 1}. ${title}`, contentWidth - 30);
     const questionHeight = questionLines.length * 5;
@@ -552,8 +551,9 @@ export async function generateChecklistPdf(
 
     cursorY += questionHeight + 10;
 
-    drawWrappedText("Answer", answer);
-    drawWrappedText("Comment", noteText);
+    if (noteText) {
+      drawWrappedText("Comment", noteText);
+    }
 
     if (item.photos?.length) {
       await drawPhotos(item.photos);
