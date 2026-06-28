@@ -735,19 +735,19 @@ function cellXml(rowIndex, columnIndex, value, style = 2) {
 function buildActionPlanXlsx(actionPlans, report) {
   const logo = getLogoBuffer();
   const columns = [
-    ["sectionTitle", "Section", 24],
-    ["issue", "Issue", 44],
-    ["comment", "Comment", 34],
-    ["department", "Department", 18],
-    ["estimatedDurationMinutes", "Estimated Duration (min)", 16],
-    ["correctiveAction", "Corrective Action", 58],
-    ["preventiveAction", "Preventive Action", 58],
+    ["sectionTitle", "Section", 28],
+    ["issue", "Issue", 64],
+    ["comment", "Comment", 48],
+    ["department", "Department", 24],
+    ["estimatedDurationMinutes", "Estimated Duration (min)", 22],
+    ["correctiveAction", "Corrective Action", 78],
+    ["preventiveAction", "Preventive Action", 78],
     ["priority", "Priority", 14],
-    ["owner", "Owner", 24],
+    ["owner", "Owner", 30],
     ["dueDate", "Due Date", 14],
     ["status", "Status", 14],
     ["confidence", "Confidence", 14],
-    ["followUpNotes", "Follow-up Notes", 36],
+    ["followUpNotes", "Follow-up Notes", 48],
   ];
   const headerRow = 3;
   const lastRow = Math.max(headerRow, headerRow + actionPlans.length);
@@ -757,14 +757,14 @@ function buildActionPlanXlsx(actionPlans, report) {
     .map(([, , width], index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
     .join("");
   const rows = [
-    `<row r="1" ht="58" customHeight="1"></row>`,
+    `<row r="1" ht="86" customHeight="1"></row>`,
     `<row r="2" ht="28" customHeight="1">${cellXml(2, 2, title, 3)}</row>`,
-    `<row r="${headerRow}" ht="30" customHeight="1">${columns
+    `<row r="${headerRow}" ht="42" customHeight="1">${columns
       .map(([, label], index) => cellXml(headerRow, index, label, 1))
       .join("")}</row>`,
     ...actionPlans.map((plan, rowOffset) => {
       const rowIndex = headerRow + rowOffset + 1;
-      return `<row r="${rowIndex}" ht="64" customHeight="1">${columns
+      return `<row r="${rowIndex}" ht="92" customHeight="1">${columns
         .map(([key], index) => cellXml(rowIndex, index, plan[key], 2))
         .join("")}</row>`;
     }),
@@ -823,7 +823,7 @@ function buildActionPlanXlsx(actionPlans, report) {
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -839,7 +839,7 @@ function buildActionPlanXlsx(actionPlans, report) {
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <xdr:oneCellAnchor>
     <xdr:from><xdr:col>0</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>95250</xdr:rowOff></xdr:from>
-    <xdr:ext cx="1600200" cy="419100"/>
+    <xdr:ext cx="914400" cy="914400"/>
     <xdr:pic>
       <xdr:nvPicPr><xdr:cNvPr id="1" name="Inspectria Logo"/><xdr:cNvPicPr/></xdr:nvPicPr>
       <xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
