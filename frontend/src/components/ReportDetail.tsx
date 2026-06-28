@@ -1,5 +1,5 @@
-import React from "react";
-import { FILE_BASE } from "../services/api";
+import React, { useMemo, useState } from "react";
+import { API_BASE, FILE_BASE } from "../services/api";
 import { styles } from "../styles/appStyles";
 import { AnswerType } from "../types";
 
@@ -39,6 +39,86 @@ type Props = {
   actionPlanLoading?: boolean;
   managerSummaryLoading?: boolean;
 };
+
+function getPhotoSources(photo: string) {
+  if (photo.startsWith("data:image/") || photo.startsWith("http")) return [photo];
+
+  const serverPath = photo.startsWith("/") ? photo : `/${photo}`;
+  const apiHostBase = API_BASE.replace(/\/api\/?$/, "");
+  const browserBase = typeof window !== "undefined" ? window.location.origin : "";
+
+  return Array.from(
+    new Set(
+      [
+        `${FILE_BASE}${serverPath}`,
+        `${apiHostBase}${serverPath}`,
+        `${browserBase}${serverPath}`,
+        serverPath,
+      ].filter(Boolean)
+    )
+  );
+}
+
+function ReportPhoto({ photo, alt }: { photo: string; alt: string }) {
+  const sources = useMemo(() => getPhotoSources(photo), [photo]);
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [dataUrl, setDataUrl] = useState("");
+  const [failed, setFailed] = useState(false);
+  const src = dataUrl || sources[sourceIndex] || "";
+
+  const loadPhotoData = async () => {
+    if (!photo || photo.startsWith("data:image/") || photo.startsWith("http")) {
+      setFailed(true);
+      return;
+    }
+
+    try {
+      const serverPath = photo.startsWith("/") ? photo : `/${photo}`;
+      const response = await fetch(
+        `${API_BASE}/reports/photo-data?path=${encodeURIComponent(serverPath)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("mod_token") || ""}`,
+          },
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && typeof data.dataUrl === "string" && data.dataUrl.startsWith("data:image/")) {
+        setDataUrl(data.dataUrl);
+      } else {
+        setFailed(true);
+      }
+    } catch {
+      setFailed(true);
+    }
+  };
+
+  if (!src || failed) {
+    return null;
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => {
+        if (sourceIndex < sources.length - 1) {
+          setSourceIndex((current) => current + 1);
+          return;
+        }
+
+        void loadPhotoData();
+      }}
+      style={{
+        width: "100%",
+        height: 120,
+        objectFit: "cover",
+        borderRadius: 10,
+        border: "1px solid #d7e6e4",
+      }}
+    />
+  );
+}
 
 function formatDate(value?: string) {
   if (!value) return "-";
@@ -289,23 +369,9 @@ export default function ReportDetail({
                   marginTop: 10,
                 }}
               >
-                {item.photos.map((photo, photoIndex) => {
-                  const src = photo.startsWith("http") ? photo : `${FILE_BASE}${photo}`;
-                  return (
-                    <img
-                      key={photoIndex}
-                      src={src}
-                      alt={`report-${photoIndex}`}
-                      style={{
-                        width: "100%",
-                        height: 120,
-                        objectFit: "cover",
-                        borderRadius: 10,
-                        border: "1px solid #d7e6e4",
-                      }}
-                    />
-                  );
-                })}
+                {item.photos.map((photo, photoIndex) => (
+                  <ReportPhoto key={`${photo}-${photoIndex}`} photo={photo} alt={`report-${photoIndex}`} />
+                ))}
               </div>
             )}
           </div>

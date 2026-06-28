@@ -229,10 +229,15 @@ async function loadImageAsDataUrl(src: string, totalPhotos: number): Promise<Pdf
   const apiHostBase = API_BASE.replace(/\/api\/?$/, "");
   const browserBase = typeof window !== "undefined" ? window.location.origin : "";
   const serverPath = src.startsWith("/") ? src : `/${src}`;
+  const photoDataUrl =
+    isServerFile(src) && typeof window !== "undefined"
+      ? `${API_BASE}/reports/photo-data?path=${encodeURIComponent(serverPath)}`
+      : "";
   const sources = src.startsWith("data:image/")
     ? [src]
     : isServerFile(src)
       ? uniqueSources([
+          photoDataUrl,
           `${FILE_BASE}${serverPath}`,
           `${apiHostBase}${serverPath}`,
           `${browserBase}${serverPath}`,
@@ -245,13 +250,28 @@ async function loadImageAsDataUrl(src: string, totalPhotos: number): Promise<Pdf
       let dataUrl = source;
 
       if (!source.startsWith("data:image/")) {
-        const response = await fetch(source);
+        const response = await fetch(
+          source,
+          source === photoDataUrl
+            ? {
+                headers: {
+                  Authorization: `Bearer ${localStorage.getItem("mod_token") || ""}`,
+                },
+              }
+            : undefined
+        );
         if (!response.ok) continue;
 
-        const blob = await response.blob();
-        if (!blob.type.startsWith("image/")) continue;
+        if (source === photoDataUrl) {
+          const data = await response.json().catch(() => ({}));
+          dataUrl = typeof data.dataUrl === "string" ? data.dataUrl : "";
+          if (!dataUrl.startsWith("data:image/")) continue;
+        } else {
+          const blob = await response.blob();
+          if (!blob.type.startsWith("image/")) continue;
 
-        dataUrl = await readImageAsDataUrl(blob);
+          dataUrl = await readImageAsDataUrl(blob);
+        }
       }
 
       return await compressImageForPdf(dataUrl, totalPhotos);

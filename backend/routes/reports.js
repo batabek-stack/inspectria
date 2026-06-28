@@ -1,8 +1,11 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 const db = require("../db");
 const { authRequired } = require("../middleware/auth");
 
 const router = express.Router();
+const uploadRoot = path.join(__dirname, "..", "uploads");
 
 function reportAccessWhere(user, params) {
   const where = [];
@@ -43,6 +46,63 @@ async function getAssignmentForReport(assignmentId, user) {
     params
   );
 }
+
+function getUploadPath(filePath) {
+  const normalized = String(filePath || "").replace(/^\/+/, "");
+  if (!normalized.startsWith("uploads/")) return null;
+
+  const absolutePath = path.resolve(__dirname, "..", normalized);
+  const resolvedUploadRoot = path.resolve(uploadRoot);
+  if (!absolutePath.startsWith(`${resolvedUploadRoot}${path.sep}`)) return null;
+
+  return absolutePath;
+}
+
+function getImageMimeType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".webp") return "image/webp";
+  return "application/octet-stream";
+}
+
+router.get("/photo-data", authRequired, async (req, res, next) => {
+  try {
+    const filePath = String(req.query.path || "");
+    if (!filePath) return res.status(400).json({ message: "Photo path is required" });
+
+    const params = [filePath];
+    const accessWhere = reportAccessWhere(req.user, params);
+    const accessClause = accessWhere ? accessWhere.replace(/^WHERE\s+/, "AND ") : "";
+
+    const photo = await db.one(
+      `
+      SELECT rp.file_path
+      FROM report_photos rp
+      JOIN report_items ri ON rp.report_item_id = ri.id
+      JOIN reports r ON ri.report_id = r.id
+      JOIN assignments a ON r.assignment_id = a.id
+      WHERE rp.file_path = $1
+      ${accessClause}
+      LIMIT 1
+    `,
+      params
+    );
+
+    if (!photo) return res.status(404).json({ message: "Photo not found" });
+
+    const absolutePath = getUploadPath(photo.file_path);
+    if (!absolutePath) return res.status(400).json({ message: "Invalid photo path" });
+
+    const data = await fs.promises.readFile(absolutePath);
+    res.json({
+      dataUrl: `data:${getImageMimeType(absolutePath)};base64,${data.toString("base64")}`,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get("/", authRequired, async (req, res, next) => {
   try {
