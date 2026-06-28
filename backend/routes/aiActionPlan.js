@@ -597,31 +597,21 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function buildExcelHtml(actionPlans, report, provider, industry) {
+function buildExcelHtml(actionPlans, report) {
   const columns = [
-    ["sectionTitle", "Section"],
-    ["issue", "Issue"],
-    ["comment", "Comment"],
-    ["department", "Department"],
-    ["estimatedDurationMinutes", "Estimated Duration (min)"],
-    ["correctiveAction", "Corrective Action"],
-    ["preventiveAction", "Preventive Action"],
-    ["priority", "Priority"],
-    ["owner", "Owner"],
-    ["dueDate", "Due Date"],
-    ["status", "Status"],
-    ["confidence", "Confidence"],
-    ["followUpNotes", "Follow-up Notes"],
-  ];
-
-  const summaryRows = [
-    ["Checklist", report.checklistTitle],
-    ["Completed By", report.completedByName],
-    ["Assigned To", report.assignedToName],
-    ["Completed At", report.completed_at || report.completedAt],
-    ["Failed Items", actionPlans.length],
-    ["AI Provider", provider],
-    ["Industry", industry],
+    ["sectionTitle", "Section", 220],
+    ["issue", "Issue", 320],
+    ["comment", "Comment", 280],
+    ["department", "Department", 150],
+    ["estimatedDurationMinutes", "Estimated Duration (min)", 120],
+    ["correctiveAction", "Corrective Action", 420],
+    ["preventiveAction", "Preventive Action", 420],
+    ["priority", "Priority", 110],
+    ["owner", "Owner", 190],
+    ["dueDate", "Due Date", 120],
+    ["status", "Status", 110],
+    ["confidence", "Confidence", 120],
+    ["followUpNotes", "Follow-up Notes", 280],
   ];
 
   return `
@@ -630,21 +620,40 @@ function buildExcelHtml(actionPlans, report, provider, industry) {
       <head>
         <meta charset="utf-8" />
         <style>
-          table { border-collapse: collapse; font-family: Arial, sans-serif; }
-          th { background: #0f766e; color: #ffffff; font-weight: bold; }
-          th, td { border: 1px solid #b9d3d1; padding: 8px; vertical-align: top; }
-          .summary th { background: #e6f3f1; color: #06323f; }
+          table {
+            border-collapse: collapse;
+            font-family: Arial, sans-serif;
+            table-layout: fixed;
+          }
+
+          th {
+            background: #06323f;
+            color: #ffffff;
+            font-weight: bold;
+            text-align: left;
+          }
+
+          th, td {
+            border: 1px solid #b9d3d1;
+            padding: 8px;
+            vertical-align: top;
+            white-space: normal;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            mso-data-placement: same-cell;
+          }
+
+          td {
+            color: #092934;
+            line-height: 1.35;
+          }
         </style>
       </head>
       <body>
-        <table class="summary">
-          <tr><th>Metric</th><th>Value</th></tr>
-          ${summaryRows
-            .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
-            .join("")}
-        </table>
-        <br />
         <table>
+          <colgroup>
+            ${columns.map(([, , width]) => `<col style="width:${width}px" />`).join("")}
+          </colgroup>
           <tr>${columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr>
           ${actionPlans
             .map(
@@ -795,7 +804,7 @@ async function sendActionPlanExcel(res, report, failedItems) {
     ai.result?.actionPlans,
     profile
   );
-  const html = buildExcelHtml(actionPlans, report, ai.provider, profile.industry);
+  const html = buildExcelHtml(actionPlans, report);
   const fileName = safeDownloadName(report.checklistTitle, "AI_Action_Plan.xls");
 
   res.setHeader("Content-Type", "application/vnd.ms-excel; charset=utf-8");

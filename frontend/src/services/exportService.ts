@@ -60,6 +60,7 @@ function buildActionPlanWorkbook(actionPlans: AiActionPlan[], report: Report) {
     "Department": plan.department,
     "Estimated Duration (min)": plan.estimatedDurationMinutes,
     "Corrective Action": plan.correctiveAction,
+    "Preventive Action": plan.preventiveAction,
     "Priority": plan.priority,
     "Owner": plan.owner,
     "Due Date": plan.dueDate,
@@ -68,21 +69,8 @@ function buildActionPlanWorkbook(actionPlans: AiActionPlan[], report: Report) {
     "Follow-up Notes": plan.followUpNotes,
   }));
 
-  const summaryRows = [
-    { Metric: "Checklist", Value: report.checklistTitle },
-    { Metric: "Completed By", Value: report.completedByName },
-    { Metric: "Assigned To", Value: report.assignedToName },
-    { Metric: "Completed At", Value: report.completed_at },
-    { Metric: "Failed Items", Value: actionPlans.length },
-    {
-      Metric: "Critical / High Items",
-      Value: actionPlans.filter((plan) => ["Critical", "High"].includes(plan.priority)).length,
-    },
-  ];
-
   const workbook = XLSX.utils.book_new();
   const actionSheet = XLSX.utils.json_to_sheet(rows);
-  const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
 
   actionSheet["!cols"] = [
     { wch: 20 },
@@ -90,6 +78,7 @@ function buildActionPlanWorkbook(actionPlans: AiActionPlan[], report: Report) {
     { wch: 32 },
     { wch: 22 },
     { wch: 24 },
+    { wch: 45 },
     { wch: 45 },
     { wch: 12 },
     { wch: 22 },
@@ -99,7 +88,6 @@ function buildActionPlanWorkbook(actionPlans: AiActionPlan[], report: Report) {
     { wch: 35 },
   ];
 
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
   XLSX.utils.book_append_sheet(workbook, actionSheet, "AI Action Plan");
   return {
     workbook,
