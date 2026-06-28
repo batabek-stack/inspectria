@@ -481,8 +481,6 @@ export async function generateChecklistPdf(
   const drawPhotos = async (photos: string[] = []) => {
     if (!photos.length) return;
 
-    drawWrappedText("Photos", `${photos.length} attached`);
-
     const gap = 6;
     const columnWidth = (contentWidth - gap) / 2;
 
@@ -531,11 +529,15 @@ export async function generateChecklistPdf(
   const drawItemBlock = async (item: ChecklistPdfItem, index: number) => {
     const title = sanitizeText(item.title || item.question);
     const noteText = item.comment?.trim() || "";
+    const hasPhotos = Boolean(item.photos?.length);
 
     const questionLines = doc.splitTextToSize(`${index + 1}. ${title}`, contentWidth - 30);
     const questionHeight = questionLines.length * 5;
+    const noteLines = noteText ? doc.splitTextToSize(`Comment: ${sanitizeText(noteText)}`, contentWidth) : [];
+    const noteHeight = noteLines.length ? noteLines.length * 5 + 1 : 0;
+    const firstPhotoRowHeight = hasPhotos ? 66 : 0;
 
-    ensureSpace(questionHeight + 20);
+    ensureSpace(questionHeight + noteHeight + firstPhotoRowHeight + 20);
 
     doc.setFillColor(250, 250, 250);
     doc.roundedRect(PAGE.marginX, cursorY - 4, contentWidth, 12 + questionHeight, 2, 2, "F");
@@ -551,11 +553,15 @@ export async function generateChecklistPdf(
 
     cursorY += questionHeight + 10;
 
-    if (noteText) {
-      drawWrappedText("Comment", noteText);
+    if (noteLines.length) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...COLORS.text);
+      doc.text(noteLines, PAGE.marginX, cursorY);
+      cursorY += noteHeight;
     }
 
-    if (item.photos?.length) {
+    if (hasPhotos) {
       await drawPhotos(item.photos);
     }
 
