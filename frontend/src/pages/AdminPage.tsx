@@ -599,7 +599,7 @@ function mapReportToPdfPayload(report: Report) {
       answerType: item.answerType || item.answer_type || "FORMAT1",
       comment: item.comment || "",
       photos: item.photos || [],
-      sectionTitle: item.sectionTitle || "",
+      sectionTitle: item.sectionTitle || item.section_title || "",
     })),
   };
 }

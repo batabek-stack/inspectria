@@ -366,7 +366,7 @@ export async function generateChecklistPdf(
     doc.setTextColor(...COLORS.muted);
     doc.text(SITE_URL, PAGE.marginX, PAGE.height - 9);
     doc.text(`Generated: ${formatDate(new Date())}`, PAGE.marginX, PAGE.height - 5);
-    doc.text(`Page ${pageNumber}`, footerLogoX - 6, PAGE.height - 7, { align: "right" });
+    doc.text(`Page ${pageNumber}`, footerLogoX - 18, PAGE.height - 7, { align: "right" });
   };
 
   const addNewPage = () => {

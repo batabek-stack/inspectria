@@ -82,6 +82,7 @@ function mapReportToPdfPayload(report: Report) {
       answer: item.answer as "YES" | "NO" | "N/A" | "",
       comment: item.comment || "",
       photos: item.photos || [],
+      sectionTitle: item.sectionTitle || item.section_title || "",
     })),
   };
 }

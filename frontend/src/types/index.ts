@@ -166,6 +166,7 @@ export type Report = {
     answer_type?: AnswerType;
     comment: string;
     sectionTitle?: string;
+    section_title?: string;
     photos: string[];
   }>;
   checklistImagePath?: string;

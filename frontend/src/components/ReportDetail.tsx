@@ -11,6 +11,8 @@ type ReportItem = {
   answer_type?: AnswerType;
   comment: string;
   photos: string[];
+  sectionTitle?: string;
+  section_title?: string;
 };
 
 type Report = {
