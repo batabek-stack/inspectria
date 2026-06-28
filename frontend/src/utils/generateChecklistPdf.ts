@@ -6,6 +6,8 @@ type AnswerValue = "YES" | "NO" | "N/A" | "";
 type ChecklistPdfItem = {
   title?: string;
   question?: string;
+  sectionTitle?: string;
+  section_title?: string;
   answer?: AnswerValue | string;
   answerType?: "FORMAT1" | "DATE" | "TEXT" | "MULTIPLE_CHOICE";
   answer_type?: "FORMAT1" | "DATE" | "TEXT" | "MULTIPLE_CHOICE";
@@ -347,13 +349,14 @@ export async function generateChecklistPdf(
 
   const drawPageFooter = () => {
     const footerLogoWidth = 8;
+    const footerLogoX = PAGE.width - PAGE.marginX - footerLogoWidth;
 
     doc.setDrawColor(...COLORS.line);
     doc.line(PAGE.marginX, PAGE.height - 12, PAGE.width - PAGE.marginX, PAGE.height - 12);
     drawLogo(
       doc,
       logo,
-      PAGE.width - PAGE.marginX - footerLogoWidth,
+      footerLogoX,
       PAGE.height - 11,
       footerLogoWidth
     );
@@ -363,7 +366,7 @@ export async function generateChecklistPdf(
     doc.setTextColor(...COLORS.muted);
     doc.text(SITE_URL, PAGE.marginX, PAGE.height - 9);
     doc.text(`Generated: ${formatDate(new Date())}`, PAGE.marginX, PAGE.height - 5);
-    doc.text(`Page ${pageNumber}`, PAGE.width - PAGE.marginX - 14, PAGE.height - 7);
+    doc.text(`Page ${pageNumber}`, footerLogoX - 6, PAGE.height - 7, { align: "right" });
   };
 
   const addNewPage = () => {
@@ -391,6 +394,37 @@ export async function generateChecklistPdf(
     doc.line(PAGE.marginX, cursorY + 2, PAGE.width - PAGE.marginX, cursorY + 2);
     cursorY += 7;
   };
+
+  const drawReportSectionTitle = (title: string) => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(...COLORS.text);
+    doc.text(sanitizeText(title), PAGE.marginX, cursorY);
+    cursorY += 4;
+
+    doc.setDrawColor(...COLORS.line);
+    doc.line(PAGE.marginX, cursorY + 2, PAGE.width - PAGE.marginX, cursorY + 2);
+    cursorY += 9;
+  };
+
+  const getItemSectionTitle = (item: ChecklistPdfItem) =>
+    sanitizeText(item.sectionTitle || item.section_title || "Section");
+
+  const groupedItems = report.items.reduce<Array<{ title: string; items: ChecklistPdfItem[] }>>(
+    (groups, item) => {
+      const title = getItemSectionTitle(item);
+      const lastGroup = groups[groups.length - 1];
+
+      if (lastGroup?.title === title) {
+        lastGroup.items.push(item);
+      } else {
+        groups.push({ title, items: [item] });
+      }
+
+      return groups;
+    },
+    []
+  );
 
   const drawLabelValue = (label: string, value: string) => {
     const labelWidth = 36;
@@ -579,10 +613,23 @@ export async function generateChecklistPdf(
     cursorY += 3;
   }
 
-  drawSectionTitle("Checklist Details");
+  if (groupedItems.length > 0) {
+    addNewPage();
 
-  for (let i = 0; i < report.items.length; i++) {
-    await drawItemBlock(report.items[i], i);
+    let itemIndex = 0;
+    for (let sectionIndex = 0; sectionIndex < groupedItems.length; sectionIndex += 1) {
+      if (sectionIndex > 0) {
+        addNewPage();
+      }
+
+      const section = groupedItems[sectionIndex];
+      drawReportSectionTitle(section.title);
+
+      for (let i = 0; i < section.items.length; i += 1) {
+        await drawItemBlock(section.items[i], itemIndex);
+        itemIndex += 1;
+      }
+    }
   }
 
   drawPageFooter();
