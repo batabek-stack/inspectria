@@ -231,7 +231,8 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS report_photos (
       id SERIAL PRIMARY KEY,
       report_item_id INTEGER NOT NULL REFERENCES report_items(id) ON DELETE CASCADE,
-      file_path TEXT NOT NULL
+      file_path TEXT NOT NULL,
+      data_url TEXT
     );
 
     CREATE TABLE IF NOT EXISTS draft_reports (
@@ -512,6 +513,7 @@ async function initDb() {
   await ensureColumn("checklists", "image_path", "image_path TEXT NOT NULL DEFAULT ''");
   await ensureColumn("assignments", "organization_id", "organization_id INTEGER");
   await ensureColumn("reports", "organization_id", "organization_id INTEGER");
+  await ensureColumn("report_photos", "data_url", "data_url TEXT");
   await ensureColumn("draft_reports", "organization_id", "organization_id INTEGER");
 
   const defaultOrgName = process.env.DEFAULT_ORGANIZATION_NAME || "Inspectria Demo";

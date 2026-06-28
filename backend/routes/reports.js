@@ -67,6 +67,16 @@ function getImageMimeType(filePath) {
   return "application/octet-stream";
 }
 
+async function getPhotoDataUrl(filePath) {
+  if (String(filePath || "").startsWith("data:image/")) return filePath;
+
+  const absolutePath = getUploadPath(filePath);
+  if (!absolutePath) return "";
+
+  const data = await fs.promises.readFile(absolutePath);
+  return `data:${getImageMimeType(absolutePath)};base64,${data.toString("base64")}`;
+}
+
 router.get("/photo-data", authRequired, async (req, res, next) => {
   try {
     const filePath = String(req.query.path || "");
@@ -78,7 +88,7 @@ router.get("/photo-data", authRequired, async (req, res, next) => {
 
     const photo = await db.one(
       `
-      SELECT rp.file_path
+      SELECT rp.file_path, rp.data_url
       FROM report_photos rp
       JOIN report_items ri ON rp.report_item_id = ri.id
       JOIN reports r ON ri.report_id = r.id
@@ -92,13 +102,12 @@ router.get("/photo-data", authRequired, async (req, res, next) => {
 
     if (!photo) return res.status(404).json({ message: "Photo not found" });
 
-    const absolutePath = getUploadPath(photo.file_path);
-    if (!absolutePath) return res.status(400).json({ message: "Invalid photo path" });
+    if (photo.data_url) return res.json({ dataUrl: photo.data_url });
 
-    const data = await fs.promises.readFile(absolutePath);
-    res.json({
-      dataUrl: `data:${getImageMimeType(absolutePath)};base64,${data.toString("base64")}`,
-    });
+    const dataUrl = await getPhotoDataUrl(photo.file_path);
+    if (!dataUrl) return res.status(400).json({ message: "Invalid photo path" });
+
+    res.json({ dataUrl });
   } catch (error) {
     next(error);
   }
@@ -142,10 +151,11 @@ router.get("/", authRequired, async (req, res, next) => {
           items.map(async (item) => ({
             ...item,
             photos: (
-              await db.many("SELECT file_path FROM report_photos WHERE report_item_id = $1", [
-                item.id,
-              ])
-            ).map((p) => p.file_path),
+              await db.many(
+                "SELECT file_path, data_url FROM report_photos WHERE report_item_id = $1 ORDER BY id",
+                [item.id]
+              )
+            ).map((p) => p.data_url || p.file_path),
           }))
         );
 
@@ -208,12 +218,19 @@ router.post("/", authRequired, async (req, res, next) => {
         );
 
         for (const photo of item.photos || []) {
+          let photoDataUrl = "";
+          try {
+            photoDataUrl = await getPhotoDataUrl(photo);
+          } catch {
+            photoDataUrl = "";
+          }
+
           await client.query(
             `
-            INSERT INTO report_photos (report_item_id, file_path)
-            VALUES ($1, $2)
+            INSERT INTO report_photos (report_item_id, file_path, data_url)
+            VALUES ($1, $2, $3)
           `,
-            [itemResult.rows[0].id, photo]
+            [itemResult.rows[0].id, photo, photoDataUrl || null]
           );
         }
       }
