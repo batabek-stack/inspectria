@@ -11,7 +11,7 @@ const DEFAULT_MODEL = "gpt-4.1-mini";
 const DEFAULT_AZURE_API_VERSION = "2024-10-21";
 const INSPECTRIA_DARK_GREEN = "#06323f";
 const LOGO_PATH = path.join(__dirname, "..", "..", "frontend", "public", "inspectra-logo.png");
-let cachedLogoDataUri = "";
+let cachedLogoBuffer = null;
 
 const DEFAULT_INDUSTRY_PROFILE = {
   industry: "Hotel / Hospitality",
@@ -593,128 +593,289 @@ function parseMaybeJson(value, fallback) {
   }
 }
 
-function escapeHtml(value) {
-  return String(value || "")
+function escapeXml(value) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/'/g, "&apos;");
 }
 
-function getLogoDataUri() {
-  if (cachedLogoDataUri) return cachedLogoDataUri;
+function getLogoBuffer() {
+  if (cachedLogoBuffer) return cachedLogoBuffer;
 
   try {
-    const logo = fs.readFileSync(LOGO_PATH);
-    cachedLogoDataUri = `data:image/png;base64,${logo.toString("base64")}`;
+    cachedLogoBuffer = fs.readFileSync(LOGO_PATH);
   } catch {
-    cachedLogoDataUri = "";
+    cachedLogoBuffer = null;
   }
 
-  return cachedLogoDataUri;
+  return cachedLogoBuffer;
 }
 
-function buildExcelHtml(actionPlans, report) {
-  const logoDataUri = getLogoDataUri();
+const CRC_TABLE = (() => {
+  const table = new Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime(date = new Date()) {
+  const year = Math.max(date.getFullYear(), 1980);
+  const time =
+    (date.getHours() << 11) |
+    (date.getMinutes() << 5) |
+    Math.floor(date.getSeconds() / 2);
+  const day = (year - 1980) << 9 | ((date.getMonth() + 1) << 5) | date.getDate();
+  return { time, day };
+}
+
+function createZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  const { time, day } = dosDateTime();
+
+  entries.forEach((entry) => {
+    const name = Buffer.from(entry.name, "utf8");
+    const data = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(entry.data, "utf8");
+    const checksum = crc32(data);
+
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(time, 10);
+    localHeader.writeUInt16LE(day, 12);
+    localHeader.writeUInt32LE(checksum, 14);
+    localHeader.writeUInt32LE(data.length, 18);
+    localHeader.writeUInt32LE(data.length, 22);
+    localHeader.writeUInt16LE(name.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+
+    localParts.push(localHeader, name, data);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(time, 12);
+    centralHeader.writeUInt16LE(day, 14);
+    centralHeader.writeUInt32LE(checksum, 16);
+    centralHeader.writeUInt32LE(data.length, 20);
+    centralHeader.writeUInt32LE(data.length, 24);
+    centralHeader.writeUInt16LE(name.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(centralHeader, name);
+
+    offset += localHeader.length + name.length + data.length;
+  });
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+function excelColumnName(index) {
+  let name = "";
+  let current = index + 1;
+  while (current > 0) {
+    const mod = (current - 1) % 26;
+    name = String.fromCharCode(65 + mod) + name;
+    current = Math.floor((current - mod) / 26);
+  }
+  return name;
+}
+
+function cellXml(rowIndex, columnIndex, value, style = 2) {
+  const ref = `${excelColumnName(columnIndex)}${rowIndex}`;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
+  }
+
+  return `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
+}
+
+function buildActionPlanXlsx(actionPlans, report) {
+  const logo = getLogoBuffer();
   const columns = [
-    ["sectionTitle", "Section", 220],
-    ["issue", "Issue", 320],
-    ["comment", "Comment", 280],
-    ["department", "Department", 150],
-    ["estimatedDurationMinutes", "Estimated Duration (min)", 120],
-    ["correctiveAction", "Corrective Action", 420],
-    ["preventiveAction", "Preventive Action", 420],
-    ["priority", "Priority", 110],
-    ["owner", "Owner", 190],
-    ["dueDate", "Due Date", 120],
-    ["status", "Status", 110],
-    ["confidence", "Confidence", 120],
-    ["followUpNotes", "Follow-up Notes", 280],
+    ["sectionTitle", "Section", 24],
+    ["issue", "Issue", 44],
+    ["comment", "Comment", 34],
+    ["department", "Department", 18],
+    ["estimatedDurationMinutes", "Estimated Duration (min)", 16],
+    ["correctiveAction", "Corrective Action", 58],
+    ["preventiveAction", "Preventive Action", 58],
+    ["priority", "Priority", 14],
+    ["owner", "Owner", 24],
+    ["dueDate", "Due Date", 14],
+    ["status", "Status", 14],
+    ["confidence", "Confidence", 14],
+    ["followUpNotes", "Follow-up Notes", 36],
+  ];
+  const headerRow = 5;
+  const lastRow = Math.max(headerRow, headerRow + actionPlans.length);
+  const lastColumn = excelColumnName(columns.length - 1);
+  const title = `${report.checklistTitle || "Inspectria"} - AI Action Plan`;
+  const columnXml = columns
+    .map(([, , width], index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
+    .join("");
+  const rows = [
+    `<row r="1" ht="34" customHeight="1">${cellXml(1, 2, title, 3)}</row>`,
+    `<row r="2" ht="26" customHeight="1"></row>`,
+    `<row r="3" ht="16" customHeight="1"></row>`,
+    `<row r="4" ht="12" customHeight="1"></row>`,
+    `<row r="${headerRow}" ht="30" customHeight="1">${columns
+      .map(([, label], index) => cellXml(headerRow, index, label, 1))
+      .join("")}</row>`,
+    ...actionPlans.map((plan, rowOffset) => {
+      const rowIndex = headerRow + rowOffset + 1;
+      return `<row r="${rowIndex}" ht="64" customHeight="1">${columns
+        .map(([key], index) => cellXml(rowIndex, index, plan[key], 2))
+        .join("")}</row>`;
+    }),
+  ];
+  const hasLogo = Boolean(logo);
+
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  ${hasLogo ? '<Default Extension="png" ContentType="image/png"/>' : ""}
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  ${hasLogo ? '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>' : ""}
+</Types>`;
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+  const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="AI Action Plan" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>`;
+  const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="3">
+    <font><sz val="11"/><color rgb="FF092934"/><name val="Arial"/></font>
+    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>
+    <font><b/><sz val="18"/><color rgb="FF06323F"/><name val="Arial"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF06323F"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FFB9D3D1"/></left>
+      <right style="thin"><color rgb="FFB9D3D1"/></right>
+      <top style="thin"><color rgb="FFB9D3D1"/></top>
+      <bottom style="thin"><color rgb="FFB9D3D1"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="4">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+  const worksheetRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>
+</Relationships>`;
+  const drawingRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/inspectria-logo.png"/>
+</Relationships>`;
+  const drawing = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <xdr:twoCellAnchor editAs="oneCell">
+    <xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+    <xdr:to><xdr:col>2</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+    <xdr:pic>
+      <xdr:nvPicPr><xdr:cNvPr id="1" name="Inspectria Logo"/><xdr:cNvPicPr/></xdr:nvPicPr>
+      <xdr:blipFill xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+      <xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:twoCellAnchor>
+</xdr:wsDr>`;
+  const worksheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <dimension ref="A1:${lastColumn}${lastRow}"/>
+  <sheetViews><sheetView workbookViewId="0"><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>${columnXml}</cols>
+  <sheetData>${rows.join("")}</sheetData>
+  <mergeCells count="1"><mergeCell ref="C1:${lastColumn}2"/></mergeCells>
+  <autoFilter ref="A${headerRow}:${lastColumn}${lastRow}"/>
+  ${hasLogo ? '<drawing r:id="rId1"/>' : ""}
+</worksheet>`;
+  const entries = [
+    { name: "[Content_Types].xml", data: contentTypes },
+    { name: "_rels/.rels", data: rootRels },
+    { name: "xl/workbook.xml", data: workbook },
+    { name: "xl/_rels/workbook.xml.rels", data: workbookRels },
+    { name: "xl/styles.xml", data: styles },
+    { name: "xl/worksheets/sheet1.xml", data: worksheet },
   ];
 
-  return `
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <style>
-          table {
-            border-collapse: collapse;
-            font-family: Arial, sans-serif;
-            table-layout: fixed;
-          }
+  if (hasLogo) {
+    entries.push(
+      { name: "xl/worksheets/_rels/sheet1.xml.rels", data: worksheetRels },
+      { name: "xl/drawings/drawing1.xml", data: drawing },
+      { name: "xl/drawings/_rels/drawing1.xml.rels", data: drawingRels },
+      { name: "xl/media/inspectria-logo.png", data: logo }
+    );
+  }
 
-          th {
-            background: ${INSPECTRIA_DARK_GREEN};
-            color: #ffffff;
-            font-weight: bold;
-            text-align: left;
-          }
-
-          th, td {
-            border: 1px solid #b9d3d1;
-            padding: 8px;
-            vertical-align: top;
-            white-space: normal;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            mso-data-placement: same-cell;
-          }
-
-          td {
-            color: #092934;
-            line-height: 1.35;
-          }
-
-          .logo-row td {
-            border: 0;
-            padding: 0 0 12px 0;
-          }
-
-          .logo {
-            width: 170px;
-            height: auto;
-          }
-
-          .title-row td {
-            border: 0;
-            color: ${INSPECTRIA_DARK_GREEN};
-            font-size: 18px;
-            font-weight: bold;
-            padding: 0 0 14px 0;
-          }
-        </style>
-      </head>
-      <body>
-        <table>
-          <colgroup>
-            ${columns.map(([, , width]) => `<col style="width:${width}px" />`).join("")}
-          </colgroup>
-          ${
-            logoDataUri
-              ? `<tr class="logo-row"><td colspan="${columns.length}"><img class="logo" src="${logoDataUri}" alt="Inspectria" /></td></tr>`
-              : ""
-          }
-          <tr class="title-row"><td colspan="${columns.length}">${escapeHtml(report.checklistTitle || "AI Action Plan")}</td></tr>
-          <tr>${columns
-            .map(
-              ([, label]) =>
-                `<th bgcolor="${INSPECTRIA_DARK_GREEN}" style="background-color:${INSPECTRIA_DARK_GREEN};color:#ffffff;font-weight:bold;">${escapeHtml(label)}</th>`
-            )
-            .join("")}</tr>
-          ${actionPlans
-            .map(
-              (plan) =>
-                `<tr>${columns
-                  .map(([key]) => `<td>${escapeHtml(plan[key])}</td>`)
-                  .join("")}</tr>`
-            )
-            .join("")}
-        </table>
-      </body>
-    </html>
-  `;
+  return createZip(entries);
 }
 
 function safeDownloadName(value, suffix) {
@@ -852,16 +1013,19 @@ async function sendActionPlanExcel(res, report, failedItems) {
     ai.result?.actionPlans,
     profile
   );
-  const html = buildExcelHtml(actionPlans, report);
-  const fileName = safeDownloadName(report.checklistTitle, "AI_Action_Plan.xls");
+  const workbook = buildActionPlanXlsx(actionPlans, report);
+  const fileName = safeDownloadName(report.checklistTitle, "AI_Action_Plan.xlsx");
 
-  res.setHeader("Content-Type", "application/vnd.ms-excel; charset=utf-8");
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  );
   res.setHeader(
     "Content-Disposition",
     `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
   );
   res.setHeader("Cache-Control", "no-store");
-  return res.send(html);
+  return res.send(workbook);
 }
 
 router.post("/action-plan", authRequired, adminOnly, async (req, res) => {
