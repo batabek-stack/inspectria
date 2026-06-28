@@ -745,7 +745,7 @@ function buildActionPlanXlsx(actionPlans, report) {
     ["confidence", "Confidence", 14],
     ["followUpNotes", "Follow-up Notes", 36],
   ];
-  const headerRow = 5;
+  const headerRow = 3;
   const lastRow = Math.max(headerRow, headerRow + actionPlans.length);
   const lastColumn = excelColumnName(columns.length - 1);
   const title = `${report.checklistTitle || "Inspectria"} - AI Action Plan`;
@@ -753,10 +753,8 @@ function buildActionPlanXlsx(actionPlans, report) {
     .map(([, , width], index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
     .join("");
   const rows = [
-    `<row r="1" ht="34" customHeight="1">${cellXml(1, 2, title, 3)}</row>`,
-    `<row r="2" ht="26" customHeight="1"></row>`,
-    `<row r="3" ht="16" customHeight="1"></row>`,
-    `<row r="4" ht="12" customHeight="1"></row>`,
+    `<row r="1" ht="58" customHeight="1"></row>`,
+    `<row r="2" ht="28" customHeight="1">${cellXml(2, 2, title, 3)}</row>`,
     `<row r="${headerRow}" ht="30" customHeight="1">${columns
       .map(([, label], index) => cellXml(headerRow, index, label, 1))
       .join("")}</row>`,
@@ -834,26 +832,26 @@ function buildActionPlanXlsx(actionPlans, report) {
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/inspectria-logo.png"/>
 </Relationships>`;
   const drawing = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-  <xdr:twoCellAnchor editAs="oneCell">
-    <xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
-    <xdr:to><xdr:col>2</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:oneCellAnchor>
+    <xdr:from><xdr:col>0</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>95250</xdr:rowOff></xdr:from>
+    <xdr:ext cx="1600200" cy="419100"/>
     <xdr:pic>
       <xdr:nvPicPr><xdr:cNvPr id="1" name="Inspectria Logo"/><xdr:cNvPicPr/></xdr:nvPicPr>
-      <xdr:blipFill xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+      <xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
       <xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
     </xdr:pic>
     <xdr:clientData/>
-  </xdr:twoCellAnchor>
+  </xdr:oneCellAnchor>
 </xdr:wsDr>`;
   const worksheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <dimension ref="A1:${lastColumn}${lastRow}"/>
-  <sheetViews><sheetView workbookViewId="0"><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <sheetViews><sheetView workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
   <sheetFormatPr defaultRowHeight="18"/>
   <cols>${columnXml}</cols>
   <sheetData>${rows.join("")}</sheetData>
-  <mergeCells count="1"><mergeCell ref="C1:${lastColumn}2"/></mergeCells>
+  <mergeCells count="1"><mergeCell ref="C2:${lastColumn}2"/></mergeCells>
   <autoFilter ref="A${headerRow}:${lastColumn}${lastRow}"/>
   ${hasLogo ? '<drawing r:id="rId1"/>' : ""}
 </worksheet>`;
