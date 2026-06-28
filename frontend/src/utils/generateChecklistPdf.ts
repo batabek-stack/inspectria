@@ -1,5 +1,5 @@
 import jsPDF from "jspdf";
-import { FILE_BASE } from "../services/api";
+import { API_BASE, FILE_BASE } from "../services/api";
 
 type AnswerValue = "YES" | "NO" | "N/A" | "";
 
@@ -225,23 +225,42 @@ async function compressImageForPdf(
 }
 
 async function loadImageAsDataUrl(src: string, totalPhotos: number): Promise<PdfPhotoData | null> {
-  try {
-    let dataUrl = src;
+  const uniqueSources = (sources: string[]) => Array.from(new Set(sources.filter(Boolean)));
+  const apiHostBase = API_BASE.replace(/\/api\/?$/, "");
+  const browserBase = typeof window !== "undefined" ? window.location.origin : "";
+  const serverPath = src.startsWith("/") ? src : `/${src}`;
+  const sources = src.startsWith("data:image/")
+    ? [src]
+    : isServerFile(src)
+      ? uniqueSources([
+          `${FILE_BASE}${serverPath}`,
+          `${apiHostBase}${serverPath}`,
+          `${browserBase}${serverPath}`,
+          serverPath,
+        ])
+      : [src];
 
-    if (!src.startsWith("data:image/")) {
-      const fullSrc = isServerFile(src)
-        ? `${FILE_BASE}${src.startsWith("/") ? "" : "/"}${src}`
-        : src;
+  for (const source of sources) {
+    try {
+      let dataUrl = source;
 
-      const response = await fetch(fullSrc);
-      const blob = await response.blob();
-      dataUrl = await readImageAsDataUrl(blob);
+      if (!source.startsWith("data:image/")) {
+        const response = await fetch(source);
+        if (!response.ok) continue;
+
+        const blob = await response.blob();
+        if (!blob.type.startsWith("image/")) continue;
+
+        dataUrl = await readImageAsDataUrl(blob);
+      }
+
+      return await compressImageForPdf(dataUrl, totalPhotos);
+    } catch {
+      // Try the next candidate source.
     }
-
-    return await compressImageForPdf(dataUrl, totalPhotos);
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
 async function loadLogoImage(): Promise<PdfImageData | null> {
@@ -493,6 +512,10 @@ export async function generateChecklistPdf(
       const leftSize = left ? getPhotoDrawSize(left, columnWidth) : null;
       const rightSize = right ? getPhotoDrawSize(right, columnWidth) : null;
       const rowHeight = Math.max(leftSize?.height || 0, rightSize?.height || 0, 52);
+
+      if (!left && !right) {
+        continue;
+      }
 
       ensureSpace(rowHeight + 8);
 
