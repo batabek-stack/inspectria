@@ -79,14 +79,14 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
       FROM users
       WHERE id = $1
         AND organization_id = $2
-        AND role = 'user'
+        AND (role = 'user' OR id = $3)
         AND active = TRUE
     `,
-      [assignedToUserId, checklist.organization_id]
+      [assignedToUserId, checklist.organization_id, req.user.id]
     );
 
     if (!assignedUser) {
-      return res.status(400).json({ message: "Assigned user must belong to this organization" });
+      return res.status(400).json({ message: "Assigned user must be active and belong to this organization" });
     }
 
     const result = await db.one(
@@ -107,8 +107,8 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 
 router.post("/self", authRequired, async (req, res, next) => {
   try {
-    if (req.user.role !== "user") {
-      return res.status(403).json({ message: "Only users can start a template themselves" });
+    if (!["admin", "user"].includes(req.user.role) || !req.user.organizationId) {
+      return res.status(403).json({ message: "Only organization admins and users can start templates themselves" });
     }
 
     const checklistId = Number(req.body?.checklistId);

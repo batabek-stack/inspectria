@@ -37,7 +37,11 @@ import {
   updateWalkthrough,
 } from "../services/walkthroughService";
 import { emailReport } from "../services/emailService";
-import { generateManagerSummary, getReportFailedItems } from "../services/aiActionPlanService";
+import {
+  generateManagerSummary,
+  getActionPlanExcelDownloadUrl,
+  getReportFailedItems,
+} from "../services/aiActionPlanService";
 import { generateChecklistPdf } from "../utils/generateChecklistPdf";
 import {
   createDownloadFromUrl,
@@ -961,6 +965,9 @@ export default function UserPage({ user, onLogout }: Props) {
           onDownloadPdf={handleDownloadPdf}
           onEmailReport={handleEmailReport}
           onDeleteReport={handleDeleteReport}
+          onDownloadActionPlan={(report) => {
+            window.location.href = getActionPlanExcelDownloadUrl(report.id);
+          }}
           onDownloadManagerSummary={handleDownloadManagerSummary}
           managerSummaryLoading={managerSummaryReportId === selectedReport.id}
         />

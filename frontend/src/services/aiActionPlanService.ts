@@ -108,7 +108,10 @@ export function submitActionPlanExcelDownload(report: Report) {
 }
 
 export function getActionPlanExcelDownloadUrl(reportId: number | string) {
-  return `${API_BASE}/ai/reports/${encodeURIComponent(reportId)}/action-plan-excel`;
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("mod_token") : "";
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
+  return `${API_BASE}/ai/reports/${encodeURIComponent(reportId)}/action-plan-excel${tokenQuery}`;
 }
 
 export async function generateManagerSummary(report: Report): Promise<ManagerSummaryResponse> {

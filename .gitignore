@@ -23,6 +23,7 @@ backend/pgdata/
 backend/data/
 backend/uploads/
 backend/generated-downloads/
+backups/
 
 # OS/editor files
 .DS_Store
