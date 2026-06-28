@@ -15,6 +15,10 @@ const configuredApiBase =
 const configuredFileBase =
   viteEnv.VITE_FILE_BASE ? String(viteEnv.VITE_FILE_BASE) : "";
 
+function getApiHostBase(apiBase: string) {
+  return apiBase.replace(/\/api\/?$/, "");
+}
+
 export const API_BASE = configuredApiBase
   ? configuredApiBase
   : isViteDevServer
@@ -23,6 +27,8 @@ export const API_BASE = configuredApiBase
 
 export const FILE_BASE = configuredFileBase
   ? configuredFileBase
+  : configuredApiBase
+    ? getApiHostBase(configuredApiBase)
   : isViteDevServer
     ? `http://${FALLBACK_HOST}`
     : browserOrigin;
