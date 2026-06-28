@@ -721,6 +721,10 @@ function excelColumnName(index) {
 
 function cellXml(rowIndex, columnIndex, value, style = 2) {
   const ref = `${excelColumnName(columnIndex)}${rowIndex}`;
+  if (value === null || value === undefined || value === "") {
+    return `<c r="${ref}" s="${style}"/>`;
+  }
+
   if (typeof value === "number" && Number.isFinite(value)) {
     return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
   }
@@ -847,12 +851,10 @@ function buildActionPlanXlsx(actionPlans, report) {
   const worksheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <dimension ref="A1:${lastColumn}${lastRow}"/>
-  <sheetViews><sheetView workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <sheetViews><sheetView workbookViewId="0"/></sheetViews>
   <sheetFormatPr defaultRowHeight="18"/>
   <cols>${columnXml}</cols>
   <sheetData>${rows.join("")}</sheetData>
-  <mergeCells count="1"><mergeCell ref="C2:${lastColumn}2"/></mergeCells>
-  <autoFilter ref="A${headerRow}:${lastColumn}${lastRow}"/>
   ${hasLogo ? '<drawing r:id="rId1"/>' : ""}
 </worksheet>`;
   const entries = [
