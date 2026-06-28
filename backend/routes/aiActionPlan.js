@@ -1,4 +1,6 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
 
@@ -7,6 +9,9 @@ const router = express.Router();
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-4.1-mini";
 const DEFAULT_AZURE_API_VERSION = "2024-10-21";
+const INSPECTRIA_DARK_GREEN = "#06323f";
+const LOGO_PATH = path.join(__dirname, "..", "..", "frontend", "public", "inspectra-logo.png");
+let cachedLogoDataUri = "";
 
 const DEFAULT_INDUSTRY_PROFILE = {
   industry: "Hotel / Hospitality",
@@ -597,7 +602,21 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function getLogoDataUri() {
+  if (cachedLogoDataUri) return cachedLogoDataUri;
+
+  try {
+    const logo = fs.readFileSync(LOGO_PATH);
+    cachedLogoDataUri = `data:image/png;base64,${logo.toString("base64")}`;
+  } catch {
+    cachedLogoDataUri = "";
+  }
+
+  return cachedLogoDataUri;
+}
+
 function buildExcelHtml(actionPlans, report) {
+  const logoDataUri = getLogoDataUri();
   const columns = [
     ["sectionTitle", "Section", 220],
     ["issue", "Issue", 320],
@@ -627,7 +646,7 @@ function buildExcelHtml(actionPlans, report) {
           }
 
           th {
-            background: #06323f;
+            background: ${INSPECTRIA_DARK_GREEN};
             color: #ffffff;
             font-weight: bold;
             text-align: left;
@@ -647,6 +666,24 @@ function buildExcelHtml(actionPlans, report) {
             color: #092934;
             line-height: 1.35;
           }
+
+          .logo-row td {
+            border: 0;
+            padding: 0 0 12px 0;
+          }
+
+          .logo {
+            width: 170px;
+            height: auto;
+          }
+
+          .title-row td {
+            border: 0;
+            color: ${INSPECTRIA_DARK_GREEN};
+            font-size: 18px;
+            font-weight: bold;
+            padding: 0 0 14px 0;
+          }
         </style>
       </head>
       <body>
@@ -654,7 +691,18 @@ function buildExcelHtml(actionPlans, report) {
           <colgroup>
             ${columns.map(([, , width]) => `<col style="width:${width}px" />`).join("")}
           </colgroup>
-          <tr>${columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr>
+          ${
+            logoDataUri
+              ? `<tr class="logo-row"><td colspan="${columns.length}"><img class="logo" src="${logoDataUri}" alt="Inspectria" /></td></tr>`
+              : ""
+          }
+          <tr class="title-row"><td colspan="${columns.length}">${escapeHtml(report.checklistTitle || "AI Action Plan")}</td></tr>
+          <tr>${columns
+            .map(
+              ([, label]) =>
+                `<th bgcolor="${INSPECTRIA_DARK_GREEN}" style="background-color:${INSPECTRIA_DARK_GREEN};color:#ffffff;font-weight:bold;">${escapeHtml(label)}</th>`
+            )
+            .join("")}</tr>
           ${actionPlans
             .map(
               (plan) =>
