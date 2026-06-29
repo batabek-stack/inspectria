@@ -1221,18 +1221,32 @@ export default function UserPage({ user, onLogout }: Props) {
                           <label style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>
                             Add Photos
                           </label>
-                          <label className="file-upload-button">
-                            <span>Choose File</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              onChange={(e) => {
-                                handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
-                                e.currentTarget.value = "";
-                              }}
-                            />
-                          </label>
+                          <div className="photo-upload-actions">
+                            <label className="file-upload-button">
+                              <span>Take Photo</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={(e) => {
+                                  handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
+                            <label className="file-upload-button">
+                              <span>Choose File</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                onChange={(e) => {
+                                  handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
+                          </div>
                           {walkthroughUploadingKey === uploadKey ? (
                             <div style={{ marginTop: 8, color: "#0f766e", fontSize: 13 }}>
                               Uploading photos...
@@ -1671,19 +1685,34 @@ export default function UserPage({ user, onLogout }: Props) {
                     >
                       Add Photos
                     </label>
-                    <label className="file-upload-button" htmlFor={`photo-upload-${item.id}`}>
-                      <span>Choose File</span>
-                      <input
-                        id={`photo-upload-${item.id}`}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={(e) => {
-                          handleAddPhotos(item.id, e.target.files);
-                          e.currentTarget.value = "";
-                        }}
-                      />
-                    </label>
+                    <div className="photo-upload-actions">
+                      <label className="file-upload-button" htmlFor={`photo-capture-${item.id}`}>
+                        <span>Take Photo</span>
+                        <input
+                          id={`photo-capture-${item.id}`}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(e) => {
+                            handleAddPhotos(item.id, e.target.files);
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                      <label className="file-upload-button" htmlFor={`photo-upload-${item.id}`}>
+                        <span>Choose File</span>
+                        <input
+                          id={`photo-upload-${item.id}`}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => {
+                            handleAddPhotos(item.id, e.target.files);
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
                     {uploadingItemId === item.id ? (
                       <div style={{ marginTop: 8, color: "#0f766e", fontSize: 13 }}>
                         Uploading photos...

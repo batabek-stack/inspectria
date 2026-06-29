@@ -125,6 +125,13 @@ textarea {
   white-space: nowrap;
 }
 
+.photo-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .app-modal-backdrop {
   position: fixed;
   inset: 0;
