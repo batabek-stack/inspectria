@@ -62,6 +62,7 @@ type FillItem = {
   answer: string;
   comment: string;
   photos: string[];
+  touchedAt?: string;
 };
 
 type Props = {
@@ -158,6 +159,38 @@ function mapWalkthroughToPdfPayload(walkthrough: Walkthrough) {
   };
 }
 
+function findChecklistItemSectionIndex(checklist: Checklist, itemId: number) {
+  return checklist.sections.findIndex((section) =>
+    section.items.some((item) => item.id === itemId)
+  );
+}
+
+function findResumeItemId(checklist: Checklist, form: Record<number, FillItem>) {
+  const orderedItemIds = checklist.sections.flatMap((section) =>
+    section.items.map((item) => item.id)
+  );
+  let newestTouchedItemId: number | null = null;
+  let newestTouchedAt = 0;
+  let lastAnsweredItemId: number | null = null;
+
+  orderedItemIds.forEach((itemId) => {
+    const draftItem = form[itemId];
+    if (!draftItem) return;
+
+    if ((draftItem.answer || "").trim()) {
+      lastAnsweredItemId = itemId;
+    }
+
+    const touchedAt = draftItem.touchedAt ? new Date(draftItem.touchedAt).getTime() : 0;
+    if (Number.isFinite(touchedAt) && touchedAt > newestTouchedAt) {
+      newestTouchedAt = touchedAt;
+      newestTouchedItemId = itemId;
+    }
+  });
+
+  return newestTouchedItemId || lastAnsweredItemId;
+}
+
 export default function UserPage({ user, onLogout }: Props) {
   const localDraftKey = `mod_draft_${user.id}`;
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -190,6 +223,8 @@ export default function UserPage({ user, onLogout }: Props) {
   const activeAssignmentIdRef = useRef<number | null>(null);
   const latestFormRef = useRef<Record<number, FillItem>>({});
   const saveTimeoutRef = useRef<number | null>(null);
+  const questionRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const [resumeItemId, setResumeItemId] = useState<number | null>(null);
 
   const load = async () => {
     const [a, c, r, w, inbox] = await Promise.all([
@@ -225,6 +260,8 @@ export default function UserPage({ user, onLogout }: Props) {
     if (!activeAssignment) return null;
     return checklists.find((c) => c.id === activeAssignment.checklist_id) || null;
   }, [activeAssignment, checklists]);
+  const activeSection = activeChecklist?.sections[activeSectionIndex] || null;
+  const sectionCount = activeChecklist?.sections.length || 0;
 
   const checklistProgress = useMemo(() => {
     const items = activeChecklist?.sections.flatMap((section) => section.items) || [];
@@ -254,6 +291,18 @@ export default function UserPage({ user, onLogout }: Props) {
       Math.min(currentIndex, Math.max(activeChecklist.sections.length - 1, 0))
     );
   }, [activeChecklist]);
+
+  useEffect(() => {
+    if (!resumeItemId || !activeSection?.items.some((item) => item.id === resumeItemId)) return;
+
+    window.requestAnimationFrame(() => {
+      questionRefs.current[resumeItemId]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      setResumeItemId(null);
+    });
+  }, [activeSection, resumeItemId]);
 
   function readLocalDrafts() {
     const raw = localStorage.getItem(localDraftKey);
@@ -397,9 +446,16 @@ export default function UserPage({ user, onLogout }: Props) {
         setMessage("Offline saved draft loaded.");
       }
     } finally {
+      const resumeId = findResumeItemId(checklist, merged);
+      const resumeSectionIndex = resumeId ? findChecklistItemSectionIndex(checklist, resumeId) : -1;
+
       setForm(merged);
       latestFormRef.current = merged;
       writeLocalDraft(assignment.id, merged);
+      if (resumeSectionIndex >= 0) {
+        setActiveSectionIndex(resumeSectionIndex);
+        setResumeItemId(resumeId);
+      }
       setIsRestoringDraft(false);
     }
   };
@@ -482,6 +538,7 @@ export default function UserPage({ user, onLogout }: Props) {
         [itemId]: {
           ...prev[itemId],
           answer,
+          touchedAt: new Date().toISOString(),
         },
       };
 
@@ -508,6 +565,7 @@ export default function UserPage({ user, onLogout }: Props) {
         [itemId]: {
           ...prev[itemId],
           answer: nextAnswers.join(", "),
+          touchedAt: new Date().toISOString(),
         },
       };
 
@@ -888,8 +946,6 @@ export default function UserPage({ user, onLogout }: Props) {
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   };
 
-  const activeSection = activeChecklist?.sections[activeSectionIndex] || null;
-  const sectionCount = activeChecklist?.sections.length || 0;
   const isFirstSection = activeSectionIndex === 0;
   const isLastSection = activeSectionIndex >= sectionCount - 1;
   const activeAssignments = assignments.filter((assignment) => assignment.status === "assigned");
@@ -1466,7 +1522,13 @@ export default function UserPage({ user, onLogout }: Props) {
 
               <div key={activeSection.id} style={styles.section}>
                 {activeSection.items.map((item, index) => (
-                <div key={item.id} style={{ ...styles.section, background: "#fff" }}>
+                <div
+                  key={item.id}
+                  ref={(element) => {
+                    questionRefs.current[item.id] = element;
+                  }}
+                  style={{ ...styles.section, background: "#fff" }}
+                >
                   <strong>
                     {index + 1}. {item.question}
                   </strong>

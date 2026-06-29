@@ -12,6 +12,7 @@ export type DraftPayload = Record<
     answer: string;
     comment: string;
     photos: string[];
+    touchedAt?: string;
   }
 >;
 

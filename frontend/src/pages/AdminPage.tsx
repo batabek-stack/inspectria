@@ -117,6 +117,7 @@ type FillItem = {
   answer: string;
   comment: string;
   photos: string[];
+  touchedAt?: string;
 };
 
 type TemplateDraft = {
@@ -627,6 +628,38 @@ function mapWalkthroughToPdfPayload(walkthrough: Walkthrough) {
   };
 }
 
+function findChecklistItemSectionIndex(checklist: Checklist, itemId: number) {
+  return checklist.sections.findIndex((section) =>
+    section.items.some((item) => item.id === itemId)
+  );
+}
+
+function findResumeItemId(checklist: Checklist, form: Record<number, FillItem>) {
+  const orderedItemIds = checklist.sections.flatMap((section) =>
+    section.items.map((item) => item.id)
+  );
+  let newestTouchedItemId: number | null = null;
+  let newestTouchedAt = 0;
+  let lastAnsweredItemId: number | null = null;
+
+  orderedItemIds.forEach((itemId) => {
+    const draftItem = form[itemId];
+    if (!draftItem) return;
+
+    if ((draftItem.answer || "").trim()) {
+      lastAnsweredItemId = itemId;
+    }
+
+    const touchedAt = draftItem.touchedAt ? new Date(draftItem.touchedAt).getTime() : 0;
+    if (Number.isFinite(touchedAt) && touchedAt > newestTouchedAt) {
+      newestTouchedAt = touchedAt;
+      newestTouchedItemId = itemId;
+    }
+  });
+
+  return newestTouchedItemId || lastAnsweredItemId;
+}
+
 function IyzicoCheckout({ content }: { content: string }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -729,6 +762,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const activeAssignmentIdRef = useRef<number | null>(null);
   const latestFormRef = useRef<Record<number, FillItem>>({});
   const saveTimeoutRef = useRef<number | null>(null);
+  const questionRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const [resumeItemId, setResumeItemId] = useState<number | null>(null);
 
   const hasTemplateDraftContent = (draft: Omit<TemplateDraft, "savedAt">) =>
     Boolean(
@@ -1097,6 +1132,18 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   }, [activeChecklist]);
 
   useEffect(() => {
+    if (!resumeItemId || !activeSection?.items.some((item) => item.id === resumeItemId)) return;
+
+    window.requestAnimationFrame(() => {
+      questionRefs.current[resumeItemId]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      setResumeItemId(null);
+    });
+  }, [activeSection, resumeItemId]);
+
+  useEffect(() => {
     restoreTemplateDraft();
   }, []);
 
@@ -1281,9 +1328,16 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         setMessage("Offline saved draft loaded.");
       }
     } finally {
+      const resumeId = findResumeItemId(checklist, merged);
+      const resumeSectionIndex = resumeId ? findChecklistItemSectionIndex(checklist, resumeId) : -1;
+
       setForm(merged);
       latestFormRef.current = merged;
       writeLocalDraft(assignment.id, merged);
+      if (resumeSectionIndex >= 0) {
+        setActiveSectionIndex(resumeSectionIndex);
+        setResumeItemId(resumeId);
+      }
       setIsRestoringDraft(false);
     }
   };
@@ -1366,6 +1420,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         [itemId]: {
           ...prev[itemId],
           answer,
+          touchedAt: new Date().toISOString(),
         },
       };
 
@@ -1410,6 +1465,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         [itemId]: {
           ...prev[itemId],
           answer: nextAnswers.join(", "),
+          touchedAt: new Date().toISOString(),
         },
       };
 
@@ -4778,7 +4834,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       </div>
                       <div key={activeSection.id} style={styles.section}>
                         {activeSection.items.map((item, index) => (
-                          <div key={item.id} style={{ ...styles.section, background: "#fff" }}>
+                          <div
+                            key={item.id}
+                            ref={(element) => {
+                              questionRefs.current[item.id] = element;
+                            }}
+                            style={{ ...styles.section, background: "#fff" }}
+                          >
                             <strong>
                               {index + 1}. {item.question}
                             </strong>
