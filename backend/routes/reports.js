@@ -143,9 +143,20 @@ router.get("/", authRequired, async (req, res, next) => {
 
     const result = await Promise.all(
       reports.map(async (report) => {
-        const items = await db.many("SELECT * FROM report_items WHERE report_id = $1", [
-          report.id,
-        ]);
+        const items = await db.many(
+          `
+          SELECT ri.*
+          FROM report_items ri
+          LEFT JOIN checklist_items ci ON ci.id = ri.checklist_item_id
+          LEFT JOIN checklist_sections cs ON cs.id = ci.section_id
+          WHERE ri.report_id = $1
+          ORDER BY
+            COALESCE(cs.sort_order, 999999),
+            COALESCE(ci.sort_order, 999999),
+            ri.id
+        `,
+          [report.id]
+        );
 
         const itemsWithPhotos = await Promise.all(
           items.map(async (item) => ({
