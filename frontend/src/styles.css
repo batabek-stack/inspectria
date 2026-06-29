@@ -1093,6 +1093,17 @@ textarea {
   min-width: 0;
 }
 
+.compact-row-main > .compact-row-title:only-child {
+  grid-column: 1 / -1;
+}
+
+.compact-row-main > .compact-row-title:only-child strong,
+.compact-row-main > .compact-row-title:only-child span {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .compact-row-title strong,
 .compact-row-title span {
   display: block;
