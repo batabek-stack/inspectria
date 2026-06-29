@@ -502,17 +502,6 @@ export async function generateChecklistPdf(
     doc.text(text, PAGE.marginX + 12, cursorY + 0.8, { align: "center" });
   };
 
-  const drawAnswerValue = (answer?: string) => {
-    const lines = doc.splitTextToSize(sanitizeText(answer), 23);
-    doc.setFillColor(204, 251, 241);
-    doc.roundedRect(PAGE.marginX, cursorY - 4, 24, 7 + Math.max(0, lines.length - 1) * 4, 1.5, 1.5, "F");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(15, 118, 110);
-    doc.text(lines, PAGE.marginX + 12, cursorY + 0.8, { align: "center" });
-  };
-
   const drawWrappedText = (label: string, value?: string) => {
     const text = `${sanitizeText(label)}: ${sanitizeText(value)}`;
     const lines = doc.splitTextToSize(text, contentWidth);
@@ -585,18 +574,20 @@ export async function generateChecklistPdf(
     const noteText = item.comment?.trim() || "";
     const hasPhotos = Boolean(item.photos?.length);
     const answerType = item.answerType || item.answer_type || "FORMAT1";
-    const answerLines =
-      answerType === "FORMAT1" ? [] : doc.splitTextToSize(sanitizeText(item.answer), 23);
+    const answerText = answerType === "FORMAT1" ? "" : normalizeAnswer(item.answer);
+    const answerLines = answerText
+      ? doc.splitTextToSize(`Answer: ${sanitizeText(answerText)}`, contentWidth)
+      : [];
 
     const questionLines = doc.splitTextToSize(`${index + 1}. ${title}`, contentWidth - 30);
     const questionHeight = questionLines.length * 5;
-    const answerHeight = answerLines.length ? 7 + Math.max(0, answerLines.length - 1) * 4 : 0;
-    const cardHeight = 12 + Math.max(questionHeight, answerHeight);
+    const answerHeight = answerLines.length ? answerLines.length * 5 + 1 : 0;
+    const cardHeight = 12 + questionHeight;
     const noteLines = noteText ? doc.splitTextToSize(`Comment: ${sanitizeText(noteText)}`, contentWidth) : [];
     const noteHeight = noteLines.length ? noteLines.length * 5 + 1 : 0;
     const firstPhotoRowHeight = hasPhotos ? 66 : 0;
 
-    ensureSpace(cardHeight + noteHeight + firstPhotoRowHeight + 8);
+    ensureSpace(cardHeight + answerHeight + noteHeight + firstPhotoRowHeight + 8);
 
     doc.setFillColor(250, 250, 250);
     doc.roundedRect(PAGE.marginX, cursorY - 4, contentWidth, cardHeight, 2, 2, "F");
@@ -608,11 +599,17 @@ export async function generateChecklistPdf(
 
     if (answerType === "FORMAT1") {
       drawAnswerBadge(item.answer);
-    } else {
-      drawAnswerValue(item.answer);
     }
 
-    cursorY += Math.max(questionHeight, answerHeight) + 10;
+    cursorY += questionHeight + 10;
+
+    if (answerLines.length) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...COLORS.text);
+      doc.text(answerLines, PAGE.marginX, cursorY);
+      cursorY += answerHeight;
+    }
 
     if (noteLines.length) {
       doc.setFont("helvetica", "normal");
