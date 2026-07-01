@@ -18,6 +18,7 @@ import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
 import PasswordInput from "../components/PasswordInput";
 import ReportDetail from "../components/ReportDetail";
+import ReportEmailDialog from "../components/ReportEmailDialog";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import WalkthroughDetail from "../components/WalkthroughDetail";
 import { createAssignment, getAssignments, startTemplate } from "../services/assignmentService";
@@ -50,7 +51,11 @@ import {
   getOrganizations,
   updateOrganization,
 } from "../services/organizationService";
-import { emailReport } from "../services/emailService";
+import {
+  emailReport,
+  getReportEmailRecipients,
+  ReportEmailRecipient,
+} from "../services/emailService";
 import {
   cancelCurrentSubscription,
   cancelSubscription,
@@ -96,6 +101,10 @@ type Props = {
   onLogout: () => Promise<void>;
   initialSection?: AdminSectionKey;
 };
+
+type ReportEmailTarget =
+  | { type: "checklist"; report: Report }
+  | { type: "walkthrough"; walkthrough: Walkthrough };
 
 type SectionForm = {
   title: string;
@@ -712,6 +721,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [messageSending, setMessageSending] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [reportEmailRecipients, setReportEmailRecipients] = useState<ReportEmailRecipient[]>([]);
+  const [reportEmailTarget, setReportEmailTarget] = useState<ReportEmailTarget | null>(null);
+  const [reportEmailSending, setReportEmailSending] = useState(false);
   const [walkthroughs, setWalkthroughs] = useState<Walkthrough[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [selectedWalkthrough, setSelectedWalkthrough] = useState<Walkthrough | null>(null);
@@ -915,6 +927,20 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       candidate.approvalStatus !== "rejected" &&
       (candidate.role === "admin" || candidate.role === "user")
   );
+  const fallbackReportEmailRecipients: ReportEmailRecipient[] = messageRecipients
+    .filter((candidate) => Boolean(candidate.email))
+    .map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      username: candidate.username,
+      email: candidate.email,
+      role: candidate.role === "admin" ? "admin" : "user",
+      organizationName: candidate.organizationName,
+    }));
+  const availableReportEmailRecipients =
+    reportEmailRecipients.length > 0
+      ? reportEmailRecipients
+      : fallbackReportEmailRecipients;
   const selectedMessageRecipientSet = new Set(selectedMessageRecipientIds);
   const allMessageRecipientsSelected =
     messageRecipients.length > 0 &&
@@ -1024,7 +1050,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   }
 
   const load = async () => {
-    const [orgs, u, c, a, r, w, billingSummary, inbox] = await Promise.all([
+    const [orgs, u, c, a, r, w, billingSummary, inbox, emailRecipients] = await Promise.all([
       getOrganizations(),
       getUsers(),
       getChecklists(),
@@ -1033,6 +1059,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       getWalkthroughs(),
       getBillingSummary(),
       getMessages(),
+      getReportEmailRecipients().catch(() => []),
     ]);
 
     setOrganizations(orgs);
@@ -1041,6 +1068,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     setMessages(inbox.messages);
     setAssignments(a);
     setReports(r);
+    setReportEmailRecipients(emailRecipients);
     setWalkthroughs(w);
     setBilling(billingSummary);
     setPendingUserForms((prev) => {
@@ -2146,14 +2174,16 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     await generateChecklistPdf(pdfPayload as any);
   };
 
-  const handleEmailReport = async (report: Report) => {
-    const to = window.prompt("Send report to which email address?");
-    if (!to) return;
+  const handleEmailReport = (report: Report) => {
+    setReportEmailTarget({ type: "checklist", report });
+  };
 
+  const sendChecklistReportEmail = async (report: Report, emails: string[]) => {
     setMessage("");
     setError("");
 
     try {
+      setReportEmailSending(true);
       setMessage("Preparing report email...");
       const pdfPayload = mapReportToPdfPayload(report);
       const pdf = await generateChecklistPdf(pdfPayload as any, { output: "dataUri" });
@@ -2169,20 +2199,25 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       });
 
       setMessage("Report email sent.");
+      setReportEmailTarget(null);
     } catch (err) {
       setMessage("");
       setError(err instanceof Error ? err.message : "Report email could not be sent.");
+    } finally {
+      setReportEmailSending(false);
     }
   };
 
-  const handleEmailWalkthrough = async (walkthrough: Walkthrough) => {
-    const to = window.prompt("Send walkthrough report to which email address?");
-    if (!to) return;
+  const handleEmailWalkthrough = (walkthrough: Walkthrough) => {
+    setReportEmailTarget({ type: "walkthrough", walkthrough });
+  };
 
+  const sendWalkthroughReportEmail = async (walkthrough: Walkthrough, emails: string[]) => {
     setMessage("");
     setError("");
 
     try {
+      setReportEmailSending(true);
       setMessage("Preparing walkthrough email...");
       const pdfPayload = mapWalkthroughToPdfPayload(walkthrough);
       const pdf = await generateChecklistPdf(pdfPayload as any, { output: "dataUri" });
@@ -2198,9 +2233,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       });
 
       setMessage("Walkthrough email sent.");
+      setReportEmailTarget(null);
     } catch (err) {
       setMessage("");
       setError(err instanceof Error ? err.message : "Walkthrough email could not be sent.");
+    } finally {
+      setReportEmailSending(false);
     }
   };
 
@@ -3015,6 +3053,26 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   return (
     <DashboardShell user={user} onLogout={onLogout}>
+      {reportEmailTarget ? (
+        <ReportEmailDialog
+          title={
+            reportEmailTarget.type === "checklist"
+              ? reportEmailTarget.report.checklistTitle
+              : reportEmailTarget.walkthrough.title
+          }
+          recipients={availableReportEmailRecipients}
+          isSending={reportEmailSending}
+          onCancel={() => {
+            if (!reportEmailSending) setReportEmailTarget(null);
+          }}
+          onSend={(emails) =>
+            reportEmailTarget.type === "checklist"
+              ? sendChecklistReportEmail(reportEmailTarget.report, emails)
+              : sendWalkthroughReportEmail(reportEmailTarget.walkthrough, emails)
+          }
+        />
+      ) : null}
+
       {pendingImportFile ? (
         <div className="app-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="excel-import-title">
           <div className="app-modal">

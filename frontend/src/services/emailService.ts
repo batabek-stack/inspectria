@@ -1,14 +1,23 @@
-import { apiPost } from "./api";
+import { apiGet, apiPost } from "./api";
 
 export type EmailReportPayload = {
   reportType: "checklist" | "walkthrough";
   reportId: number;
-  to: string;
+  to: string | string[];
   cc?: string;
   subject?: string;
   message?: string;
   attachmentBase64?: string;
   attachmentFileName?: string;
+};
+
+export type ReportEmailRecipient = {
+  id: number;
+  name: string;
+  username: string;
+  email: string;
+  role: "admin" | "user";
+  organizationName?: string | null;
 };
 
 export type ContactPayload = {
@@ -26,6 +35,10 @@ export type SupportTicketPayload = {
 
 export function emailReport(payload: EmailReportPayload) {
   return apiPost<{ success: boolean }>("/emails/report", payload);
+}
+
+export function getReportEmailRecipients() {
+  return apiGet<ReportEmailRecipient[]>("/emails/report-recipients");
 }
 
 export function sendContactMessage(payload: ContactPayload) {

@@ -212,6 +212,34 @@ textarea {
   border-top: 1px solid #d7e6e4;
 }
 
+.report-email-dialog {
+  display: grid;
+  gap: 14px;
+}
+
+.report-email-dialog label {
+  display: grid;
+  gap: 6px;
+  color: #06323f;
+  font-weight: 800;
+}
+
+.report-email-dialog input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 11px 12px;
+  border: 1px solid #b9d3d1;
+  border-radius: 8px;
+  color: #092934;
+  font: inherit;
+}
+
+.report-email-dialog .message-recipient-check,
+.report-email-dialog .message-recipient-row {
+  display: flex;
+}
+
 .password-input {
   position: relative;
   flex: 1 1 180px;

@@ -19,6 +19,31 @@ function validateRecipient(value, fieldName) {
   return email;
 }
 
+function parseRecipientList(value) {
+  const values = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/[\s,;]+/)
+        .filter(Boolean);
+
+  return [...new Set(values.map(cleanEmail).filter(Boolean))];
+}
+
+function validateRecipients(value, fieldName) {
+  const emails = parseRecipientList(value);
+
+  if (emails.length === 0) {
+    throw new Error(`${fieldName} must include at least one valid email address.`);
+  }
+
+  const invalidEmail = emails.find((email) => !emailPattern.test(email));
+  if (invalidEmail) {
+    throw new Error(`${fieldName} includes an invalid email address: ${invalidEmail}`);
+  }
+
+  return emails;
+}
+
 function validateOptionalRecipient(value, fieldName) {
   const email = cleanEmail(value);
   if (!email) return "";
@@ -199,7 +224,7 @@ router.post("/contact", async (req, res, next) => {
 
     res.json({ success: true });
   } catch (error) {
-    if (error.message && error.message.includes("valid email")) {
+    if (error.message && (error.message.includes("valid email") || error.message.includes("invalid email"))) {
       return res.status(400).json({ message: error.message });
     }
 
@@ -253,7 +278,7 @@ router.post("/support-ticket", authRequired, async (req, res, next) => {
 
     res.json({ success: true });
   } catch (error) {
-    if (error.message && error.message.includes("valid email")) {
+    if (error.message && (error.message.includes("valid email") || error.message.includes("invalid email"))) {
       return res.status(400).json({ message: error.message });
     }
 
@@ -263,6 +288,41 @@ router.post("/support-ticket", authRequired, async (req, res, next) => {
       });
     }
 
+    next(error);
+  }
+});
+
+router.get("/report-recipients", authRequired, async (req, res, next) => {
+  try {
+    const organizationIds = db.isPlatformAdmin(req.user)
+      ? await db.getManagedOrganizationIds(req.user)
+      : [req.user.organizationId].filter(Boolean);
+
+    if (organizationIds.length === 0) return res.json([]);
+
+    const recipients = await db.many(
+      `
+      SELECT
+        u.id,
+        u.name,
+        u.username,
+        u.email,
+        u.role,
+        o.name AS "organizationName"
+      FROM users u
+      LEFT JOIN organizations o ON o.id = u.organization_id
+      WHERE u.organization_id = ANY($1::int[])
+        AND u.role IN ('admin', 'user')
+        AND u.active = TRUE
+        AND u.approval_status = 'approved'
+        AND COALESCE(u.email, '') <> ''
+      ORDER BY o.name, u.name, u.username
+    `,
+      [organizationIds]
+    );
+
+    res.json(recipients);
+  } catch (error) {
     next(error);
   }
 });
@@ -281,7 +341,7 @@ router.post("/report", authRequired, async (req, res, next) => {
 
   const cleanReportType = reportType === "walkthrough" ? "walkthrough" : "checklist";
   const cleanReportId = Number(reportId);
-  let recipient = "";
+  let recipients = [];
   let ccRecipient = "";
   let emailSubject = "";
   let organizationId = req.user.organizationId || null;
@@ -291,7 +351,7 @@ router.post("/report", authRequired, async (req, res, next) => {
       return res.status(400).json({ message: "reportId is required." });
     }
 
-    recipient = validateRecipient(to, "to");
+    recipients = validateRecipients(to, "to");
     ccRecipient = validateOptionalRecipient(cc, "cc");
 
     const report =
@@ -329,7 +389,7 @@ router.post("/report", authRequired, async (req, res, next) => {
     }
 
     await sendReportEmail({
-      to: recipient,
+      to: recipients,
       cc: ccRecipient,
       subject: emailSubject,
       text: plainText,
@@ -342,7 +402,7 @@ router.post("/report", authRequired, async (req, res, next) => {
       userId: req.user.id,
       reportType: cleanReportType,
       reportId: cleanReportId,
-      to: recipient,
+      to: recipients.join(", "),
       cc: ccRecipient,
       subject: emailSubject,
       status: "sent",
@@ -350,13 +410,13 @@ router.post("/report", authRequired, async (req, res, next) => {
 
     res.json({ success: true });
   } catch (error) {
-    if (recipient && emailSubject) {
+    if (recipients.length > 0 && emailSubject) {
       await logEmail({
         organizationId,
         userId: req.user.id,
         reportType: cleanReportType,
         reportId: cleanReportId || 0,
-        to: recipient,
+        to: recipients.join(", "),
         cc: ccRecipient,
         subject: emailSubject,
         status: "failed",
@@ -364,7 +424,7 @@ router.post("/report", authRequired, async (req, res, next) => {
       }).catch(() => {});
     }
 
-    if (error.message && error.message.includes("valid email")) {
+    if (error.message && (error.message.includes("valid email") || error.message.includes("invalid email"))) {
       return res.status(400).json({ message: error.message });
     }
 

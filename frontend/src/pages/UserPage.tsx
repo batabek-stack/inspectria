@@ -14,6 +14,7 @@ import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import ReportDetail from "../components/ReportDetail";
+import ReportEmailDialog from "../components/ReportEmailDialog";
 import WalkthroughDetail from "../components/WalkthroughDetail";
 import { getAssignments, startTemplate } from "../services/assignmentService";
 import { getChecklists } from "../services/checklistService";
@@ -36,7 +37,11 @@ import {
   getWalkthroughs,
   updateWalkthrough,
 } from "../services/walkthroughService";
-import { emailReport } from "../services/emailService";
+import {
+  emailReport,
+  getReportEmailRecipients,
+  ReportEmailRecipient,
+} from "../services/emailService";
 import {
   generateManagerSummary,
   getActionPlanExcelDownloadUrl,
@@ -69,6 +74,10 @@ type Props = {
   user: User;
   onLogout: () => Promise<void>;
 };
+
+type ReportEmailTarget =
+  | { type: "checklist"; report: Report }
+  | { type: "walkthrough"; walkthrough: Walkthrough };
 
 function getAnswerButtonStyle(
   option: "YES" | "NO" | "N/A",
@@ -197,6 +206,9 @@ export default function UserPage({ user, onLogout }: Props) {
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [reportEmailRecipients, setReportEmailRecipients] = useState<ReportEmailRecipient[]>([]);
+  const [reportEmailTarget, setReportEmailTarget] = useState<ReportEmailTarget | null>(null);
+  const [reportEmailSending, setReportEmailSending] = useState(false);
   const [walkthroughs, setWalkthroughs] = useState<Walkthrough[]>([]);
   const [activeAssignmentId, setActiveAssignmentId] = useState<number | null>(null);
   const [startingTemplateId, setStartingTemplateId] = useState<number | null>(null);
@@ -227,17 +239,19 @@ export default function UserPage({ user, onLogout }: Props) {
   const [resumeItemId, setResumeItemId] = useState<number | null>(null);
 
   const load = async () => {
-    const [a, c, r, w, inbox] = await Promise.all([
+    const [a, c, r, w, inbox, emailRecipients] = await Promise.all([
       getAssignments(),
       getChecklists(),
       getReports(),
       getWalkthroughs(),
       getMessages(),
+      getReportEmailRecipients().catch(() => []),
     ]);
     setAssignments(a);
     setChecklists(c);
     setMessages(inbox.messages);
     setReports(r);
+    setReportEmailRecipients(emailRecipients);
     setWalkthroughs(w);
   };
 
@@ -708,11 +722,13 @@ export default function UserPage({ user, onLogout }: Props) {
     }
   };
 
-  const handleEmailReport = async (report: Report) => {
-    const to = window.prompt("Send report to which email address?");
-    if (!to) return;
+  const handleEmailReport = (report: Report) => {
+    setReportEmailTarget({ type: "checklist", report });
+  };
 
+  const sendChecklistReportEmail = async (report: Report, emails: string[]) => {
     try {
+      setReportEmailSending(true);
       setMessage("Preparing report email...");
       const pdfPayload = mapReportToPdfPayload(report);
       const pdf = await generateChecklistPdf(pdfPayload as any, { output: "dataUri" });
@@ -728,17 +744,22 @@ export default function UserPage({ user, onLogout }: Props) {
       });
 
       setMessage("Report email sent.");
+      setReportEmailTarget(null);
     } catch (err) {
       setMessage("");
       alert(err instanceof Error ? err.message : "Report email could not be sent.");
+    } finally {
+      setReportEmailSending(false);
     }
   };
 
-  const handleEmailWalkthrough = async (walkthrough: Walkthrough) => {
-    const to = window.prompt("Send walkthrough report to which email address?");
-    if (!to) return;
+  const handleEmailWalkthrough = (walkthrough: Walkthrough) => {
+    setReportEmailTarget({ type: "walkthrough", walkthrough });
+  };
 
+  const sendWalkthroughReportEmail = async (walkthrough: Walkthrough, emails: string[]) => {
     try {
+      setReportEmailSending(true);
       setMessage("Preparing walkthrough email...");
       const pdfPayload = mapWalkthroughToPdfPayload(walkthrough);
       const pdf = await generateChecklistPdf(pdfPayload as any, { output: "dataUri" });
@@ -754,9 +775,12 @@ export default function UserPage({ user, onLogout }: Props) {
       });
 
       setMessage("Walkthrough email sent.");
+      setReportEmailTarget(null);
     } catch (err) {
       setMessage("");
       alert(err instanceof Error ? err.message : "Walkthrough email could not be sent.");
+    } finally {
+      setReportEmailSending(false);
     }
   };
 
@@ -977,6 +1001,26 @@ export default function UserPage({ user, onLogout }: Props) {
 
   return (
     <DashboardShell user={user} onLogout={onLogout}>
+      {reportEmailTarget ? (
+        <ReportEmailDialog
+          title={
+            reportEmailTarget.type === "checklist"
+              ? reportEmailTarget.report.checklistTitle
+              : reportEmailTarget.walkthrough.title
+          }
+          recipients={reportEmailRecipients}
+          isSending={reportEmailSending}
+          onCancel={() => {
+            if (!reportEmailSending) setReportEmailTarget(null);
+          }}
+          onSend={(emails) =>
+            reportEmailTarget.type === "checklist"
+              ? sendChecklistReportEmail(reportEmailTarget.report, emails)
+              : sendWalkthroughReportEmail(reportEmailTarget.walkthrough, emails)
+          }
+        />
+      ) : null}
+
       {message ? (
         <div style={{ ...styles.section, background: "#e6f7f5" }}>
           <div>{message}</div>
