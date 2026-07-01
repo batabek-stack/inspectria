@@ -2191,7 +2191,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       await emailReport({
         reportType: "checklist",
         reportId: report.id,
-        to,
+        to: emails,
         subject: `Inspectria Checklist Report: ${report.checklistTitle}`,
         message: "Please find the Inspectria checklist report attached.",
         attachmentBase64: pdf.dataUri,
@@ -2225,7 +2225,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       await emailReport({
         reportType: "walkthrough",
         reportId: walkthrough.id,
-        to,
+        to: emails,
         subject: `Inspectria Walkthrough Report: ${walkthrough.title}`,
         message: "Please find the Inspectria walkthrough report attached.",
         attachmentBase64: pdf.dataUri,
