@@ -169,6 +169,15 @@ async function initDb() {
       imported_at TIMESTAMPTZ
     );
 
+    CREATE TABLE IF NOT EXISTS community_templates (
+      id SERIAL PRIMARY KEY,
+      checklist_id INTEGER NOT NULL REFERENCES checklists(id) ON DELETE CASCADE,
+      shared_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      source_organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (checklist_id)
+    );
+
     CREATE TABLE IF NOT EXISTS app_messages (
       id SERIAL PRIMARY KEY,
       recipient_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -215,6 +224,16 @@ async function initDb() {
       completed_by_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       completed_at TIMESTAMPTZ NOT NULL,
       status TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS report_notifications (
+      id SERIAL PRIMARY KEY,
+      report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+      recipient_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (report_id, recipient_user_id)
     );
 
     CREATE TABLE IF NOT EXISTS report_items (
@@ -363,6 +382,10 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_template_shares_expires_at
       ON template_shares(expires_at)
       WHERE imported_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_community_templates_created_at
+      ON community_templates(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_community_templates_source_org
+      ON community_templates(source_organization_id);
     CREATE INDEX IF NOT EXISTS idx_app_messages_recipient_user_id
       ON app_messages(recipient_user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_app_messages_unread
@@ -370,6 +393,11 @@ async function initDb() {
       WHERE read_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_assignments_organization_id ON assignments(organization_id);
     CREATE INDEX IF NOT EXISTS idx_reports_organization_id ON reports(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_report_notifications_recipient_unread
+      ON report_notifications(recipient_user_id, created_at DESC)
+      WHERE read_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_report_notifications_organization
+      ON report_notifications(organization_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_drafts_organization_id ON draft_reports(organization_id);
     CREATE INDEX IF NOT EXISTS idx_upload_cleanup_queue_delete_after
       ON upload_cleanup_queue(delete_after)

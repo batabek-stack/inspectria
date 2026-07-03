@@ -27,11 +27,19 @@ import {
   updateChecklist,
   deleteChecklist,
   forceDeleteChecklist,
+  getCommunityTemplates,
   getChecklists,
+  importCommunityTemplate,
   previewChecklistImport,
   shareChecklist,
+  shareChecklistWithCommunity,
 } from "../services/checklistService";
-import { deleteReport, getReports } from "../services/reportService";
+import {
+  deleteReport,
+  getReports,
+  getUnreadReportCount,
+  markReportsRead,
+} from "../services/reportService";
 import {
   createWalkthrough,
   deleteWalkthrough,
@@ -72,7 +80,7 @@ import {
 import {
   apiPost,
   createServerDownload,
-  FILE_BASE,
+  resolveFileUrl,
   uploadPhotos,
 } from "../services/api";
 import {
@@ -95,6 +103,7 @@ import {
 } from "../services/messageService";
 
 const AUTO_LOGOFF_SAVE_EVENT = "inspectria:auto-logoff-save";
+const LIST_PAGE_SIZE = 10;
 
 type Props = {
   user: User;
@@ -144,6 +153,7 @@ type AdminSectionKey =
   | "billing"
   | "messages"
   | "templates"
+  | "communityTemplates"
   | "myWork"
   | "assignments"
   | "walkthroughs"
@@ -234,6 +244,11 @@ const ADMIN_SECTIONS: Array<{
     description: "Create and manage checklist templates",
   },
   {
+    key: "communityTemplates",
+    label: "Community Templates",
+    description: "Use templates shared by the Inspectria community",
+  },
+  {
     key: "assignments",
     label: "Assignments",
     description: "Assign checklist work to users",
@@ -290,6 +305,7 @@ const PLATFORM_ADMIN_SECTION_KEYS: AdminSectionKey[] = [
   "organizationUsers",
   "users",
   "templates",
+  "communityTemplates",
   "assignments",
   "reports",
   "walkthroughs",
@@ -539,6 +555,37 @@ function normalizeAnswer(value?: string | null) {
   return String(value || "").trim().toUpperCase();
 }
 
+function ShowMoreButton({
+  visibleCount,
+  totalCount,
+  onBack,
+  onClick,
+}: {
+  visibleCount: number;
+  totalCount: number;
+  onBack: () => void;
+  onClick: () => void;
+}) {
+  const canGoBack = visibleCount > LIST_PAGE_SIZE;
+  const canShowMore = visibleCount < totalCount;
+  if (!canGoBack && !canShowMore) return null;
+
+  return (
+    <div className="show-more-row">
+      {canGoBack ? (
+        <button type="button" style={styles.secondaryButton} onClick={onBack}>
+          Go Back
+        </button>
+      ) : null}
+      {canShowMore ? (
+        <button type="button" style={styles.secondaryButton} onClick={onClick}>
+          Show More
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function isDesktopViewport() {
   return typeof window === "undefined"
     ? true
@@ -712,6 +759,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   );
   const [users, setUsers] = useState<User[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
+  const [communityTemplates, setCommunityTemplates] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
   const unreadMessageCount = messages.filter((candidate) => !candidate.readAt).length;
   const [expandedMessageIds, setExpandedMessageIds] = useState<Record<number, boolean>>({});
@@ -721,6 +769,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [messageSending, setMessageSending] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [unreadReportCount, setUnreadReportCount] = useState(0);
   const [reportEmailRecipients, setReportEmailRecipients] = useState<ReportEmailRecipient[]>([]);
   const [reportEmailTarget, setReportEmailTarget] = useState<ReportEmailTarget | null>(null);
   const [reportEmailSending, setReportEmailSending] = useState(false);
@@ -728,6 +777,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [selectedWalkthrough, setSelectedWalkthrough] = useState<Walkthrough | null>(null);
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const [visibleListCounts, setVisibleListCounts] = useState<Record<string, number>>({});
   const [walkthroughTitle, setWalkthroughTitle] = useState("");
   const [walkthroughLocation, setWalkthroughLocation] = useState("");
   const [walkthroughSections, setWalkthroughSections] = useState<WalkthroughSection[]>([
@@ -738,6 +788,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   const [title, setTitle] = useState("");
   const [templateImagePath, setTemplateImagePath] = useState("");
+  const [templateImageLoadError, setTemplateImageLoadError] = useState(false);
   const [templateImageUploading, setTemplateImageUploading] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [sections, setSections] = useState<SectionForm[]>([
@@ -776,6 +827,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const saveTimeoutRef = useRef<number | null>(null);
   const questionRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [resumeItemId, setResumeItemId] = useState<number | null>(null);
+
+  useEffect(() => {
+    setTemplateImageLoadError(false);
+  }, [templateImagePath]);
 
   const hasTemplateDraftContent = (draft: Omit<TemplateDraft, "savedAt">) =>
     Boolean(
@@ -1050,24 +1105,40 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   }
 
   const load = async () => {
-    const [orgs, u, c, a, r, w, billingSummary, inbox, emailRecipients] = await Promise.all([
+    const [
+      orgs,
+      u,
+      c,
+      community,
+      a,
+      r,
+      w,
+      billingSummary,
+      inbox,
+      emailRecipients,
+      unreadReports,
+    ] = await Promise.all([
       getOrganizations(),
       getUsers(),
       getChecklists(),
+      getCommunityTemplates(),
       getAssignments(),
       getReports(),
       getWalkthroughs(),
       getBillingSummary(),
       getMessages(),
       getReportEmailRecipients().catch(() => []),
+      getUnreadReportCount().catch(() => ({ count: 0 })),
     ]);
 
     setOrganizations(orgs);
     setUsers(u);
     setChecklists(c);
+    setCommunityTemplates(community);
     setMessages(inbox.messages);
     setAssignments(a);
     setReports(r);
+    setUnreadReportCount(Number(unreadReports.count || 0));
     setReportEmailRecipients(emailRecipients);
     setWalkthroughs(w);
     setBilling(billingSummary);
@@ -1250,6 +1321,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       setActiveAdminPage("users");
     }
   }, [activeAdminPage, canViewSubOrganizations, isPlatformAdmin]);
+
+  useEffect(() => {
+    if (activeAdminPage !== "reports" || unreadReportCount === 0) return;
+
+    setUnreadReportCount(0);
+    markReportsRead().catch(() => null);
+  }, [activeAdminPage, unreadReportCount]);
 
   useEffect(() => {
     return () => {
@@ -2035,6 +2113,43 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           sending: false,
         },
       }));
+    }
+  };
+
+  const handleShareTemplateWithCommunity = async (checklist: Checklist) => {
+    setMessage("");
+    setError("");
+    if (!window.confirm(`Share ${checklist.title} with the Inspectria community?`)) return;
+
+    try {
+      await shareChecklistWithCommunity(checklist.id);
+      setMessage(`${checklist.title} shared with Community Templates.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Template could not be shared with community");
+    }
+  };
+
+  const openCommunityTemplate = async (checklist: Checklist) => {
+    setMessage("");
+    setError("");
+    if (!checklist.communityTemplateId) return;
+
+    try {
+      setStartingTemplateId(checklist.id);
+      const imported = await importCommunityTemplate(checklist.communityTemplateId);
+      const result = await startTemplate(imported.checklistId);
+      await load();
+      await openAssignment({ ...result.assignment, isSelfStarted: true });
+      setMessage(
+        imported.reused
+          ? `${imported.title} is already in your organization templates.`
+          : `${imported.title} copied to your organization templates.`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Community template could not be opened");
+    } finally {
+      setStartingTemplateId(null);
     }
   };
 
@@ -3020,8 +3135,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     ? Math.round((overallSuccessfulAnswers / overallScoredAnswers) * 100)
     : 0;
   const recentReports = [...reports]
-    .sort((first, second) => new Date(second.completed_at).getTime() - new Date(first.completed_at).getTime())
-    .slice(0, 6);
+    .sort((first, second) => new Date(second.completed_at).getTime() - new Date(first.completed_at).getTime());
+  const dashboardSiteRows = siteNames.length ? siteNames : [user.organizationName || "Main location"];
   const organizationUserRows = users
     .filter((candidate) => candidate.role !== "platform_admin")
     .map((candidate) => {
@@ -3050,6 +3165,25 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   };
 
   const isExpandedRow = (rowKey: string) => Boolean(expandedRows[rowKey]);
+  const getVisibleListCount = (listKey: string) =>
+    visibleListCounts[listKey] ?? LIST_PAGE_SIZE;
+  const getVisibleListStart = (listKey: string) =>
+    Math.max(0, getVisibleListCount(listKey) - LIST_PAGE_SIZE);
+  const showMoreListItems = (listKey: string) => {
+    setVisibleListCounts((current) => ({
+      ...current,
+      [listKey]: (current[listKey] ?? LIST_PAGE_SIZE) + LIST_PAGE_SIZE,
+    }));
+  };
+  const goBackListItems = (listKey: string) => {
+    setVisibleListCounts((current) => ({
+      ...current,
+      [listKey]: Math.max(
+        LIST_PAGE_SIZE,
+        (current[listKey] ?? LIST_PAGE_SIZE) - LIST_PAGE_SIZE
+      ),
+    }));
+  };
 
   return (
     <DashboardShell user={user} onLogout={onLogout}>
@@ -3175,7 +3309,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           >
             <button
               style={styles.secondaryButton}
-              onClick={() => setSelectedReport(null)}
+                      onClick={() => setSelectedReport(null)}
             >
               Back
             </button>
@@ -3183,13 +3317,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             <div className="responsive-report-actions" style={styles.row}>
               <button
                 style={styles.button}
-                onClick={() => handleDownloadPdf(selectedReport)}
+                      onClick={() => handleDownloadPdf(selectedReport)}
               >
                 Download PDF
               </button>
               <button
                 style={styles.secondaryButton}
-                onClick={() => handleEmailReport(selectedReport)}
+                      onClick={() => handleEmailReport(selectedReport)}
               >
                 Email Report
               </button>
@@ -3201,7 +3335,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               </a>
               <button
                 style={styles.button}
-                onClick={() => handleDownloadManagerSummary(selectedReport)}
+                      onClick={() => handleDownloadManagerSummary(selectedReport)}
                 disabled={managerSummaryReportId === selectedReport.id}
               >
                 {managerSummaryReportId === selectedReport.id
@@ -3210,7 +3344,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               </button>
               <button
                 style={styles.button}
-                onClick={() => handleDeleteReport(selectedReport.id)}
+                      onClick={() => handleDeleteReport(selectedReport.id)}
               >
                 Delete Report
               </button>
@@ -3239,7 +3373,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <button
                 type="button"
                 className="admin-module-nav-toggle"
-                onClick={() => setIsMobileNavigationOpen((isOpen) => !isOpen)}
+                      onClick={() => setIsMobileNavigationOpen((isOpen) => !isOpen)}
                 aria-expanded={isMobileNavigationOpen}
                 aria-controls="admin-module-nav-grid"
               >
@@ -3260,6 +3394,11 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     section.key === "messages" && unreadMessageCount > 0
                       ? unreadMessageCount
                       : 0;
+                  const unreadReportBadge =
+                    section.key === "reports" && unreadReportCount > 0
+                      ? unreadReportCount
+                      : 0;
+                  const navBadge = unreadMessageBadge || unreadReportBadge;
                   const sectionDescription =
                     !isPlatformAdmin && section.key === "organizations"
                       ? "Create sub-organizations and assign admins"
@@ -3286,9 +3425,16 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     >
                       <div className="admin-module-nav-label">
                         <span>{sectionLabel}</span>
-                        {unreadMessageBadge > 0 ? (
-                          <span className="admin-module-nav-badge" aria-label={`${unreadMessageBadge} unread messages`}>
-                            {unreadMessageBadge}
+                        {navBadge > 0 ? (
+                          <span
+                            className="admin-module-nav-badge"
+                            aria-label={
+                              unreadReportBadge > 0
+                                ? `${unreadReportBadge} new completed reports`
+                                : `${unreadMessageBadge} unread messages`
+                            }
+                          >
+                            {navBadge}
                           </span>
                         ) : null}
                       </div>
@@ -3490,7 +3636,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     </div>
                   </div>
                   <div className="mini-list">
-                    {activeUsers.slice(0, 6).map((member) => (
+                    {activeUsers
+                      .slice(
+                        getVisibleListStart("dashboard-users"),
+                        getVisibleListCount("dashboard-users")
+                      )
+                      .map((member) => (
                       <div key={member.id}>
                         <span>{member.name || member.username}</span>
                         <strong>{member.role}</strong>
@@ -3502,6 +3653,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         <strong>-</strong>
                       </div>
                     ) : null}
+                    <ShowMoreButton
+                      visibleCount={getVisibleListCount("dashboard-users")}
+                      totalCount={activeUsers.length}
+                      onBack={() => goBackListItems("dashboard-users")}
+                      onClick={() => showMoreListItems("dashboard-users")}
+                    />
                   </div>
                 </div>
               </div>
@@ -3513,7 +3670,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     <span>{templateSuccessRows.length} templates</span>
                   </div>
                   <div className="template-gauge-grid">
-                    {templateSuccessRows.map((row) => (
+                    {templateSuccessRows
+                      .slice(
+                        getVisibleListStart("dashboard-template-success"),
+                        getVisibleListCount("dashboard-template-success")
+                      )
+                      .map((row) => (
                       <div key={row.id} className="template-gauge-card">
                         <div
                           className="template-gauge"
@@ -3539,6 +3701,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         </div>
                       </div>
                     ))}
+                    <ShowMoreButton
+                      visibleCount={getVisibleListCount("dashboard-template-success")}
+                      totalCount={templateSuccessRows.length}
+                      onBack={() => goBackListItems("dashboard-template-success")}
+                      onClick={() => showMoreListItems("dashboard-template-success")}
+                    />
                     {templateSuccessRows.length === 0 ? (
                       <div style={styles.small}>No templates found.</div>
                     ) : null}
@@ -3552,17 +3720,28 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <span>{reports.length} total</span>
                     </div>
                     <div className="mini-list">
-                      {recentReports.map((report) => (
+                      {recentReports
+                        .slice(
+                          getVisibleListStart("dashboard-recent-reports"),
+                          getVisibleListCount("dashboard-recent-reports")
+                        )
+                        .map((report) => (
                         <button
                           key={report.id}
                           type="button"
                           className="mini-list-button"
-                          onClick={() => setSelectedReport(report)}
+                      onClick={() => setSelectedReport(report)}
                         >
                           <span>{report.checklistTitle}</span>
                           <strong>{formatDate(report.completed_at)}</strong>
                         </button>
                       ))}
+                      <ShowMoreButton
+                        visibleCount={getVisibleListCount("dashboard-recent-reports")}
+                        totalCount={recentReports.length}
+                        onBack={() => goBackListItems("dashboard-recent-reports")}
+                      onClick={() => showMoreListItems("dashboard-recent-reports")}
+                      />
                       {recentReports.length === 0 ? (
                         <div>
                           <span>No completed reports yet</span>
@@ -3578,8 +3757,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <span>{siteCount} tracked</span>
                     </div>
                     <div className="mini-list">
-                      {(siteNames.length ? siteNames : [user.organizationName || "Main location"]).map(
-                        (siteName) => (
+                      {dashboardSiteRows
+                        .slice(
+                          getVisibleListStart("dashboard-sites"),
+                          getVisibleListCount("dashboard-sites")
+                        )
+                        .map((siteName) => (
                           <div key={siteName}>
                             <span>{siteName}</span>
                             <strong>
@@ -3590,8 +3773,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               }
                             </strong>
                           </div>
-                        )
-                      )}
+                        ))}
+                      <ShowMoreButton
+                        visibleCount={getVisibleListCount("dashboard-sites")}
+                        totalCount={dashboardSiteRows.length}
+                        onBack={() => goBackListItems("dashboard-sites")}
+                      onClick={() => showMoreListItems("dashboard-sites")}
+                      />
                     </div>
                   </div>
                 </div>
@@ -3671,7 +3859,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   <button
                     type="button"
                     style={styles.button}
-                    onClick={handleSendAppMessage}
+                      onClick={handleSendAppMessage}
                     disabled={
                       messageSending ||
                       selectedMessageRecipientIds.length === 0 ||
@@ -3707,7 +3895,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           <button
                             type="button"
                             className="compact-row-toggle"
-                            onClick={() => handleToggleMessageExpanded(inboxMessage)}
+                      onClick={() => handleToggleMessageExpanded(inboxMessage)}
                             aria-expanded={isOpen}
                             aria-label={isOpen ? "Collapse message" : "Expand message"}
                           >
@@ -3746,7 +3934,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             <button
                               type="button"
                               style={styles.button}
-                              onClick={() => handleImportMessageTemplate(inboxMessage)}
+                      onClick={() => handleImportMessageTemplate(inboxMessage)}
                             >
                               Import Template
                             </button>
@@ -3755,7 +3943,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             <button
                               type="button"
                               style={styles.secondaryButton}
-                              onClick={() => handleMarkMessageRead(inboxMessage.id)}
+                      onClick={() => handleMarkMessageRead(inboxMessage.id)}
                             >
                               Mark Read
                             </button>
@@ -3929,7 +4117,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             className="compact-row-toggle"
                             aria-expanded={isOpen}
                             aria-label={`${isOpen ? "Hide" : "Show"} organization details`}
-                            onClick={() => toggleExpandedRow(rowKey)}
+                      onClick={() => toggleExpandedRow(rowKey)}
                           >
                             {isOpen ? "-" : "+"}
                           </button>
@@ -3989,13 +4177,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                     <div className="organization-admin-actions">
                                       <button
                                         style={styles.button}
-                                        onClick={() => handleApproveOrganizationAdmin(admin)}
+                      onClick={() => handleApproveOrganizationAdmin(admin)}
                                       >
                                         Approve
                                       </button>
                                       <button
                                         style={styles.secondaryButton}
-                                        onClick={() => handleDeleteUser(admin.id)}
+                      onClick={() => handleDeleteUser(admin.id)}
                                       >
                                         Reject
                                       </button>
@@ -4003,7 +4191,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                   ) : (
                                     <button
                                       style={styles.removeButton}
-                                      onClick={() => handleDeleteUser(admin.id)}
+                      onClick={() => handleDeleteUser(admin.id)}
                                       disabled={admin.id === user.id}
                                     >
                                       Delete
@@ -4033,7 +4221,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                   </div>
                                   <button
                                     style={styles.removeButton}
-                                    onClick={() => handleDeleteUser(member.id)}
+                      onClick={() => handleDeleteUser(member.id)}
                                     disabled={member.id === user.id}
                                   >
                                     Delete
@@ -4051,7 +4239,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                     ? { ...styles.button, background: "#b91c1c" }
                                     : styles.button
                                 }
-                                onClick={() => handleToggleOrganization(organization)}
+                      onClick={() => handleToggleOrganization(organization)}
                               >
                                 {organization.active ? "Deactivate" : "Activate"}
                               </button>
@@ -4062,7 +4250,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             )}
                             <button
                               style={styles.removeButton}
-                              onClick={() => handleDeleteOrganization(organization)}
+                      onClick={() => handleDeleteOrganization(organization)}
                               disabled={organization.id === user.organizationId}
                             >
                               Delete Organization
@@ -4107,7 +4295,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     </div>
                   </div>
 
-                  {organizationUserRows.map((row) => (
+                  {organizationUserRows
+                    .slice(
+                      getVisibleListStart("organization-users"),
+                      getVisibleListCount("organization-users")
+                    )
+                    .map((row) => (
                     <div key={row.id} className="compact-row organization-users-row">
                       <div className="compact-row-title">
                         <strong>{row.organizationName}</strong>
@@ -4121,7 +4314,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <div className="compact-row-title">
                         <button
                           style={styles.removeButton}
-                          onClick={() => handleDeleteUser(row.id)}
+                      onClick={() => handleDeleteUser(row.id)}
                           disabled={row.id === user.id}
                         >
                           Delete
@@ -4129,6 +4322,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       </div>
                     </div>
                   ))}
+                  <ShowMoreButton
+                    visibleCount={getVisibleListCount("organization-users")}
+                    totalCount={organizationUserRows.length}
+                    onBack={() => goBackListItems("organization-users")}
+                      onClick={() => showMoreListItems("organization-users")}
+                  />
                 </div>
               )}
             </div>
@@ -4348,7 +4547,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <button
                         type="button"
                         style={{ ...styles.secondaryButton, marginTop: 10 }}
-                        onClick={() => setBillingPlanId(plan.id)}
+                      onClick={() => setBillingPlanId(plan.id)}
                       >
                         Select
                       </button>
@@ -4393,7 +4592,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           <button
                             type="button"
                             style={{ ...styles.button, background: "#b91c1c" }}
-                            onClick={() => handleCancelSubscription(subscription.id)}
+                      onClick={() => handleCancelSubscription(subscription.id)}
                           >
                             Cancel
                           </button>
@@ -4492,24 +4691,31 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               </div>
               {templateImagePath ? (
                 <div style={{ marginTop: 12 }}>
-                  <img
-                    src={templateImagePath.startsWith("http") ? templateImagePath : `${FILE_BASE}${templateImagePath}`}
-                    alt="Template"
-                    style={{
-                      width: "25%",
-                      minWidth: 120,
-                      maxWidth: 220,
-                      height: "auto",
-                      objectFit: "contain",
-                      borderRadius: 10,
-                      border: "1px solid #d7e6e4",
-                      display: "block",
-                    }}
-                  />
+                  {templateImageLoadError ? (
+                    <div style={{ ...styles.small, color: "#8a4b12" }}>
+                      Template image could not be previewed. Save the template or upload the image again.
+                    </div>
+                  ) : (
+                    <img
+                      src={resolveFileUrl(templateImagePath)}
+                      alt="Template"
+                      onError={() => setTemplateImageLoadError(true)}
+                      style={{
+                        width: "25%",
+                        minWidth: 120,
+                        maxWidth: 220,
+                        height: "auto",
+                        objectFit: "contain",
+                        borderRadius: 10,
+                        border: "1px solid #d7e6e4",
+                        display: "block",
+                      }}
+                    />
+                  )}
                   <button
                     type="button"
                     style={{ ...styles.secondaryButton, marginTop: 10 }}
-                    onClick={() => setTemplateImagePath("")}
+                      onClick={() => setTemplateImagePath("")}
                   >
                     Remove Image
                   </button>
@@ -4522,14 +4728,14 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 <div style={{ ...styles.row, marginBottom: 10 }}>
                   <button
                     style={styles.secondaryButton}
-                    onClick={() => moveSection(sectionIndex, -1)}
+                      onClick={() => moveSection(sectionIndex, -1)}
                     disabled={sectionIndex === 0}
                   >
                     Move Section Up
                   </button>
                   <button
                     style={styles.secondaryButton}
-                    onClick={() => moveSection(sectionIndex, 1)}
+                      onClick={() => moveSection(sectionIndex, 1)}
                     disabled={sectionIndex === sections.length - 1}
                   >
                     Move Section Down
@@ -4638,7 +4844,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               <button
                                 type="button"
                                 style={styles.secondaryButton}
-                                onClick={() =>
+                      onClick={() =>
                                   removeQuestionOption(
                                     sectionIndex,
                                     questionIndex,
@@ -4654,7 +4860,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           <button
                             type="button"
                             style={styles.secondaryButton}
-                            onClick={() => addQuestionOption(sectionIndex, questionIndex)}
+                      onClick={() => addQuestionOption(sectionIndex, questionIndex)}
                           >
                             Add Option
                           </button>
@@ -4691,7 +4897,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
                 <button
                   style={styles.secondaryButton}
-                  onClick={() => addQuestionToSection(sectionIndex)}
+                      onClick={() => addQuestionToSection(sectionIndex)}
                 >
                   Add Question
                 </button>
@@ -4720,7 +4926,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <div style={styles.small}>No templates found.</div>
             ) : (
               <div className="compact-list">
-                {checklists.map((c) => {
+                {checklists
+                  .slice(getVisibleListStart("templates"), getVisibleListCount("templates"))
+                  .map((c) => {
                   const rowKey = `template-${c.id}`;
                   const isOpen = isExpandedRow(rowKey);
                   const sectionCount = Array.isArray(c.sections) ? c.sections.length : 0;
@@ -4744,7 +4952,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           className="compact-row-toggle"
                           aria-expanded={isOpen}
                           aria-label={`${isOpen ? "Hide" : "Show"} template actions`}
-                          onClick={() => toggleExpandedRow(rowKey)}
+                      onClick={() => toggleExpandedRow(rowKey)}
                         >
                           {isOpen ? "-" : "+"}
                         </button>
@@ -4760,13 +4968,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <div className="template-row-primary-actions">
                         <button
                           style={styles.secondaryButton}
-                          onClick={() => startEditTemplate(c)}
+                      onClick={() => startEditTemplate(c)}
                         >
                           Edit
                         </button>
                         <button
                           style={styles.secondaryButton}
-                          onClick={() => handleDuplicateTemplate(c)}
+                      onClick={() => handleDuplicateTemplate(c)}
                         >
                           Copy
                         </button>
@@ -4775,6 +4983,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           onClick={() => toggleTemplateShareForm(c.id)}
                         >
                           Share
+                        </button>
+                        <button
+                          style={styles.secondaryButton}
+                          onClick={() => handleShareTemplateWithCommunity(c)}
+                        >
+                          Share With Community
                         </button>
                         <button
                           style={{ ...styles.button, background: "#b91c1c" }}
@@ -4809,7 +5023,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               <button
                                 type="button"
                                 style={styles.button}
-                                onClick={() => handleShareTemplate(c)}
+                      onClick={() => handleShareTemplate(c)}
                                 disabled={shareForm.sending}
                               >
                                 {shareForm.sending ? "Sending..." : "Send"}
@@ -4818,7 +5032,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           ) : null}
                           <button
                             style={{ ...styles.button, background: "#b91c1c" }}
-                            onClick={() => handleForceDeleteTemplate(c.id)}
+                      onClick={() => handleForceDeleteTemplate(c.id)}
                           >
                             Force Delete
                           </button>
@@ -4827,10 +5041,80 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     </div>
                   );
                 })}
+                <ShowMoreButton
+                  visibleCount={getVisibleListCount("templates")}
+                  totalCount={checklists.length}
+                  onBack={() => goBackListItems("templates")}
+                      onClick={() => showMoreListItems("templates")}
+                />
               </div>
             )}
           </div>
               </div>
+            </div>
+          ) : null}
+
+          {activeAdminPage === "communityTemplates" ? (
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Community Templates</h3>
+                  <p>Templates shared by Inspectria users. Using one copies it into your organization before you edit or complete it.</p>
+                </div>
+              </div>
+
+              {communityTemplates.length === 0 ? (
+                <div style={styles.small}>No community templates have been shared yet.</div>
+              ) : (
+                <div className="compact-list">
+                  {communityTemplates
+                    .slice(
+                      getVisibleListStart("community-templates"),
+                      getVisibleListCount("community-templates")
+                    )
+                    .map((checklist) => {
+                      const sectionCount = Array.isArray(checklist.sections) ? checklist.sections.length : 0;
+                      const questionCount = Array.isArray(checklist.sections)
+                        ? checklist.sections.reduce((total, section) => total + section.items.length, 0)
+                        : 0;
+                      const sharedBy = checklist.sharedByName || checklist.sharedByUsername || "Inspectria user";
+
+                      return (
+                        <div key={checklist.communityTemplateId || checklist.id} className="compact-row compact-row-open">
+                          <div className="compact-row-main">
+                            <div className="compact-row-title">
+                              <strong>{checklist.title}</strong>
+                              <span>
+                                Shared by {sharedBy}
+                                {checklist.sharedByOrganizationName ? ` | ${checklist.sharedByOrganizationName}` : ""}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="compact-row-meta">
+                            <span>{sectionCount} sections</span>
+                            <span>{questionCount} questions</span>
+                          </div>
+                          <div className="compact-row-actions">
+                            <button
+                              type="button"
+                              style={styles.button}
+                              onClick={() => openCommunityTemplate(checklist)}
+                              disabled={startingTemplateId === checklist.id}
+                            >
+                              {startingTemplateId === checklist.id ? "Opening..." : "Use Template"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  <ShowMoreButton
+                    visibleCount={getVisibleListCount("community-templates")}
+                    totalCount={communityTemplates.length}
+                    onBack={() => goBackListItems("community-templates")}
+                    onClick={() => showMoreListItems("community-templates")}
+                  />
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -4858,9 +5142,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
                   {activeChecklist.image_path || activeChecklist.imagePath ? (
                     <img
-                      src={(activeChecklist.image_path || activeChecklist.imagePath || "").startsWith("http")
-                        ? activeChecklist.image_path || activeChecklist.imagePath
-                        : `${FILE_BASE}${activeChecklist.image_path || activeChecklist.imagePath}`}
+                      src={resolveFileUrl(activeChecklist.image_path || activeChecklist.imagePath || "")}
                       alt={activeChecklist.title}
                       style={{
                         maxWidth: "100%",
@@ -4878,7 +5160,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         key={section.id}
                         type="button"
                         style={index === activeSectionIndex ? styles.button : styles.secondaryButton}
-                        onClick={() => goToSection(index)}
+                      onClick={() => goToSection(index)}
                       >
                         {index + 1}. {section.title}
                       </button>
@@ -4910,7 +5192,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                     key={value}
                                     type="button"
                                     style={getAnswerButtonStyle(value, form[item.id]?.answer || "")}
-                                    onClick={() => updateAnswer(item.id, value)}
+                      onClick={() => updateAnswer(item.id, value)}
                                   >
                                     {value}
                                   </button>
@@ -5051,7 +5333,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                 }}
                               >
                                 {form[item.id].photos.map((photo, photoIndex) => {
-                                  const src = photo.startsWith("http") ? photo : `${FILE_BASE}${photo}`;
+                                  const src = resolveFileUrl(photo);
 
                                   return (
                                     <div
@@ -5086,7 +5368,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                           marginTop: 8,
                                           fontSize: 12,
                                         }}
-                                        onClick={() => removePhoto(item.id, photoIndex)}
+                      onClick={() => removePhoto(item.id, photoIndex)}
                                       >
                                         Remove
                                       </button>
@@ -5112,7 +5394,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <button
                         type="button"
                         style={styles.secondaryButton}
-                        onClick={() => goToSection(activeSectionIndex - 1)}
+                      onClick={() => goToSection(activeSectionIndex - 1)}
                       >
                         Previous Section
                       </button>
@@ -5121,7 +5403,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <button
                         type="button"
                         style={styles.button}
-                        onClick={() => goToSection(activeSectionIndex + 1)}
+                      onClick={() => goToSection(activeSectionIndex + 1)}
                       >
                         Next Section
                       </button>
@@ -5139,21 +5421,34 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     {myAssignedAssignments.length === 0 ? (
                       <div style={styles.small}>No active assignments assigned to you.</div>
                     ) : (
-                      myAssignedAssignments.map((assignment) => (
-                        <div key={assignment.id} style={{ ...styles.section, background: "#fbfefd" }}>
-                          <strong>{assignment.checklistTitle}</strong>
-                          <br />
-                          Assigned By: {assignment.assignedByName}
-                          <br />
-                          <button
-                            type="button"
-                            style={{ ...styles.button, marginTop: 10 }}
-                            onClick={() => openAssignment(assignment)}
-                          >
-                            Open Checklist
-                          </button>
-                        </div>
-                      ))
+                      <>
+                        {myAssignedAssignments
+                          .slice(
+                            getVisibleListStart("my-assignments"),
+                            getVisibleListCount("my-assignments")
+                          )
+                          .map((assignment) => (
+                            <div key={assignment.id} style={{ ...styles.section, background: "#fbfefd" }}>
+                              <strong>{assignment.checklistTitle}</strong>
+                              <br />
+                              Assigned By: {assignment.assignedByName}
+                              <br />
+                              <button
+                                type="button"
+                                style={{ ...styles.button, marginTop: 10 }}
+                      onClick={() => openAssignment(assignment)}
+                              >
+                                Open Checklist
+                              </button>
+                            </div>
+                          ))}
+                        <ShowMoreButton
+                          visibleCount={getVisibleListCount("my-assignments")}
+                          totalCount={myAssignedAssignments.length}
+                          onBack={() => goBackListItems("my-assignments")}
+                      onClick={() => showMoreListItems("my-assignments")}
+                        />
+                      </>
                     )}
                   </div>
 
@@ -5167,7 +5462,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <div style={{ ...styles.small, marginTop: 12 }}>No templates are available for your organization.</div>
                     ) : (
                       <div className="compact-list" style={{ marginTop: 12 }}>
-                        {checklists.map((checklist) => {
+                        {checklists
+                          .slice(
+                            getVisibleListStart("my-work-templates"),
+                            getVisibleListCount("my-work-templates")
+                          )
+                          .map((checklist) => {
                           const hasOpenDraft = selfStartedChecklistIds.has(checklist.id);
 
                           return (
@@ -5193,10 +5493,23 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                       ? "Continue Template"
                                       : "Fill Template"}
                                 </button>
+                                <button
+                                  type="button"
+                                  style={styles.secondaryButton}
+                                  onClick={() => handleShareTemplateWithCommunity(checklist)}
+                                >
+                                  Share With Community
+                                </button>
                               </div>
                             </div>
                           );
                         })}
+                        <ShowMoreButton
+                          visibleCount={getVisibleListCount("my-work-templates")}
+                          totalCount={checklists.length}
+                          onBack={() => goBackListItems("my-work-templates")}
+                      onClick={() => showMoreListItems("my-work-templates")}
+                        />
                       </div>
                     )}
                   </div>
@@ -5262,7 +5575,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               {assignments.length === 0 ? (
                 <div style={styles.small}>No assignments yet.</div>
               ) : (
-                assignments.map((a) => {
+                assignments
+                  .slice(getVisibleListStart("assignments"), getVisibleListCount("assignments"))
+                  .map((a) => {
                   const rowKey = `assignment-${a.id}`;
                   const isOpen = isExpandedRow(rowKey);
 
@@ -5277,7 +5592,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           className="compact-row-toggle"
                           aria-expanded={isOpen}
                           aria-label={`${isOpen ? "Hide" : "Show"} assignment details`}
-                          onClick={() => toggleExpandedRow(rowKey)}
+                      onClick={() => toggleExpandedRow(rowKey)}
                         >
                           {isOpen ? "-" : "+"}
                         </button>
@@ -5297,6 +5612,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   );
                 })
               )}
+              <ShowMoreButton
+                visibleCount={getVisibleListCount("assignments")}
+                totalCount={assignments.length}
+                onBack={() => goBackListItems("assignments")}
+                      onClick={() => showMoreListItems("assignments")}
+              />
             </div>
             </div>
             </div>
@@ -5314,7 +5635,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 <button
                   type="button"
                   style={styles.button}
-                  onClick={() => {
+                      onClick={() => {
                     setActiveAdminPage("organizations");
                     setMessage("");
                     setError("");
@@ -5347,7 +5668,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     ) : null}
 
                     <div className="compact-list">
-                      {group.users.map((u) => {
+                      {group.users
+                        .slice(
+                          getVisibleListStart(`pending-users-${group.key}`),
+                          getVisibleListCount(`pending-users-${group.key}`)
+                        )
+                        .map((u) => {
                         const rowKey = `pending-user-${u.id}`;
                         const isOpen = isExpandedRow(rowKey);
 
@@ -5362,7 +5688,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                 className="compact-row-toggle"
                                 aria-expanded={isOpen}
                                 aria-label={`${isOpen ? "Hide" : "Show"} pending user actions`}
-                                onClick={() => toggleExpandedRow(rowKey)}
+                      onClick={() => toggleExpandedRow(rowKey)}
                               >
                                 {isOpen ? "-" : "+"}
                               </button>
@@ -5427,13 +5753,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               />
                               <button
                                 style={styles.button}
-                                onClick={() => handleApproveUser(u)}
+                      onClick={() => handleApproveUser(u)}
                               >
                                 Approve User
                               </button>
                               <button
                                 style={styles.secondaryButton}
-                                onClick={() => handleDeleteUser(u.id)}
+                      onClick={() => handleDeleteUser(u.id)}
                               >
                                 Reject Request
                               </button>
@@ -5441,6 +5767,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           </div>
                         );
                       })}
+                      <ShowMoreButton
+                        visibleCount={getVisibleListCount(`pending-users-${group.key}`)}
+                        totalCount={group.users.length}
+                        onBack={() => goBackListItems(`pending-users-${group.key}`)}
+                      onClick={() => showMoreListItems(`pending-users-${group.key}`)}
+                      />
                     </div>
                   </div>
                 ))}
@@ -5523,7 +5855,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   ) : null}
 
                   <div className="compact-list">
-                  {group.users.map((u) => {
+                  {group.users
+                    .slice(
+                      getVisibleListStart(`approved-users-${group.key}`),
+                      getVisibleListCount(`approved-users-${group.key}`)
+                    )
+                    .map((u) => {
                     const rowKey = `user-${u.id}`;
                     const isOpen = isExpandedRow(rowKey);
 
@@ -5585,7 +5922,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           className="compact-row-toggle"
                           aria-expanded={isOpen}
                           aria-label={`${isOpen ? "Hide" : "Show"} user actions`}
-                          onClick={() => toggleExpandedRow(rowKey)}
+                      onClick={() => toggleExpandedRow(rowKey)}
                         >
                           {isOpen ? "-" : "+"}
                         </button>
@@ -5603,13 +5940,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <div className="compact-row-actions">
                         <button
                           style={styles.secondaryButton}
-                          onClick={() => startEditUser(u)}
+                      onClick={() => startEditUser(u)}
                         >
                           Edit User
                         </button>
                         <button
                           style={styles.secondaryButton}
-                          onClick={() => handleCreatePasswordResetLink(u)}
+                      onClick={() => handleCreatePasswordResetLink(u)}
                           disabled={passwordResetLinkLoadingId === u.id}
                         >
                           {passwordResetLinkLoadingId === u.id
@@ -5618,7 +5955,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         </button>
                         <button
                           style={styles.button}
-                          onClick={() => handleDeleteUser(u.id)}
+                      onClick={() => handleDeleteUser(u.id)}
                           disabled={u.id === user.id}
                         >
                           Delete User
@@ -5647,6 +5984,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 </div>
                     );
                   })}
+                  <ShowMoreButton
+                    visibleCount={getVisibleListCount(`approved-users-${group.key}`)}
+                    totalCount={group.users.length}
+                    onBack={() => goBackListItems(`approved-users-${group.key}`)}
+                      onClick={() => showMoreListItems(`approved-users-${group.key}`)}
+                  />
                   </div>
                 </div>
               ))
@@ -5772,7 +6115,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           {(item.photos || []).length > 0 ? (
                             <div style={styles.photoGrid}>
                               {(item.photos || []).map((photo, photoIndex) => {
-                                const src = photo.startsWith("http") ? photo : `${FILE_BASE}${photo}`;
+                                const src = resolveFileUrl(photo);
 
                                 return (
                                   <div key={photoIndex} style={styles.photoCard}>
@@ -5784,7 +6127,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                     <button
                                       type="button"
                                       style={styles.removeButton}
-                                      onClick={() =>
+                      onClick={() =>
                                         removeWalkthroughPhoto(sectionIndex, itemIndex, photoIndex)
                                       }
                                     >
@@ -5803,14 +6146,14 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             <button
                               type="button"
                               style={styles.secondaryButton}
-                              onClick={() => addWalkthroughItem(sectionIndex)}
+                      onClick={() => addWalkthroughItem(sectionIndex)}
                             >
                               Add Comment After This
                             </button>
                             <button
                               type="button"
                               style={styles.secondaryButton}
-                              onClick={() => removeWalkthroughItem(sectionIndex, itemIndex)}
+                      onClick={() => removeWalkthroughItem(sectionIndex, itemIndex)}
                             >
                               Remove Comment
                             </button>
@@ -5831,7 +6174,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   <button
                     type="button"
                     style={styles.secondaryButton}
-                    onClick={() => saveWalkthrough("draft")}
+                      onClick={() => saveWalkthrough("draft")}
                   >
                     Save Draft
                   </button>
@@ -5846,7 +6189,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 {walkthroughs.length === 0 ? (
                   <div style={styles.small}>No walkthroughs yet.</div>
                 ) : (
-                  walkthroughs.map((walkthrough) => (
+                  <>
+                    {walkthroughs
+                      .slice(getVisibleListStart("walkthroughs"), getVisibleListCount("walkthroughs"))
+                      .map((walkthrough) => (
                     <div key={walkthrough.id} style={styles.section}>
                       <strong>{walkthrough.title}</strong>
                       {walkthrough.location ? <> - {walkthrough.location}</> : null}
@@ -5867,7 +6213,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           <button
                             type="button"
                             style={styles.secondaryButton}
-                            onClick={() => editWalkthrough(walkthrough)}
+                      onClick={() => editWalkthrough(walkthrough)}
                           >
                             Continue Draft
                           </button>
@@ -5876,14 +6222,14 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             <button
                               type="button"
                               style={styles.secondaryButton}
-                              onClick={() => setSelectedWalkthrough(walkthrough)}
+                      onClick={() => setSelectedWalkthrough(walkthrough)}
                             >
                               View Walkthrough Report
                             </button>
                             <button
                               type="button"
                               style={styles.button}
-                              onClick={() => handleEmailWalkthrough(walkthrough)}
+                      onClick={() => handleEmailWalkthrough(walkthrough)}
                             >
                               Email Report
                             </button>
@@ -5892,13 +6238,20 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         <button
                           type="button"
                           style={styles.secondaryButton}
-                          onClick={() => handleDeleteWalkthrough(walkthrough.id)}
+                      onClick={() => handleDeleteWalkthrough(walkthrough.id)}
                         >
                           Delete Walkthrough
                         </button>
                       </div>
                     </div>
-                  ))
+                  ))}
+                    <ShowMoreButton
+                      visibleCount={getVisibleListCount("walkthroughs")}
+                      totalCount={walkthroughs.length}
+                      onBack={() => goBackListItems("walkthroughs")}
+                      onClick={() => showMoreListItems("walkthroughs")}
+                    />
+                  </>
                 )}
               </div>
             </div>
@@ -5910,12 +6263,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
             <div style={{ ...styles.section, background: "#fff" }}>
               <h3 style={styles.title}>Walkthrough Reports</h3>
-              {walkthroughs.filter((walkthrough) => walkthrough.status === "completed").length === 0 ? (
+              {completedWalkthroughs.length === 0 ? (
                 <div style={styles.small}>No completed walkthrough reports yet.</div>
               ) : (
                 <div className="compact-list">
-                  {walkthroughs
-                    .filter((walkthrough) => walkthrough.status === "completed")
+                  {completedWalkthroughs
+                    .slice(
+                      getVisibleListStart("walkthrough-reports"),
+                      getVisibleListCount("walkthrough-reports")
+                    )
                     .map((walkthrough) => {
                       const rowKey = `walkthrough-report-${walkthrough.id}`;
                       const isOpen = isExpandedRow(rowKey);
@@ -5935,7 +6291,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               className="compact-row-toggle"
                               aria-expanded={isOpen}
                               aria-label={`${isOpen ? "Hide" : "Show"} walkthrough report actions`}
-                              onClick={() => toggleExpandedRow(rowKey)}
+                      onClick={() => toggleExpandedRow(rowKey)}
                             >
                               {isOpen ? "-" : "+"}
                             </button>
@@ -5953,21 +6309,21 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             <button
                               type="button"
                               style={styles.secondaryButton}
-                              onClick={() => setSelectedWalkthrough(walkthrough)}
+                      onClick={() => setSelectedWalkthrough(walkthrough)}
                             >
                               View
                             </button>
                             <button
                               type="button"
                               style={styles.button}
-                              onClick={() => handleEmailWalkthrough(walkthrough)}
+                      onClick={() => handleEmailWalkthrough(walkthrough)}
                             >
                               Email
                             </button>
                             <button
                               type="button"
                               style={styles.secondaryButton}
-                              onClick={() => handleDeleteWalkthrough(walkthrough.id)}
+                      onClick={() => handleDeleteWalkthrough(walkthrough.id)}
                             >
                               Delete
                             </button>
@@ -5975,6 +6331,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         </div>
                       );
                     })}
+                  <ShowMoreButton
+                    visibleCount={getVisibleListCount("walkthrough-reports")}
+                    totalCount={completedWalkthroughs.length}
+                    onBack={() => goBackListItems("walkthrough-reports")}
+                      onClick={() => showMoreListItems("walkthrough-reports")}
+                  />
                 </div>
               )}
             </div>
@@ -5983,7 +6345,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <div style={styles.small}>No reports yet.</div>
             ) : (
               <div className="compact-list">
-                {reports.map((r) => {
+                {reports
+                  .slice(getVisibleListStart("reports"), getVisibleListCount("reports"))
+                  .map((r) => {
                   const rowKey = `report-${r.id}`;
                   const isOpen = isExpandedRow(rowKey);
 
@@ -5998,7 +6362,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           className="compact-row-toggle"
                           aria-expanded={isOpen}
                           aria-label={`${isOpen ? "Hide" : "Show"} report actions`}
-                          onClick={() => toggleExpandedRow(rowKey)}
+                      onClick={() => toggleExpandedRow(rowKey)}
                         >
                           {isOpen ? "-" : "+"}
                         </button>
@@ -6015,20 +6379,20 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         <span>Assigned to {r.assignedToName}</span>
                         <button
                           style={styles.secondaryButton}
-                          onClick={() => setSelectedReport(r)}
+                      onClick={() => setSelectedReport(r)}
                         >
                           View
                         </button>
 
                         <button
                           style={styles.button}
-                          onClick={() => handleDownloadPdf(r)}
+                      onClick={() => handleDownloadPdf(r)}
                         >
                           PDF
                         </button>
                         <button
                           style={styles.secondaryButton}
-                          onClick={() => handleEmailReport(r)}
+                      onClick={() => handleEmailReport(r)}
                         >
                           Email
                         </button>
@@ -6042,7 +6406,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
                         <button
                           style={styles.button}
-                          onClick={() => handleDownloadManagerSummary(r)}
+                      onClick={() => handleDownloadManagerSummary(r)}
                           disabled={managerSummaryReportId === r.id}
                         >
                           {managerSummaryReportId === r.id ? "Preparing..." : "Summary"}
@@ -6050,7 +6414,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
                         <button
                           style={styles.button}
-                          onClick={() => handleDeleteReport(r.id)}
+                      onClick={() => handleDeleteReport(r.id)}
                         >
                           Delete
                         </button>
@@ -6058,6 +6422,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     </div>
                   );
                 })}
+                <ShowMoreButton
+                  visibleCount={getVisibleListCount("reports")}
+                  totalCount={reports.length}
+                  onBack={() => goBackListItems("reports")}
+                      onClick={() => showMoreListItems("reports")}
+                />
               </div>
             )}
           </div>

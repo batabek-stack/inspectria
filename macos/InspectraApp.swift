@@ -8,7 +8,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     private let projectRoot = "/Users/bruceatabek/Desktop/INSPECTRIA"
     private let port = "4000"
-    private var url: URL { URL(string: "http://localhost:\(port)")! }
+    private var url: URL {
+        URL(string: "http://localhost:\(port)?appBuild=\(currentFrontendBuildStamp())")!
+    }
     private var logFile: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Inspectria", isDirectory: true)
@@ -152,7 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 }
                 try self.waitForHealth()
                 DispatchQueue.main.async {
-                    self.webView.load(URLRequest(url: self.url))
+                    self.clearWebViewCache {
+                        var request = URLRequest(url: self.url)
+                        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+                        self.webView.load(request)
+                    }
                 }
             } catch {
                 self.appendLog("Startup failed: \(error.localizedDescription)")
@@ -161,6 +167,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 }
             }
         }
+    }
+
+    private func clearWebViewCache(completion: @escaping () -> Void) {
+        let dataStore = WKWebsiteDataStore.default()
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        dataStore.fetchDataRecords(ofTypes: dataTypes) { records in
+            dataStore.removeData(ofTypes: dataTypes, for: records, completionHandler: completion)
+        }
+    }
+
+    private func currentFrontendBuildStamp() -> String {
+        let indexPath = projectRoot + "/frontend/dist/index.html"
+        guard
+            let attributes = try? FileManager.default.attributesOfItem(atPath: indexPath),
+            let modifiedAt = attributes[.modificationDate] as? Date
+        else {
+            return String(Int(Date().timeIntervalSince1970))
+        }
+
+        return String(Int(modifiedAt.timeIntervalSince1970))
     }
 
     private func ensurePostgres() throws {

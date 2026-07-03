@@ -131,6 +131,11 @@ export type Checklist = {
   image_path?: string;
   imagePath?: string;
   created_at: string;
+  communityTemplateId?: number;
+  sharedAt?: string;
+  sharedByName?: string;
+  sharedByUsername?: string;
+  sharedByOrganizationName?: string;
   sections: ChecklistSection[];
 };
 

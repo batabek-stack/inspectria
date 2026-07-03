@@ -1084,6 +1084,13 @@ textarea {
   margin-top: 12px;
 }
 
+.show-more-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
 .compact-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

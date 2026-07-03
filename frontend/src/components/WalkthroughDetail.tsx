@@ -1,7 +1,7 @@
 import React from "react";
 import { Walkthrough } from "../types";
 import { styles } from "../styles/appStyles";
-import { FILE_BASE } from "../services/api";
+import { resolveFileUrl } from "../services/api";
 
 type Props = {
   walkthrough: Walkthrough;
@@ -68,7 +68,7 @@ export default function WalkthroughDetail({
                 {item.photos?.length ? (
                   <div style={styles.photoGrid}>
                     {item.photos.map((photo, photoIndex) => {
-                      const src = photo.startsWith("http") ? photo : `${FILE_BASE}${photo}`;
+                      const src = resolveFileUrl(photo);
 
                       return (
                         <div key={photoIndex} style={styles.photoCard}>

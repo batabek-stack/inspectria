@@ -17,11 +17,16 @@ import ReportDetail from "../components/ReportDetail";
 import ReportEmailDialog from "../components/ReportEmailDialog";
 import WalkthroughDetail from "../components/WalkthroughDetail";
 import { getAssignments, startTemplate } from "../services/assignmentService";
-import { getChecklists } from "../services/checklistService";
+import {
+  getChecklists,
+  getCommunityTemplates,
+  importCommunityTemplate,
+  shareChecklistWithCommunity,
+} from "../services/checklistService";
 import {
   apiPost,
   createServerDownload,
-  FILE_BASE,
+  resolveFileUrl,
   uploadPhotos,
 } from "../services/api";
 import {
@@ -57,6 +62,7 @@ import {
 import { getMessages, markMessageRead } from "../services/messageService";
 
 const AUTO_LOGOFF_SAVE_EVENT = "inspectria:auto-logoff-save";
+const LIST_PAGE_SIZE = 10;
 
 type FillItem = {
   itemId: number;
@@ -200,10 +206,42 @@ function findResumeItemId(checklist: Checklist, form: Record<number, FillItem>) 
   return newestTouchedItemId || lastAnsweredItemId;
 }
 
+function ShowMoreButton({
+  visibleCount,
+  totalCount,
+  onBack,
+  onClick,
+}: {
+  visibleCount: number;
+  totalCount: number;
+  onBack: () => void;
+  onClick: () => void;
+}) {
+  const canGoBack = visibleCount > LIST_PAGE_SIZE;
+  const canShowMore = visibleCount < totalCount;
+  if (!canGoBack && !canShowMore) return null;
+
+  return (
+    <div className="show-more-row">
+      {canGoBack ? (
+        <button type="button" style={styles.secondaryButton} onClick={onBack}>
+          Go Back
+        </button>
+      ) : null}
+      {canShowMore ? (
+        <button type="button" style={styles.secondaryButton} onClick={onClick}>
+          Show More
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function UserPage({ user, onLogout }: Props) {
   const localDraftKey = `mod_draft_${user.id}`;
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
+  const [communityTemplates, setCommunityTemplates] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [reportEmailRecipients, setReportEmailRecipients] = useState<ReportEmailRecipient[]>([]);
@@ -232,16 +270,37 @@ export default function UserPage({ user, onLogout }: Props) {
   ]);
   const [editingWalkthroughId, setEditingWalkthroughId] = useState<number | null>(null);
   const [walkthroughUploadingKey, setWalkthroughUploadingKey] = useState<string | null>(null);
+  const [visibleListCounts, setVisibleListCounts] = useState<Record<string, number>>({});
   const activeAssignmentIdRef = useRef<number | null>(null);
   const latestFormRef = useRef<Record<number, FillItem>>({});
   const saveTimeoutRef = useRef<number | null>(null);
   const questionRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [resumeItemId, setResumeItemId] = useState<number | null>(null);
+  const getVisibleListCount = (listKey: string) =>
+    visibleListCounts[listKey] ?? LIST_PAGE_SIZE;
+  const getVisibleListStart = (listKey: string) =>
+    Math.max(0, getVisibleListCount(listKey) - LIST_PAGE_SIZE);
+  const showMoreListItems = (listKey: string) => {
+    setVisibleListCounts((current) => ({
+      ...current,
+      [listKey]: (current[listKey] ?? LIST_PAGE_SIZE) + LIST_PAGE_SIZE,
+    }));
+  };
+  const goBackListItems = (listKey: string) => {
+    setVisibleListCounts((current) => ({
+      ...current,
+      [listKey]: Math.max(
+        LIST_PAGE_SIZE,
+        (current[listKey] ?? LIST_PAGE_SIZE) - LIST_PAGE_SIZE
+      ),
+    }));
+  };
 
   const load = async () => {
-    const [a, c, r, w, inbox, emailRecipients] = await Promise.all([
+    const [a, c, community, r, w, inbox, emailRecipients] = await Promise.all([
       getAssignments(),
       getChecklists(),
+      getCommunityTemplates(),
       getReports(),
       getWalkthroughs(),
       getMessages(),
@@ -249,6 +308,7 @@ export default function UserPage({ user, onLogout }: Props) {
     ]);
     setAssignments(a);
     setChecklists(c);
+    setCommunityTemplates(community);
     setMessages(inbox.messages);
     setReports(r);
     setReportEmailRecipients(emailRecipients);
@@ -543,6 +603,40 @@ export default function UserPage({ user, onLogout }: Props) {
 
       return nextForm;
     });
+  };
+
+  const handleShareTemplateWithCommunity = async (checklist: Checklist) => {
+    setMessage("");
+    if (!window.confirm(`Share ${checklist.title} with the Inspectria community?`)) return;
+
+    try {
+      await shareChecklistWithCommunity(checklist.id);
+      setMessage(`${checklist.title} shared with Community Templates.`);
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Template could not be shared with community.");
+    }
+  };
+
+  const openCommunityTemplate = async (checklist: Checklist) => {
+    if (!checklist.communityTemplateId) return;
+
+    try {
+      setStartingTemplateId(checklist.id);
+      const imported = await importCommunityTemplate(checklist.communityTemplateId);
+      const result = await startTemplate(imported.checklistId);
+      await load();
+      await openAssignment({ ...result.assignment, isSelfStarted: true });
+      setMessage(
+        imported.reused
+          ? `${imported.title} is already in your organization templates.`
+          : `${imported.title} copied to your organization templates.`
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Community template could not be opened.");
+    } finally {
+      setStartingTemplateId(null);
+    }
   };
 
   const updateAnswer = (itemId: number, answer: string) => {
@@ -1080,6 +1174,10 @@ export default function UserPage({ user, onLogout }: Props) {
               <div style={styles.small}>No active assignments.</div>
             ) : (
               adminAssignedAssignments
+                .slice(
+                  getVisibleListStart("my-assignments"),
+                  getVisibleListCount("my-assignments")
+                )
                 .map((a) => (
                   <div key={a.id} style={styles.section}>
                     <strong>{a.checklistTitle}</strong>
@@ -1095,6 +1193,12 @@ export default function UserPage({ user, onLogout }: Props) {
                   </div>
                 ))
             )}
+            <ShowMoreButton
+              visibleCount={getVisibleListCount("my-assignments")}
+              totalCount={adminAssignedAssignments.length}
+              onBack={() => goBackListItems("my-assignments")}
+              onClick={() => showMoreListItems("my-assignments")}
+            />
           </div>
 
           <div style={styles.section}>
@@ -1106,7 +1210,13 @@ export default function UserPage({ user, onLogout }: Props) {
             {checklists.length === 0 ? (
               <div style={{ ...styles.small, marginTop: 12 }}>No templates are available for your organization.</div>
             ) : (
-              checklists.map((checklist) => {
+              <>
+                {checklists
+                  .slice(
+                    getVisibleListStart("available-templates"),
+                    getVisibleListCount("available-templates")
+                  )
+                  .map((checklist) => {
                 const hasOpenDraft = selfStartedChecklistIds.has(checklist.id);
 
                 return (
@@ -1131,9 +1241,76 @@ export default function UserPage({ user, onLogout }: Props) {
                           ? "Continue Template"
                           : "Fill Template"}
                     </button>
+                    <button
+                      type="button"
+                      style={{ ...styles.secondaryButton, marginTop: 10, marginLeft: 8 }}
+                      onClick={() => handleShareTemplateWithCommunity(checklist)}
+                    >
+                      Share With Community
+                    </button>
                   </div>
                 );
-              })
+              })}
+                <ShowMoreButton
+                  visibleCount={getVisibleListCount("available-templates")}
+                  totalCount={checklists.length}
+                  onBack={() => goBackListItems("available-templates")}
+              onClick={() => showMoreListItems("available-templates")}
+                />
+              </>
+            )}
+          </div>
+
+          <div style={styles.section}>
+            <h3 style={styles.title}>Community Templates</h3>
+            <div style={styles.small}>
+              Templates shared by Inspectria users. Using one copies it into your organization before you edit or complete it.
+            </div>
+
+            {communityTemplates.length === 0 ? (
+              <div style={{ ...styles.small, marginTop: 12 }}>No community templates have been shared yet.</div>
+            ) : (
+              <>
+                {communityTemplates
+                  .slice(
+                    getVisibleListStart("community-templates"),
+                    getVisibleListCount("community-templates")
+                  )
+                  .map((checklist) => {
+                    const sectionCount = Array.isArray(checklist.sections) ? checklist.sections.length : 0;
+                    const questionCount = Array.isArray(checklist.sections)
+                      ? checklist.sections.reduce((total, section) => total + section.items.length, 0)
+                      : 0;
+                    const sharedBy = checklist.sharedByName || checklist.sharedByUsername || "Inspectria user";
+
+                    return (
+                      <div key={checklist.communityTemplateId || checklist.id} style={styles.section}>
+                        <strong>{checklist.title}</strong>
+                        <div style={styles.small}>
+                          Shared by {sharedBy}
+                          {checklist.sharedByOrganizationName ? ` | ${checklist.sharedByOrganizationName}` : ""}
+                        </div>
+                        <div style={{ ...styles.small, marginTop: 4 }}>
+                          {sectionCount} sections | {questionCount} questions
+                        </div>
+                        <button
+                          type="button"
+                          style={{ ...styles.button, marginTop: 10 }}
+                          onClick={() => openCommunityTemplate(checklist)}
+                          disabled={startingTemplateId === checklist.id}
+                        >
+                          {startingTemplateId === checklist.id ? "Opening..." : "Use Template"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                <ShowMoreButton
+                  visibleCount={getVisibleListCount("community-templates")}
+                  totalCount={communityTemplates.length}
+                  onBack={() => goBackListItems("community-templates")}
+                  onClick={() => showMoreListItems("community-templates")}
+                />
+              </>
             )}
           </div>
 
@@ -1301,7 +1478,7 @@ export default function UserPage({ user, onLogout }: Props) {
                         {(item.photos || []).length > 0 ? (
                           <div style={styles.photoGrid}>
                             {(item.photos || []).map((photo, photoIndex) => {
-                              const src = photo.startsWith("http") ? photo : `${FILE_BASE}${photo}`;
+                              const src = resolveFileUrl(photo);
 
                               return (
                                 <div key={photoIndex} style={styles.photoCard}>
@@ -1366,7 +1543,10 @@ export default function UserPage({ user, onLogout }: Props) {
             {walkthroughs.length === 0 ? (
               <div style={styles.small}>No walkthroughs yet.</div>
             ) : (
-              walkthroughs.map((walkthrough) => (
+              <>
+                {walkthroughs
+                  .slice(getVisibleListStart("walkthroughs"), getVisibleListCount("walkthroughs"))
+                  .map((walkthrough) => (
                 <div key={walkthrough.id} style={styles.section}>
                   <strong>{walkthrough.title}</strong>
                   {walkthrough.location ? <> - {walkthrough.location}</> : null}
@@ -1412,7 +1592,14 @@ export default function UserPage({ user, onLogout }: Props) {
                     </button>
                   </div>
                 </div>
-              ))
+              ))}
+                <ShowMoreButton
+                  visibleCount={getVisibleListCount("walkthroughs")}
+                  totalCount={walkthroughs.length}
+                  onBack={() => goBackListItems("walkthroughs")}
+              onClick={() => showMoreListItems("walkthroughs")}
+                />
+              </>
             )}
           </div>
 
@@ -1422,7 +1609,10 @@ export default function UserPage({ user, onLogout }: Props) {
             {reports.length === 0 ? (
               <div style={styles.small}>No reports yet.</div>
             ) : (
-              reports.map((r) => (
+              <>
+                {reports
+                  .slice(getVisibleListStart("reports"), getVisibleListCount("reports"))
+                  .map((r) => (
                 <div key={r.id} style={styles.section}>
                   <strong>{r.checklistTitle}</strong>
                   <br />
@@ -1464,7 +1654,14 @@ export default function UserPage({ user, onLogout }: Props) {
                     </button>
                   </div>
                 </div>
-              ))
+              ))}
+                <ShowMoreButton
+                  visibleCount={getVisibleListCount("reports")}
+                  totalCount={reports.length}
+                  onBack={() => goBackListItems("reports")}
+              onClick={() => showMoreListItems("reports")}
+                />
+              </>
             )}
           </div>
         </>
@@ -1472,7 +1669,7 @@ export default function UserPage({ user, onLogout }: Props) {
         <div style={styles.section}>
           {(activeChecklist.image_path || activeChecklist.imagePath) ? (
             <img
-              src={(activeChecklist.image_path || activeChecklist.imagePath || "").startsWith("http") ? (activeChecklist.image_path || activeChecklist.imagePath) : `${FILE_BASE}${activeChecklist.image_path || activeChecklist.imagePath}`}
+              src={resolveFileUrl(activeChecklist.image_path || activeChecklist.imagePath || "")}
               alt={activeChecklist.title}
               style={{
                 width: "25%",
@@ -1777,9 +1974,7 @@ export default function UserPage({ user, onLogout }: Props) {
                       }}
                     >
                       {form[item.id].photos.map((photo, idx) => {
-                        const src = photo.startsWith("http")
-                          ? photo
-                          : `${FILE_BASE}${photo}`;
+                        const src = resolveFileUrl(photo);
 
                         return (
                           <div

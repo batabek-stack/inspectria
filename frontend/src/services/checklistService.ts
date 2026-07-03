@@ -21,6 +21,10 @@ export async function getChecklists(): Promise<Checklist[]> {
   return apiGet("/checklists");
 }
 
+export async function getCommunityTemplates(): Promise<Checklist[]> {
+  return apiGet("/checklists/community");
+}
+
 export async function previewChecklistImport(payload: {
   fileName: string;
   sheetName: string;
@@ -70,6 +74,20 @@ export async function shareChecklist(checklistId: number, email: string) {
   }>(
     `/checklists/${checklistId}/share`,
     { email }
+  );
+}
+
+export async function shareChecklistWithCommunity(checklistId: number) {
+  return apiPost<{ success: boolean; communityTemplateId: number }>(
+    `/checklists/${checklistId}/community`,
+    {}
+  );
+}
+
+export async function importCommunityTemplate(communityTemplateId: number) {
+  return apiPost<{ success: boolean; checklistId: number; title: string; reused?: boolean }>(
+    `/checklists/community/${communityTemplateId}/import`,
+    {}
   );
 }
 

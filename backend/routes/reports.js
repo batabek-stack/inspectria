@@ -183,6 +183,48 @@ router.get("/", authRequired, async (req, res, next) => {
   }
 });
 
+router.get("/unread-count", authRequired, async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.json({ count: 0 });
+    }
+
+    const result = await db.one(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM report_notifications
+      WHERE recipient_user_id = $1
+        AND read_at IS NULL
+    `,
+      [req.user.id]
+    );
+
+    res.json({ count: Number(result?.count || 0) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/mark-read", authRequired, async (req, res, next) => {
+  try {
+    if (req.user.role === "admin") {
+      await db.query(
+        `
+        UPDATE report_notifications
+        SET read_at = NOW()
+        WHERE recipient_user_id = $1
+          AND read_at IS NULL
+      `,
+        [req.user.id]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/", authRequired, async (req, res, next) => {
   try {
     const { assignmentId, items = [] } = req.body || {};
@@ -253,6 +295,20 @@ router.post("/", authRequired, async (req, res, next) => {
       await client.query(
         "DELETE FROM draft_reports WHERE assignment_id = $1 AND user_id = $2",
         [assignmentId, req.user.id]
+      );
+
+      await client.query(
+        `
+        INSERT INTO report_notifications (report_id, recipient_user_id, organization_id)
+        SELECT $1, u.id, $2
+        FROM users u
+        WHERE u.organization_id = $2
+          AND u.role = 'admin'
+          AND u.active = TRUE
+          AND u.approval_status = 'approved'
+        ON CONFLICT (report_id, recipient_user_id) DO NOTHING
+      `,
+        [nextReportId, assignment.organization_id]
       );
 
       return nextReportId;

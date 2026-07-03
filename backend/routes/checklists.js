@@ -525,6 +525,40 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
   };
 }
 
+async function getChecklistWithSections(checklist) {
+  const sections = await db.many(
+    `
+    SELECT *
+    FROM checklist_sections
+    WHERE checklist_id = $1
+    ORDER BY sort_order
+  `,
+    [checklist.id]
+  );
+
+  const sectionsWithItems = await Promise.all(
+    sections.map(async (section) => ({
+      ...section,
+      items: (
+        await db.many(
+          `
+          SELECT *
+          FROM checklist_items
+          WHERE checklist_id = $1 AND section_id = $2
+          ORDER BY sort_order
+        `,
+          [checklist.id, section.id]
+        )
+      ).map(mapDbItem),
+    }))
+  );
+
+  return {
+    ...checklist,
+    sections: sectionsWithItems,
+  };
+}
+
 async function getChecklistForUser(checklistId, req) {
   return db.one(
     `
@@ -536,6 +570,108 @@ async function getChecklistForUser(checklistId, req) {
     db.isPlatformAdmin(req.user) ? [checklistId] : [checklistId, req.user.organizationId]
   );
 }
+
+router.get("/community", authRequired, async (req, res, next) => {
+  try {
+    const rows = await db.many(
+      `
+      SELECT
+        c.*,
+        ct.id AS "communityTemplateId",
+        ct.created_at AS "sharedAt",
+        u.name AS "sharedByName",
+        u.username AS "sharedByUsername",
+        o.name AS "sharedByOrganizationName"
+      FROM community_templates ct
+      JOIN checklists c ON c.id = ct.checklist_id
+      LEFT JOIN users u ON u.id = ct.shared_by_user_id
+      LEFT JOIN organizations o ON o.id = ct.source_organization_id
+      ORDER BY ct.created_at DESC, ct.id DESC
+    `
+    );
+
+    const result = await Promise.all(rows.map(getChecklistWithSections));
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/:id/community", authRequired, async (req, res, next) => {
+  try {
+    const checklistId = Number(req.params.id);
+    if (!checklistId) return res.status(400).json({ message: "Invalid template id" });
+
+    const params = [checklistId];
+    const accessWhere = db.isPlatformAdmin(req.user)
+      ? ""
+      : `AND c.organization_id = $${params.push(req.user.organizationId)}`;
+    const checklist = await db.one(
+      `
+      SELECT c.id, c.organization_id, c.title
+      FROM checklists c
+      WHERE c.id = $1
+      ${accessWhere}
+    `,
+      params
+    );
+
+    if (!checklist) return res.status(404).json({ message: "Template not found" });
+
+    const shared = await db.one(
+      `
+      INSERT INTO community_templates
+        (checklist_id, shared_by_user_id, source_organization_id)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (checklist_id)
+      DO UPDATE SET
+        shared_by_user_id = EXCLUDED.shared_by_user_id,
+        source_organization_id = EXCLUDED.source_organization_id
+      RETURNING id
+    `,
+      [checklist.id, req.user.id, checklist.organization_id]
+    );
+
+    res.json({ success: true, communityTemplateId: shared.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/community/:id/import", authRequired, async (req, res, next) => {
+  try {
+    const communityTemplateId = Number(req.params.id);
+    const targetOrganizationId = req.user.organizationId;
+    if (!communityTemplateId) return res.status(400).json({ message: "Invalid community template id" });
+    if (!targetOrganizationId) return res.status(400).json({ message: "Organization is required" });
+
+    const communityTemplate = await db.one(
+      `
+      SELECT ct.id, ct.checklist_id
+      FROM community_templates ct
+      WHERE ct.id = $1
+    `,
+      [communityTemplateId]
+    );
+
+    if (!communityTemplate) {
+      return res.status(404).json({ message: "Community template not found" });
+    }
+
+    const result = await db.transaction((client) =>
+      copyChecklistToOrganization(client, communityTemplate.checklist_id, targetOrganizationId)
+    );
+
+    res.json({
+      success: true,
+      checklistId: result.id,
+      title: result.title,
+      reused: result.reused,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get("/", authRequired, async (req, res, next) => {
   try {
@@ -549,41 +685,7 @@ router.get("/", authRequired, async (req, res, next) => {
       db.isPlatformAdmin(req.user) ? [] : [req.user.organizationId]
     );
 
-    const result = await Promise.all(
-      checklists.map(async (checklist) => {
-        const sections = await db.many(
-          `
-          SELECT *
-          FROM checklist_sections
-          WHERE checklist_id = $1
-          ORDER BY sort_order
-        `,
-          [checklist.id]
-        );
-
-        const sectionsWithItems = await Promise.all(
-          sections.map(async (section) => ({
-            ...section,
-            items: (
-              await db.many(
-                `
-                SELECT *
-                FROM checklist_items
-                WHERE checklist_id = $1 AND section_id = $2
-                ORDER BY sort_order
-              `,
-                [checklist.id, section.id]
-              )
-            ).map(mapDbItem),
-          }))
-        );
-
-        return {
-          ...checklist,
-          sections: sectionsWithItems,
-        };
-      })
-    );
+    const result = await Promise.all(checklists.map(getChecklistWithSections));
 
     res.json(result);
   } catch (error) {

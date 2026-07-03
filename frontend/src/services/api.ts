@@ -33,6 +33,17 @@ export const FILE_BASE = configuredFileBase
     ? `http://${FALLBACK_HOST}`
     : browserOrigin;
 
+export function resolveFileUrl(pathOrUrl: string): string {
+  const value = String(pathOrUrl || "").trim();
+  if (!value) return "";
+
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+
+  const base = FILE_BASE.replace(/\/+$/, "");
+  const path = value.startsWith("/") ? value : `/${value}`;
+  return `${base}${path}`;
+}
+
 function authHeaders() {
   const token = localStorage.getItem("mod_token");
   return token ? { Authorization: `Bearer ${token}` } : {};

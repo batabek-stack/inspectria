@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { API_BASE, FILE_BASE } from "../services/api";
+import { API_BASE, FILE_BASE, resolveFileUrl } from "../services/api";
 import { styles } from "../styles/appStyles";
 import { AnswerType } from "../types";
 
@@ -190,7 +190,7 @@ export default function ReportDetail({
         <div>
           {report.checklistImagePath ? (
             <img
-              src={report.checklistImagePath.startsWith("http") ? report.checklistImagePath : `${FILE_BASE}${report.checklistImagePath}`}
+              src={resolveFileUrl(report.checklistImagePath)}
               alt={report.checklistTitle}
               style={{
                 width: "25%",
