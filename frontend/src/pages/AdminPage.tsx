@@ -48,6 +48,7 @@ import {
 } from "../services/walkthroughService";
 import {
   createPasswordResetLink,
+  createTemporaryPassword,
   createUser,
   deleteUser,
   getUsers,
@@ -960,6 +961,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [passwordResetLinks, setPasswordResetLinks] = useState<Record<number, string>>({});
   const [passwordResetLinkLoadingId, setPasswordResetLinkLoadingId] = useState<number | null>(null);
+  const [temporaryPasswords, setTemporaryPasswords] = useState<Record<number, string>>({});
+  const [temporaryPasswordLoadingId, setTemporaryPasswordLoadingId] = useState<number | null>(null);
   const [editUsername, setEditUsername] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPassword, setEditPassword] = useState("");
@@ -2727,6 +2730,36 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       setError(err instanceof Error ? err.message : "Password reset link could not be created");
     } finally {
       setPasswordResetLinkLoadingId(null);
+    }
+  };
+
+  const handleCreateTemporaryPassword = async (targetUser: User) => {
+    setMessage("");
+    setError("");
+    setTemporaryPasswordLoadingId(targetUser.id);
+
+    try {
+      const result = await createTemporaryPassword(targetUser.id);
+      setTemporaryPasswords((prev) => ({
+        ...prev,
+        [targetUser.id]: result.temporaryPassword,
+      }));
+      setPasswordResetLinks((prev) => {
+        const next = { ...prev };
+        delete next[targetUser.id];
+        return next;
+      });
+
+      try {
+        await navigator.clipboard.writeText(result.temporaryPassword);
+        setMessage(`Temporary password copied for ${targetUser.username}. Share it securely.`);
+      } catch {
+        setMessage(`Temporary password created for ${targetUser.username}. Share it securely.`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Temporary password could not be created");
+    } finally {
+      setTemporaryPasswordLoadingId(null);
     }
   };
 
@@ -5953,6 +5986,17 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             ? "Creating..."
                             : "Generate Reset Link"}
                         </button>
+                        {isPlatformAdmin ? (
+                          <button
+                            style={styles.secondaryButton}
+                            onClick={() => handleCreateTemporaryPassword(u)}
+                            disabled={temporaryPasswordLoadingId === u.id}
+                          >
+                            {temporaryPasswordLoadingId === u.id
+                              ? "Creating..."
+                              : "Set Temporary Password"}
+                          </button>
+                        ) : null}
                         <button
                           style={styles.button}
                       onClick={() => handleDeleteUser(u.id)}
@@ -5976,6 +6020,19 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           />
                           <div style={styles.small}>
                             Share this link manually. Email delivery is not enabled yet.
+                          </div>
+                        </div>
+                      ) : null}
+                      {temporaryPasswords[u.id] ? (
+                        <div style={{ marginTop: 10 }}>
+                          <input
+                            style={styles.input}
+                            readOnly
+                            value={temporaryPasswords[u.id]}
+                            onFocus={(event) => event.currentTarget.select()}
+                          />
+                          <div style={styles.small}>
+                            This is the user's new password. It is shown here once and is not stored in readable form.
                           </div>
                         </div>
                       ) : null}

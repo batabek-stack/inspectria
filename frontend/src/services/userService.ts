@@ -51,6 +51,14 @@ export function createPasswordResetLink(id: number) {
   }>(`/users/${id}/password-reset-link`, {});
 }
 
+export function createTemporaryPassword(id: number) {
+  return apiPost<{
+    success: boolean;
+    username: string;
+    temporaryPassword: string;
+  }>(`/users/${id}/temporary-password`, {});
+}
+
 export function deleteUser(id: number) {
   return apiDelete<{ success: boolean }>(`/users/${id}`);
 }

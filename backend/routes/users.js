@@ -20,6 +20,10 @@ function resetUrl(req, token) {
   return `${origin}/#reset-password?token=${encodeURIComponent(token)}`;
 }
 
+function createTemporaryPassword() {
+  return `${crypto.randomBytes(12).toString("base64url")}A1!`;
+}
+
 async function getOrganizationPlanCode(organizationId) {
   if (!organizationId) return "";
 
@@ -417,6 +421,69 @@ router.post("/:id/password-reset-link", authRequired, adminOnly, async (req, res
       delivery: "manual",
       emailReminder:
         "Email is not enabled yet. When email delivery is added, send this reset URL through the mail provider instead of showing it to admins.",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/:id/temporary-password", authRequired, adminOnly, async (req, res, next) => {
+  try {
+    if (!db.isPlatformAdmin(req.user)) {
+      return res.status(403).json({ message: "Platform admin access required" });
+    }
+
+    const userId = Number(req.params.id);
+
+    if (!userId) {
+      return res.status(400).json({ message: "Invalid user id" });
+    }
+
+    if (Number(req.user.id) === userId) {
+      return res.status(400).json({ message: "You cannot reset your own password here" });
+    }
+
+    const targetUser = await db.one(
+      `
+      SELECT u.id, u.organization_id, u.username, u.role
+      FROM users u
+      WHERE u.id = $1
+    `,
+      [userId]
+    );
+
+    if (!targetUser || targetUser.role === "platform_admin") {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!(await db.userCanManageOrganization(req.user, targetUser.organization_id))) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const temporaryPassword = createTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+
+    await db.transaction(async (client) => {
+      await client.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
+        passwordHash,
+        userId,
+      ]);
+      await client.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
+      await client.query(
+        `
+        UPDATE password_reset_tokens
+        SET used_at = NOW()
+        WHERE user_id = $1
+          AND used_at IS NULL
+      `,
+        [userId]
+      );
+    });
+
+    res.json({
+      success: true,
+      username: targetUser.username,
+      temporaryPassword,
     });
   } catch (error) {
     next(error);
