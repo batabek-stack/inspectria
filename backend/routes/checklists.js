@@ -350,26 +350,53 @@ function normalizeChecklistItem(item) {
   const options = Array.isArray(item?.options)
     ? item.options.map((option) => String(option || "").trim()).filter(Boolean)
     : [];
+  const conditionalSectionTitle =
+    answerType === "FORMAT1" ? String(item?.conditionalSectionTitle || "").trim() : "";
+  const conditionalItems =
+    answerType === "FORMAT1" && Array.isArray(item?.conditionalItems)
+      ? item.conditionalItems
+          .map(normalizeChecklistItem)
+          .filter((conditionalItem) => conditionalItem.question)
+          .map((conditionalItem) => ({
+            question: conditionalItem.question,
+            answerType: conditionalItem.answerType,
+            options: conditionalItem.options,
+            conditionalSectionTitle: "",
+            conditionalItems: [],
+          }))
+      : [];
 
   return {
     question,
     answerType,
     options: ["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(answerType) ? options : [],
+    conditionalSectionTitle: conditionalItems.length > 0 ? conditionalSectionTitle : "",
+    conditionalItems: conditionalSectionTitle ? conditionalItems : [],
   };
 }
 
 function mapDbItem(item) {
   let options = [];
+  let conditionalItems = [];
   try {
     options = item.options_json ? JSON.parse(item.options_json) : [];
   } catch {
     options = [];
+  }
+  try {
+    conditionalItems = item.conditional_items_json
+      ? JSON.parse(item.conditional_items_json)
+      : [];
+  } catch {
+    conditionalItems = [];
   }
 
   return {
     ...item,
     answerType: item.answer_type || "FORMAT1",
     options,
+    conditionalSectionTitle: item.conditional_section_title || "",
+    conditionalItems: Array.isArray(conditionalItems) ? conditionalItems : [],
   };
 }
 
@@ -491,7 +518,7 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
     const nextSectionId = sectionResult.rows[0].id;
     const items = await client.query(
       `
-      SELECT question, answer_type, options_json, sort_order
+      SELECT question, answer_type, options_json, conditional_section_title, conditional_items_json, sort_order
       FROM checklist_items
       WHERE checklist_id = $1 AND section_id = $2
       ORDER BY sort_order
@@ -503,8 +530,8 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
       await client.query(
         `
         INSERT INTO checklist_items
-          (checklist_id, section_id, question, answer_type, options_json, sort_order)
-        VALUES ($1, $2, $3, $4, $5, $6)
+          (checklist_id, section_id, question, answer_type, options_json, conditional_section_title, conditional_items_json, sort_order)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       `,
         [
           nextChecklistId,
@@ -512,6 +539,8 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
           item.question,
           item.answer_type || "FORMAT1",
           item.options_json || "[]",
+          item.conditional_section_title || "",
+          item.conditional_items_json || "[]",
           item.sort_order,
         ]
       );
@@ -745,8 +774,8 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
           await client.query(
             `
             INSERT INTO checklist_items
-              (checklist_id, section_id, question, answer_type, options_json, sort_order)
-            VALUES ($1, $2, $3, $4, $5, $6)
+              (checklist_id, section_id, question, answer_type, options_json, conditional_section_title, conditional_items_json, sort_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           `,
             [
               nextChecklistId,
@@ -754,6 +783,8 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
               item.question,
               item.answerType,
               JSON.stringify(item.options),
+              item.conditionalSectionTitle,
+              JSON.stringify(item.conditionalItems),
               itemIndex + 1,
             ]
           );
@@ -1033,8 +1064,8 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
           await client.query(
             `
             INSERT INTO checklist_items
-              (checklist_id, section_id, question, answer_type, options_json, sort_order)
-            VALUES ($1, $2, $3, $4, $5, $6)
+              (checklist_id, section_id, question, answer_type, options_json, conditional_section_title, conditional_items_json, sort_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           `,
             [
               checklistId,
@@ -1042,6 +1073,8 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
               item.question,
               item.answerType,
               JSON.stringify(item.options),
+              item.conditionalSectionTitle,
+              JSON.stringify(item.conditionalItems),
               itemIndex + 1,
             ]
           );

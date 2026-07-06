@@ -87,7 +87,7 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
     const nextSectionId = sectionResult.rows[0].id;
     const items = await client.query(
       `
-      SELECT question, answer_type, options_json, sort_order
+      SELECT question, answer_type, options_json, conditional_section_title, conditional_items_json, sort_order
       FROM checklist_items
       WHERE checklist_id = $1 AND section_id = $2
       ORDER BY sort_order
@@ -99,8 +99,8 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
       await client.query(
         `
         INSERT INTO checklist_items
-          (checklist_id, section_id, question, answer_type, options_json, sort_order)
-        VALUES ($1, $2, $3, $4, $5, $6)
+          (checklist_id, section_id, question, answer_type, options_json, conditional_section_title, conditional_items_json, sort_order)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       `,
         [
           nextChecklistId,
@@ -108,6 +108,8 @@ async function copyChecklistToOrganization(client, sourceChecklistId, targetOrga
           item.question,
           item.answer_type || "FORMAT1",
           item.options_json || "[]",
+          item.conditional_section_title || "",
+          item.conditional_items_json || "[]",
           item.sort_order,
         ]
       );

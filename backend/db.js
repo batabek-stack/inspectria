@@ -204,6 +204,8 @@ async function initDb() {
       question TEXT NOT NULL,
       answer_type TEXT NOT NULL DEFAULT 'FORMAT1',
       options_json TEXT,
+      conditional_section_title TEXT NOT NULL DEFAULT '',
+      conditional_items_json TEXT NOT NULL DEFAULT '[]',
       sort_order INTEGER NOT NULL
     );
 
@@ -539,6 +541,16 @@ async function initDb() {
       WHERE imported_from_checklist_id IS NOT NULL
   `);
   await ensureColumn("checklists", "image_path", "image_path TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(
+    "checklist_items",
+    "conditional_section_title",
+    "conditional_section_title TEXT NOT NULL DEFAULT ''"
+  );
+  await ensureColumn(
+    "checklist_items",
+    "conditional_items_json",
+    "conditional_items_json TEXT NOT NULL DEFAULT '[]'"
+  );
   await ensureColumn("assignments", "organization_id", "organization_id INTEGER");
   await ensureColumn("reports", "organization_id", "organization_id INTEGER");
   await ensureColumn("report_photos", "data_url", "data_url TEXT");
