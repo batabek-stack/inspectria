@@ -113,17 +113,22 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 
     const existingUser = await db.one(
       `
-      SELECT id
+      SELECT id, username, email
       FROM users
       WHERE organization_id = $1
-        AND LOWER(username) = LOWER($2)
+        AND (
+          LOWER(username) = LOWER($2)
+          OR LOWER(email) = LOWER($3)
+        )
     `,
-      [targetOrganizationId, String(username).trim()]
+      [targetOrganizationId, String(username).trim(), cleanEmail]
     );
 
     if (existingUser) {
+      const duplicateField =
+        String(existingUser.email || "").toLowerCase() === cleanEmail ? "Email" : "Username";
       return res.status(400).json({
-        message: "Username already exists in this organization",
+        message: `${duplicateField} already exists in this organization`,
       });
     }
 
@@ -264,21 +269,26 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
 
     const duplicateUser = await db.one(
       `
-      SELECT id
+      SELECT id, username, email
       FROM users
       WHERE id != $1
-        AND LOWER(username) = LOWER($2)
         AND (
           (organization_id IS NULL AND $3::int IS NULL)
           OR organization_id = $3::int
         )
+        AND (
+          LOWER(username) = LOWER($2)
+          OR LOWER(email) = LOWER($4)
+        )
     `,
-      [userId, nextUsername, existingUser.organization_id]
+      [userId, nextUsername, existingUser.organization_id, nextEmail]
     );
 
     if (duplicateUser) {
+      const duplicateField =
+        String(duplicateUser.email || "").toLowerCase() === nextEmail ? "Email" : "Username";
       return res.status(400).json({
-        message: "Username already exists in this organization",
+        message: `${duplicateField} already exists in this organization`,
       });
     }
 

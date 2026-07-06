@@ -18,6 +18,7 @@ export default function LoginPage({ onLogin, initialMode = "login" }: Props) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [organizationName, setOrganizationName] = useState("");
+  const [registrationMode, setRegistrationMode] = useState<"existing" | "newOrganization">("existing");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<"login" | "register">(initialMode);
@@ -44,7 +45,14 @@ export default function LoginPage({ onLogin, initialMode = "login" }: Props) {
         return;
       }
 
-      const result = await registerUser(username, password, fullName, email, organizationName);
+      const result = await registerUser(
+        username,
+        password,
+        fullName,
+        email,
+        organizationName,
+        registrationMode === "newOrganization"
+      );
       setMessage(result.message);
       setUsername("");
       setPassword("");
@@ -70,7 +78,11 @@ export default function LoginPage({ onLogin, initialMode = "login" }: Props) {
           <img src="/inspectra-logo.png" alt="Inspectria" />
         </div>
         <h1 style={{ ...styles.title, textAlign: "center", marginBottom: 18 }}>
-          {mode === "login" ? "Login" : "Create User Request"}
+          {mode === "login"
+            ? "Login"
+            : registrationMode === "newOrganization"
+              ? "Create New Organization"
+              : "Create User Request"}
         </h1>
 
         {error ? <div style={styles.error}>{error}</div> : null}
@@ -83,8 +95,36 @@ export default function LoginPage({ onLogin, initialMode = "login" }: Props) {
         <form onSubmit={submit}>
           {mode === "register" ? (
             <>
+              <div style={{ ...styles.row, marginBottom: 12 }}>
+                <button
+                  type="button"
+                  style={
+                    registrationMode === "existing"
+                      ? styles.button
+                      : styles.secondaryButton
+                  }
+                  onClick={() => setRegistrationMode("existing")}
+                >
+                  Existing Organization
+                </button>
+                <button
+                  type="button"
+                  style={
+                    registrationMode === "newOrganization"
+                      ? styles.button
+                      : styles.secondaryButton
+                  }
+                  onClick={() => setRegistrationMode("newOrganization")}
+                >
+                  Create New Organization
+                </button>
+              </div>
               <div style={{ marginBottom: 12 }}>
-                <label>Organization Name</label>
+                <label>
+                  {registrationMode === "newOrganization"
+                    ? "New Organization Name"
+                    : "Organization Name"}
+                </label>
                 <input
                   style={styles.input}
                   value={organizationName}
@@ -156,13 +196,34 @@ export default function LoginPage({ onLogin, initialMode = "login" }: Props) {
             type="button"
             style={styles.secondaryButton}
             onClick={() => {
-              setMode((prev) => (prev === "login" ? "register" : "login"));
+              setMode((prev) => {
+                if (prev === "login") {
+                  setRegistrationMode("existing");
+                  return "register";
+                }
+
+                return "login";
+              });
               setError("");
               setMessage("");
             }}
           >
-            {mode === "login" ? "Create New User Request" : "Back To Login"}
+            {mode === "login" ? "Create User Request" : "Back To Login"}
           </button>
+          {mode === "login" ? (
+            <button
+              type="button"
+              style={{ ...styles.secondaryButton, marginTop: 10, width: "100%" }}
+              onClick={() => {
+                setMode("register");
+                setRegistrationMode("newOrganization");
+                setError("");
+                setMessage("");
+              }}
+            >
+              Create New Organization
+            </button>
+          ) : null}
           {mode === "login" ? (
             <button
               type="button"

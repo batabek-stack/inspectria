@@ -21,7 +21,8 @@ export async function register(
   password: string,
   name: string,
   email: string,
-  organizationName: string
+  organizationName: string,
+  createOrganization = false
 ) {
   return apiPost<{ success: boolean; message: string }>("/auth/register", {
     username,
@@ -29,6 +30,7 @@ export async function register(
     name,
     email,
     organizationName,
+    createOrganization,
   });
 }
 

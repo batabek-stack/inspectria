@@ -165,7 +165,7 @@ router.post("/login", async (req, res, next) => {
 
 router.post("/register", async (req, res, next) => {
   try {
-    const { username, password, name, email, organizationName } = req.body || {};
+    const { username, password, name, email, organizationName, createOrganization } = req.body || {};
 
     if (!username || !password || !name || !email || !organizationName) {
       return res.status(400).json({
@@ -177,6 +177,7 @@ router.post("/register", async (req, res, next) => {
     const cleanUsername = String(username).trim();
     const cleanName = String(name).trim();
     const cleanOrganizationName = String(organizationName).trim();
+    const shouldCreateOrganization = createOrganization === true;
 
     if (!cleanEmail || !cleanUsername || !cleanName || !cleanOrganizationName) {
       return res.status(400).json({
@@ -207,6 +208,13 @@ router.post("/register", async (req, res, next) => {
       );
 
       if (existingOrganization.rows[0]) {
+        if (shouldCreateOrganization) {
+          throw Object.assign(
+            new Error("Organization already exists. Use Create User Request to join it."),
+            { statusCode: 400 }
+          );
+        }
+
         if (!existingOrganization.rows[0].active) {
           throw Object.assign(new Error("Organization is inactive"), {
             statusCode: 400,
@@ -215,6 +223,13 @@ router.post("/register", async (req, res, next) => {
 
         organizationId = existingOrganization.rows[0].id;
       } else {
+        if (!shouldCreateOrganization) {
+          throw Object.assign(
+            new Error("Organization not found. Use Create New Organization to request a new organization."),
+            { statusCode: 400 }
+          );
+        }
+
         const orgResult = await client.query(
           `
           INSERT INTO organizations (name, active)
@@ -231,18 +246,26 @@ router.post("/register", async (req, res, next) => {
 
       const existingUser = await client.query(
         `
-        SELECT id
+        SELECT id, username, email
         FROM users
         WHERE organization_id = $1
-          AND LOWER(username) = LOWER($2)
+          AND (
+            LOWER(username) = LOWER($2)
+            OR LOWER(email) = LOWER($3)
+          )
       `,
-        [organizationId, cleanUsername]
+        [organizationId, cleanUsername, cleanEmail]
       );
 
       if (existingUser.rows[0]) {
-        throw Object.assign(new Error("Username already exists in this organization"), {
-          statusCode: 400,
-        });
+        const duplicateField =
+          String(existingUser.rows[0].email || "").toLowerCase() === cleanEmail
+            ? "Email"
+            : "Username";
+        throw Object.assign(
+          new Error(`${duplicateField} already exists in this organization`),
+          { statusCode: 400 }
+        );
       }
 
       await client.query(

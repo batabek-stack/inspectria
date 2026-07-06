@@ -24,6 +24,7 @@ type ChecklistPdfReport = {
   completedByName?: string;
   completedAt?: string | Date;
   status?: string;
+  showSuccessRate?: boolean;
   items: ChecklistPdfItem[];
 };
 
@@ -316,7 +317,7 @@ function drawLogo(
 function getPhotoDrawSize(photo: PdfPhotoData, maxWidth: number) {
   const aspectRatio = photo.width / photo.height;
   const isPortrait = photo.height > photo.width * 1.08;
-  const maxHeight = isPortrait ? 84 : 52;
+  const maxHeight = isPortrait ? 76 : 50;
 
   let width = maxWidth;
   let height = width / aspectRatio;
@@ -355,6 +356,7 @@ export async function generateChecklistPdf(
   const totalQuestions = scoredItems.length;
   const yesCount = scoredItems.filter((x) => x.answer === "YES").length;
   const noItems = scoredItems.filter((x) => x.answer === "NO");
+  const shouldShowSuccessRate = report.showSuccessRate !== false;
   const successRate =
     totalQuestions > 0 ? Math.round((yesCount / totalQuestions) * 100) : 0;
 
@@ -537,7 +539,7 @@ export async function generateChecklistPdf(
         continue;
       }
 
-      ensureSpace(rowHeight + 8);
+      ensureSpace(rowHeight + 6);
 
       if (left) {
         const size = leftSize || getPhotoDrawSize(left, columnWidth);
@@ -565,7 +567,7 @@ export async function generateChecklistPdf(
         );
       }
 
-      cursorY += rowHeight + 6;
+      cursorY += rowHeight + 4;
     }
   };
 
@@ -643,19 +645,21 @@ export async function generateChecklistPdf(
   drawLabelValue("Completed By", report.completedByName || "-");
   drawLabelValue("Completed At", formatDate(report.completedAt));
 
-  ensureSpace(18);
-  doc.setFillColor(37, 99, 235);
-  doc.roundedRect(PAGE.marginX, cursorY, 78, 14, 3, 3, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.setTextColor(255, 255, 255);
-  doc.text(`Basari Orani: %${successRate}`, PAGE.marginX + 39, cursorY + 9.2, {
-    align: "center",
-  });
-  cursorY += 18;
+  if (shouldShowSuccessRate) {
+    ensureSpace(18);
+    doc.setFillColor(37, 99, 235);
+    doc.roundedRect(PAGE.marginX, cursorY, 78, 14, 3, 3, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`Success Rate: ${successRate}%`, PAGE.marginX + 39, cursorY + 9.2, {
+      align: "center",
+    });
+    cursorY += 18;
+  }
 
   if (noItems.length > 0) {
-    drawSectionTitle("No Olarak Isaretlenen Maddeler");
+    drawSectionTitle("Items Marked No");
 
     noItems.forEach((item, index) => {
       const lines = doc.splitTextToSize(

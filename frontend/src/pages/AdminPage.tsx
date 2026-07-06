@@ -556,6 +556,35 @@ function normalizeAnswer(value?: string | null) {
   return String(value || "").trim().toUpperCase();
 }
 
+function normalizeSearchValue(value: string) {
+  return value.trim().toLocaleLowerCase();
+}
+
+function checklistMatchesTemplateSearch(checklist: Checklist, query: string) {
+  const normalizedQuery = normalizeSearchValue(query);
+  if (!normalizedQuery) return true;
+
+  const searchableParts = [
+    checklist.title,
+    checklist.sharedByName,
+    checklist.sharedByUsername,
+    checklist.sharedByOrganizationName,
+    ...(checklist.sections || []).flatMap((section) => [
+      section.title,
+      ...(section.items || []).flatMap((item) => [
+        item.question,
+        item.answerType,
+        item.answer_type,
+        ...(item.options || []),
+      ]),
+    ]),
+  ];
+
+  return searchableParts.some((part) =>
+    normalizeSearchValue(String(part || "")).includes(normalizedQuery)
+  );
+}
+
 function ShowMoreButton({
   visibleCount,
   totalCount,
@@ -672,6 +701,7 @@ function mapWalkthroughToPdfPayload(walkthrough: Walkthrough) {
     completedByName: walkthrough.createdByName || "-",
     completedAt: walkthrough.completed_at || walkthrough.updated_at,
     status: walkthrough.status,
+    showSuccessRate: false,
     items: walkthrough.sections.flatMap((section, sectionIndex) =>
       section.items.map((item, itemIndex) => ({
         title: `${sectionIndex + 1}.${itemIndex + 1}. ${section.title}`,
@@ -791,6 +821,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [templateImagePath, setTemplateImagePath] = useState("");
   const [templateImageLoadError, setTemplateImageLoadError] = useState(false);
   const [templateImageUploading, setTemplateImageUploading] = useState(false);
+  const [templateSearchQuery, setTemplateSearchQuery] = useState("");
+  const [communityTemplateSearchQuery, setCommunityTemplateSearchQuery] = useState("");
+  const [myWorkTemplateSearchQuery, setMyWorkTemplateSearchQuery] = useState("");
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [sections, setSections] = useState<SectionForm[]>([
     {
@@ -1642,6 +1675,25 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     ]);
   };
 
+  const cancelTemplateForm = () => {
+    const hasContent = hasTemplateDraftContent({
+      editingId,
+      title,
+      templateImagePath,
+      sections,
+    });
+
+    if (
+      hasContent &&
+      !window.confirm("Discard the current template draft?")
+    ) {
+      return;
+    }
+
+    resetTemplateForm();
+    setMessage(editingId ? "Template edit cancelled." : "Template draft cancelled.");
+  };
+
   const addSection = () => {
     setSections((prev) => [
       ...prev,
@@ -1654,6 +1706,33 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   const moveSection = (sectionIndex: number, direction: -1 | 1) => {
     setSections((prev) => moveItem(prev, sectionIndex, sectionIndex + direction));
+  };
+
+  const removeSection = (sectionIndex: number) => {
+    const section = sections[sectionIndex];
+    const hasSectionContent = Boolean(
+      section?.title.trim() ||
+        section?.items.some(
+          (item) =>
+            item.question.trim() ||
+            item.answerType !== "FORMAT1" ||
+            item.options.some((option) => option.trim())
+        )
+    );
+
+    if (
+      hasSectionContent &&
+      !window.confirm("Delete this section and all questions inside it?")
+    ) {
+      return;
+    }
+
+    setSections((prev) => {
+      const nextSections = prev.filter((_, index) => index !== sectionIndex);
+      return nextSections.length
+        ? nextSections
+        : [{ title: "", items: [createEmptyQuestion()] }];
+    });
   };
 
   const updateSectionTitle = (sectionIndex: number, value: string) => {
@@ -2393,6 +2472,16 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
     if (!newOrgName.trim()) {
       setError("Organization name is required.");
+      return;
+    }
+
+    if (
+      organizations.some(
+        (organization) =>
+          organization.name.trim().toLowerCase() === newOrgName.trim().toLowerCase()
+      )
+    ) {
+      setError("Organization name already exists.");
       return;
     }
 
@@ -3156,6 +3245,24 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         }),
     [checklists, reports]
   );
+  const filteredTemplates = useMemo(
+    () => checklists.filter((checklist) => checklistMatchesTemplateSearch(checklist, templateSearchQuery)),
+    [checklists, templateSearchQuery]
+  );
+  const filteredCommunityTemplates = useMemo(
+    () =>
+      communityTemplates.filter((checklist) =>
+        checklistMatchesTemplateSearch(checklist, communityTemplateSearchQuery)
+      ),
+    [communityTemplates, communityTemplateSearchQuery]
+  );
+  const filteredMyWorkTemplates = useMemo(
+    () =>
+      checklists.filter((checklist) =>
+        checklistMatchesTemplateSearch(checklist, myWorkTemplateSearchQuery)
+      ),
+    [checklists, myWorkTemplateSearchQuery]
+  );
   const overallScoredAnswers = templateSuccessRows.reduce(
     (total, row) => total + row.scoredAnswers,
     0
@@ -3217,6 +3324,18 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       ),
     }));
   };
+
+  useEffect(() => {
+    setVisibleListCounts((current) => ({ ...current, templates: LIST_PAGE_SIZE }));
+  }, [templateSearchQuery]);
+
+  useEffect(() => {
+    setVisibleListCounts((current) => ({ ...current, "community-templates": LIST_PAGE_SIZE }));
+  }, [communityTemplateSearchQuery]);
+
+  useEffect(() => {
+    setVisibleListCounts((current) => ({ ...current, "my-work-templates": LIST_PAGE_SIZE }));
+  }, [myWorkTemplateSearchQuery]);
 
   return (
     <DashboardShell user={user} onLogout={onLogout}>
@@ -4773,6 +4892,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   >
                     Move Section Down
                   </button>
+                  <button
+                    type="button"
+                    style={{ ...styles.button, background: "#b91c1c" }}
+                    onClick={() => removeSection(sectionIndex)}
+                  >
+                    Delete Section
+                  </button>
                 </div>
 
                 <input
@@ -4941,11 +5067,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <button style={styles.secondaryButton} onClick={addSection}>
                 Add Section
               </button>
-              {editingId ? (
-                <button style={styles.secondaryButton} onClick={resetTemplateForm}>
-                  Cancel Edit
-                </button>
-              ) : null}
+              <button style={styles.secondaryButton} onClick={cancelTemplateForm}>
+                Cancel
+              </button>
               <button style={styles.button} onClick={saveChecklist}>
                 {editingId ? "Update Checklist" : "Save Checklist"}
               </button>
@@ -4954,12 +5078,22 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
           <div className="admin-side-panel template-list-panel" style={styles.section}>
             <h3 style={styles.title}>Templates</h3>
+            <input
+              type="search"
+              className="template-search-input"
+              style={styles.input}
+              placeholder="Search by template name or keyword"
+              value={templateSearchQuery}
+              onChange={(event) => setTemplateSearchQuery(event.target.value)}
+            />
 
             {checklists.length === 0 ? (
               <div style={styles.small}>No templates found.</div>
+            ) : filteredTemplates.length === 0 ? (
+              <div style={styles.small}>No templates match your search.</div>
             ) : (
               <div className="compact-list">
-                {checklists
+                {filteredTemplates
                   .slice(getVisibleListStart("templates"), getVisibleListCount("templates"))
                   .map((c) => {
                   const rowKey = `template-${c.id}`;
@@ -4998,38 +5132,6 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         <span>{sectionCount} sections</span>
                         <span>{questionCount} questions</span>
                       </div>
-                      <div className="template-row-primary-actions">
-                        <button
-                          style={styles.secondaryButton}
-                      onClick={() => startEditTemplate(c)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          style={styles.secondaryButton}
-                      onClick={() => handleDuplicateTemplate(c)}
-                        >
-                          Copy
-                        </button>
-                        <button
-                          style={styles.secondaryButton}
-                          onClick={() => toggleTemplateShareForm(c.id)}
-                        >
-                          Share
-                        </button>
-                        <button
-                          style={styles.secondaryButton}
-                          onClick={() => handleShareTemplateWithCommunity(c)}
-                        >
-                          Share With Community
-                        </button>
-                        <button
-                          style={{ ...styles.button, background: "#b91c1c" }}
-                          onClick={() => handleDeleteTemplate(c.id)}
-                        >
-                          Delete
-                        </button>
-                      </div>
                       <div className="compact-row-actions template-row-actions">
                         <div className="template-summary-strip">
                           <span>{sectionCount} sections</span>
@@ -5037,6 +5139,38 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         </div>
 
                         <div className="template-detail-actions">
+                          <div className="template-row-primary-actions">
+                            <button
+                              style={styles.secondaryButton}
+                      onClick={() => startEditTemplate(c)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              style={styles.secondaryButton}
+                      onClick={() => handleDuplicateTemplate(c)}
+                            >
+                              Copy
+                            </button>
+                            <button
+                              style={styles.secondaryButton}
+                              onClick={() => toggleTemplateShareForm(c.id)}
+                            >
+                              Share
+                            </button>
+                            <button
+                              style={styles.secondaryButton}
+                              onClick={() => handleShareTemplateWithCommunity(c)}
+                            >
+                              Share With Community
+                            </button>
+                            <button
+                              style={{ ...styles.button, background: "#b91c1c" }}
+                              onClick={() => handleDeleteTemplate(c.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
                           {shareForm.open ? (
                             <div className="template-share-form">
                               <input
@@ -5076,7 +5210,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 })}
                 <ShowMoreButton
                   visibleCount={getVisibleListCount("templates")}
-                  totalCount={checklists.length}
+                  totalCount={filteredTemplates.length}
                   onBack={() => goBackListItems("templates")}
                       onClick={() => showMoreListItems("templates")}
                 />
@@ -5095,12 +5229,22 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   <p>Templates shared by Inspectria users. Using one copies it into your organization before you edit or complete it.</p>
                 </div>
               </div>
+              <input
+                type="search"
+                className="template-search-input"
+                style={styles.input}
+                placeholder="Search community templates"
+                value={communityTemplateSearchQuery}
+                onChange={(event) => setCommunityTemplateSearchQuery(event.target.value)}
+              />
 
               {communityTemplates.length === 0 ? (
                 <div style={styles.small}>No community templates have been shared yet.</div>
+              ) : filteredCommunityTemplates.length === 0 ? (
+                <div style={styles.small}>No community templates match your search.</div>
               ) : (
                 <div className="compact-list">
-                  {communityTemplates
+                  {filteredCommunityTemplates
                     .slice(
                       getVisibleListStart("community-templates"),
                       getVisibleListCount("community-templates")
@@ -5142,7 +5286,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     })}
                   <ShowMoreButton
                     visibleCount={getVisibleListCount("community-templates")}
-                    totalCount={communityTemplates.length}
+                    totalCount={filteredCommunityTemplates.length}
                     onBack={() => goBackListItems("community-templates")}
                     onClick={() => showMoreListItems("community-templates")}
                   />
@@ -5490,12 +5634,22 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     <div style={styles.small}>
                       Choose any template created for your organization and complete it without waiting for an assignment.
                     </div>
+                    <input
+                      type="search"
+                      className="template-search-input"
+                      style={styles.input}
+                      placeholder="Search available templates"
+                      value={myWorkTemplateSearchQuery}
+                      onChange={(event) => setMyWorkTemplateSearchQuery(event.target.value)}
+                    />
 
                     {checklists.length === 0 ? (
                       <div style={{ ...styles.small, marginTop: 12 }}>No templates are available for your organization.</div>
+                    ) : filteredMyWorkTemplates.length === 0 ? (
+                      <div style={{ ...styles.small, marginTop: 12 }}>No templates match your search.</div>
                     ) : (
                       <div className="compact-list" style={{ marginTop: 12 }}>
-                        {checklists
+                        {filteredMyWorkTemplates
                           .slice(
                             getVisibleListStart("my-work-templates"),
                             getVisibleListCount("my-work-templates")
@@ -5539,7 +5693,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         })}
                         <ShowMoreButton
                           visibleCount={getVisibleListCount("my-work-templates")}
-                          totalCount={checklists.length}
+                          totalCount={filteredMyWorkTemplates.length}
                           onBack={() => goBackListItems("my-work-templates")}
                       onClick={() => showMoreListItems("my-work-templates")}
                         />
@@ -6205,7 +6359,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               style={styles.secondaryButton}
                       onClick={() => addWalkthroughItem(sectionIndex)}
                             >
-                              Add Comment After This
+                              New Comment
                             </button>
                             <button
                               type="button"

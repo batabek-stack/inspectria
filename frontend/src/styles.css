@@ -391,6 +391,10 @@ textarea {
   line-height: 1.3;
 }
 
+.user-mobile-menu {
+  display: none;
+}
+
 .support-page {
   display: grid;
   gap: 28px;
@@ -1009,13 +1013,17 @@ textarea {
   margin-top: 10px !important;
 }
 
+.template-search-input {
+  margin: 10px 0 12px;
+  width: 100%;
+}
+
 .template-row {
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: center;
 }
 
 .template-row-primary-actions {
-  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
@@ -1040,9 +1048,20 @@ textarea {
   width: 100%;
 }
 
-.template-row.compact-row-open .template-row-actions {
-  max-height: 220px;
+.compact-row.template-row:hover .template-row-actions,
+.compact-row.template-row:focus-within .template-row-actions {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  pointer-events: none;
+}
+
+.compact-row.template-row.compact-row-open .template-row-actions {
+  max-height: 360px;
+  opacity: 1;
   overflow: visible;
+  padding-top: 2px;
+  pointer-events: auto;
 }
 
 .template-summary-strip {
@@ -2267,6 +2286,15 @@ textarea {
     display: block;
   }
 
+  .user-mobile-menu {
+    display: block;
+    margin-bottom: 14px;
+  }
+
+  .user-desktop-nav {
+    display: none;
+  }
+
   .admin-module-nav {
     position: static;
     max-height: none;
@@ -2396,7 +2424,7 @@ textarea {
   }
 
   .template-row-primary-actions {
-    padding-left: 44px;
+    padding-left: 0;
   }
 
   .compact-row-actions.template-row-actions {

@@ -203,6 +203,26 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
     }
 
     const result = await db.transaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext(LOWER($1))::bigint)", [
+        cleanName,
+      ]);
+
+      const existingOrganization = await client.query(
+        `
+        SELECT id
+        FROM organizations
+        WHERE LOWER(name) = LOWER($1)
+        LIMIT 1
+      `,
+        [cleanName]
+      );
+
+      if (existingOrganization.rows[0]) {
+        throw Object.assign(new Error("Organization name already exists"), {
+          statusCode: 400,
+        });
+      }
+
       const orgResult = await client.query(
         `
         INSERT INTO organizations (parent_organization_id, name, plan, active)
@@ -309,6 +329,21 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
       db.isPlatformAdmin(req.user) && typeof active === "boolean"
         ? active
         : existing.active;
+
+    const duplicateOrganization = await db.one(
+      `
+      SELECT id
+      FROM organizations
+      WHERE id != $1
+        AND LOWER(name) = LOWER($2)
+      LIMIT 1
+    `,
+      [organizationId, nextName]
+    );
+
+    if (duplicateOrganization) {
+      return res.status(400).json({ message: "Organization name already exists" });
+    }
 
     if (
       !db.isPlatformAdmin(req.user) &&

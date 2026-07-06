@@ -13,6 +13,7 @@ import {
 import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
+import PasswordInput from "../components/PasswordInput";
 import ReportDetail from "../components/ReportDetail";
 import ReportEmailDialog from "../components/ReportEmailDialog";
 import WalkthroughDetail from "../components/WalkthroughDetail";
@@ -43,10 +44,12 @@ import {
   updateWalkthrough,
 } from "../services/walkthroughService";
 import {
+  createSupportTicket,
   emailReport,
   getReportEmailRecipients,
   ReportEmailRecipient,
 } from "../services/emailService";
+import { updateUser } from "../services/userService";
 import {
   generateManagerSummary,
   getActionPlanExcelDownloadUrl,
@@ -81,9 +84,112 @@ type Props = {
   onLogout: () => Promise<void>;
 };
 
+type UserSectionKey =
+  | "availableTemplates"
+  | "assignments"
+  | "communityTemplates"
+  | "messages"
+  | "walkthroughs"
+  | "reports"
+  | "account"
+  | "support";
+
 type ReportEmailTarget =
   | { type: "checklist"; report: Report }
   | { type: "walkthrough"; walkthrough: Walkthrough };
+
+type RoleGuide = {
+  key: "user" | "admin" | "topLevel";
+  title: string;
+  description: string;
+  items: string[];
+};
+
+const USER_SECTIONS: Array<{
+  key: UserSectionKey;
+  label: string;
+  description: string;
+}> = [
+  {
+    key: "availableTemplates",
+    label: "Available Templates",
+    description: "Start templates available to you",
+  },
+  {
+    key: "assignments",
+    label: "My Assignments",
+    description: "Open assigned checklist work",
+  },
+  {
+    key: "communityTemplates",
+    label: "Community Templates",
+    description: "Use shared community templates",
+  },
+  {
+    key: "messages",
+    label: "Messages",
+    description: "Read organization messages",
+  },
+  {
+    key: "walkthroughs",
+    label: "Walkthrough",
+    description: "Create and manage walkthroughs",
+  },
+  {
+    key: "reports",
+    label: "My Reports",
+    description: "Review completed reports",
+  },
+  {
+    key: "account",
+    label: "My Account",
+    description: "Update your password",
+  },
+  {
+    key: "support",
+    label: "Support",
+    description: "Send an issue to support",
+  },
+];
+
+const ROLE_GUIDES: RoleGuide[] = [
+  {
+    key: "user",
+    title: "User",
+    description: "Complete day-to-day control and on-site inspection work.",
+    items: [
+      "Open and complete checklists assigned to you, including answers, notes, and photos.",
+      "View organization reports available to you and export them as PDF or Excel files.",
+      "Select and use templates shared with you by your administrator.",
+      "Create walkthrough lists for on-site checks, save drafts, and complete them later.",
+      "Follow announcements and shared templates from your organization in Messages.",
+    ],
+  },
+  {
+    key: "admin",
+    title: "Organization Admin",
+    description: "Manage control processes and users in your organization.",
+    items: [
+      "Create, edit, and share checklist templates in Templates.",
+      "Assign control tasks by choosing a template and a user in Assignments.",
+      "Create, edit, approve, and assign roles to users in User Management.",
+      "Review completed reports, export PDF or Excel files, and create action plans.",
+      "Manage flexible on-site inspection lists in Walkthrough.",
+    ],
+  },
+  {
+    key: "topLevel",
+    title: "Top Level Admin (Enterprise)",
+    description: "An Enterprise top-level administrator can manage connected units separately.",
+    items: [
+      "Create a new sub-organization from Sub Organizations with Create Sub-Organization.",
+      "Enter administrator details in the form to create the first admin for that sub-organization in the same flow.",
+      "Choose the relevant organization in User Management to create new users and assign admin access when needed.",
+      "Assign templates you create to the correct users and organizations through Assignments.",
+      "Track reports and users for each sub-organization within their own access boundaries.",
+    ],
+  },
+];
 
 function getAnswerButtonStyle(
   option: "YES" | "NO" | "N/A",
@@ -161,6 +267,7 @@ function mapWalkthroughToPdfPayload(walkthrough: Walkthrough) {
     completedByName: walkthrough.createdByName || "-",
     completedAt: walkthrough.completed_at || walkthrough.updated_at,
     status: walkthrough.status,
+    showSuccessRate: false,
     items: walkthrough.sections.flatMap((section, sectionIndex) =>
       section.items.map((item, itemIndex) => ({
         title: `${sectionIndex + 1}.${itemIndex + 1}. ${section.title}`,
@@ -243,6 +350,7 @@ export default function UserPage({ user, onLogout }: Props) {
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [communityTemplates, setCommunityTemplates] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
+  const [activeUserPage, setActiveUserPage] = useState<UserSectionKey>("availableTemplates");
   const [reports, setReports] = useState<Report[]>([]);
   const [reportEmailRecipients, setReportEmailRecipients] = useState<ReportEmailRecipient[]>([]);
   const [reportEmailTarget, setReportEmailTarget] = useState<ReportEmailTarget | null>(null);
@@ -263,8 +371,14 @@ export default function UserPage({ user, onLogout }: Props) {
   const [uploadingItemId, setUploadingItemId] = useState<number | null>(null);
   const [isRestoringDraft, setIsRestoringDraft] = useState(false);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [accountPassword, setAccountPassword] = useState("");
+  const [accountPasswordConfirm, setAccountPasswordConfirm] = useState("");
   const [walkthroughTitle, setWalkthroughTitle] = useState("");
   const [walkthroughLocation, setWalkthroughLocation] = useState("");
+  const [supportSubject, setSupportSubject] = useState("");
+  const [supportMessage, setSupportMessage] = useState("");
+  const [supportStatus, setSupportStatus] = useState("");
+  const [supportSending, setSupportSending] = useState(false);
   const [walkthroughSections, setWalkthroughSections] = useState<WalkthroughSection[]>([
     { title: "General", items: [{ comment: "", severity: "", photos: [] }] },
   ]);
@@ -1070,6 +1184,7 @@ export default function UserPage({ user, onLogout }: Props) {
   const adminAssignedAssignments = activeAssignments.filter(
     (assignment) => !assignment.isSelfStarted
   );
+  const unreadMessageCount = messages.filter((candidate) => !candidate.readAt).length;
   const selfStartedChecklistIds = new Set(
     activeAssignments
       .filter((assignment) => assignment.isSelfStarted)
@@ -1090,6 +1205,48 @@ export default function UserPage({ user, onLogout }: Props) {
       setMessages(inbox.messages);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Message could not be updated.");
+    }
+  };
+
+  const handleChangeOwnPassword = async () => {
+    if (!accountPassword.trim()) {
+      alert("New password is required.");
+      return;
+    }
+
+    if (accountPassword !== accountPasswordConfirm) {
+      alert("Password confirmation does not match.");
+      return;
+    }
+
+    try {
+      await updateUser(user.id, { password: accountPassword });
+      setAccountPassword("");
+      setAccountPasswordConfirm("");
+      setMessage("Password changed successfully.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Password could not be changed.");
+    }
+  };
+
+  const submitSupportTicket = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSupportStatus("");
+
+    try {
+      setSupportSending(true);
+      await createSupportTicket({ subject: supportSubject, message: supportMessage });
+      setSupportSubject("");
+      setSupportMessage("");
+      setSupportStatus(
+        "Your ticket has been sent to the Inspectria Support team. We will get back to you as soon as possible."
+      );
+    } catch (err) {
+      setSupportStatus(
+        err instanceof Error ? err.message : "Your ticket could not be sent. Please try again."
+      );
+    } finally {
+      setSupportSending(false);
     }
   };
 
@@ -1166,7 +1323,61 @@ export default function UserPage({ user, onLogout }: Props) {
           managerSummaryLoading={managerSummaryReportId === selectedReport.id}
         />
       ) : !activeAssignment || !activeChecklist ? (
-        <>
+        <div className="user-page-layout">
+          <div className="user-mobile-menu" style={styles.section}>
+            <label style={styles.label} htmlFor="user-section-select">
+              Menu
+            </label>
+            <select
+              id="user-section-select"
+              style={styles.input}
+              value={activeUserPage}
+              onChange={(event) => setActiveUserPage(event.target.value as UserSectionKey)}
+            >
+              {USER_SECTIONS.map((section) => (
+                <option key={section.key} value={section.key}>
+                  {section.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="admin-workspace user-workspace">
+            <nav className="admin-module-nav user-desktop-nav" aria-label="User menu">
+              <div className="admin-module-nav-grid">
+                {USER_SECTIONS.map((section) => {
+                  const isActive = activeUserPage === section.key;
+                  const badgeCount =
+                    section.key === "assignments"
+                      ? adminAssignedAssignments.length
+                      : section.key === "messages"
+                        ? unreadMessageCount
+                        : 0;
+
+                  return (
+                    <button
+                      key={section.key}
+                      type="button"
+                      className={`admin-module-nav-item${isActive ? " admin-module-nav-item-active" : ""}`}
+                      onClick={() => setActiveUserPage(section.key)}
+                    >
+                      <div className="admin-module-nav-label">
+                        <span>{section.label}</span>
+                        {badgeCount > 0 ? (
+                          <span className="admin-module-nav-badge">{badgeCount}</span>
+                        ) : null}
+                      </div>
+                      <div className="admin-module-nav-description">
+                        {section.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </nav>
+
+            <div className="admin-workspace-main">
+          {activeUserPage === "assignments" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>My Assignments</h3>
 
@@ -1200,7 +1411,9 @@ export default function UserPage({ user, onLogout }: Props) {
               onClick={() => showMoreListItems("my-assignments")}
             />
           </div>
+          ) : null}
 
+          {activeUserPage === "availableTemplates" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>Available Templates</h3>
             <div style={styles.small}>
@@ -1260,7 +1473,9 @@ export default function UserPage({ user, onLogout }: Props) {
               </>
             )}
           </div>
+          ) : null}
 
+          {activeUserPage === "communityTemplates" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>Community Templates</h3>
             <div style={styles.small}>
@@ -1313,7 +1528,9 @@ export default function UserPage({ user, onLogout }: Props) {
               </>
             )}
           </div>
+          ) : null}
 
+          {activeUserPage === "messages" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>Messages</h3>
             {messages.length === 0 ? (
@@ -1354,8 +1571,10 @@ export default function UserPage({ user, onLogout }: Props) {
               </div>
             )}
           </div>
+          ) : null}
 
 
+          {activeUserPage === "walkthroughs" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>Walkthrough</h3>
             <div style={styles.small}>
@@ -1508,7 +1727,7 @@ export default function UserPage({ user, onLogout }: Props) {
                             style={styles.secondaryButton}
                             onClick={() => addWalkthroughItem(sectionIndex)}
                           >
-                            Add Comment After This
+                            New Comment
                           </button>
                           <button
                             type="button"
@@ -1602,7 +1821,9 @@ export default function UserPage({ user, onLogout }: Props) {
               </>
             )}
           </div>
+          ) : null}
 
+          {activeUserPage === "reports" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>My Reports</h3>
 
@@ -1664,7 +1885,132 @@ export default function UserPage({ user, onLogout }: Props) {
               </>
             )}
           </div>
-        </>
+          ) : null}
+
+          {activeUserPage === "account" ? (
+          <div style={styles.section}>
+            <h3 style={styles.title}>My Account</h3>
+            <div style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+              <div style={{ marginBottom: 12 }}>
+                <strong>{user.name}</strong> ({user.username})
+                <div style={styles.small}>{user.role}</div>
+              </div>
+              <div style={{ ...styles.row, marginBottom: 12 }}>
+                <PasswordInput
+                  placeholder="New Password"
+                  value={accountPassword}
+                  onChange={(event) => setAccountPassword(event.target.value)}
+                />
+                <PasswordInput
+                  placeholder="Confirm New Password"
+                  value={accountPasswordConfirm}
+                  onChange={(event) => setAccountPasswordConfirm(event.target.value)}
+                />
+              </div>
+              <button type="button" style={styles.button} onClick={handleChangeOwnPassword}>
+                Change Password
+              </button>
+            </div>
+          </div>
+          ) : null}
+
+          {activeUserPage === "support" ? (
+          <div className="support-page">
+            <div className="support-hero">
+              <div>
+                <span>INSPECTRIA SUPPORT</span>
+                <h1>How can we help?</h1>
+                <p>
+                  Explore what you can do based on your role, or send an issue directly to the
+                  Inspectria Support team.
+                </p>
+              </div>
+            </div>
+
+            <section className="support-section" aria-labelledby="user-support-roles-title">
+              <div className="support-section-heading">
+                <span>ROLE GUIDE</span>
+                <h2 id="user-support-roles-title">What can you do in Inspectria?</h2>
+              </div>
+              <div className="support-role-grid">
+                {ROLE_GUIDES.map((guide) => {
+                  const isCurrentRole =
+                    guide.key === user.role ||
+                    (guide.key === "topLevel" && user.role === "admin");
+
+                  return (
+                    <article
+                      className={`support-role-card${isCurrentRole ? " support-role-card-current" : ""}`}
+                      key={guide.key}
+                    >
+                      {isCurrentRole ? (
+                        <div className="support-current-role">YOUR ROLE</div>
+                      ) : null}
+                      <h3>{guide.title}</h3>
+                      <p>{guide.description}</p>
+                      <ul>
+                        {guide.items.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="support-ticket-section" aria-labelledby="user-ticket-title">
+              <div className="support-ticket-copy">
+                <span>CREATE A TICKET</span>
+                <h2 id="user-ticket-title">Are you experiencing an issue?</h2>
+                <p>
+                  Describe your issue in as much detail as possible. Your ticket will be sent
+                  together with your account, role, and organization details.
+                </p>
+                <p className="support-ticket-email">Sent to: info@inspectria.com</p>
+              </div>
+              <form className="support-ticket-form" onSubmit={submitSupportTicket}>
+                <label>
+                  Subject
+                  <input
+                    value={supportSubject}
+                    onChange={(event) => setSupportSubject(event.target.value)}
+                    maxLength={180}
+                    required
+                    placeholder="For example: I cannot see my checklist assignment"
+                  />
+                </label>
+                <label>
+                  Your issue
+                  <textarea
+                    value={supportMessage}
+                    onChange={(event) => setSupportMessage(event.target.value)}
+                    maxLength={4000}
+                    required
+                    placeholder="Tell us what you were trying to do and what happened."
+                  />
+                </label>
+                {supportStatus ? (
+                  <div
+                    className={
+                      supportStatus.startsWith("Your ticket has")
+                        ? "support-ticket-success"
+                        : "support-ticket-error"
+                    }
+                  >
+                    {supportStatus}
+                  </div>
+                ) : null}
+                <button type="submit" style={styles.button} disabled={supportSending}>
+                  {supportSending ? "Sending..." : "Send support ticket"}
+                </button>
+              </form>
+            </section>
+          </div>
+          ) : null}
+            </div>
+          </div>
+        </div>
       ) : (
         <div style={styles.section}>
           {(activeChecklist.image_path || activeChecklist.imagePath) ? (
