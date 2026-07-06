@@ -145,13 +145,31 @@ router.post("/login", async (req, res, next) => {
     const createdAt = new Date().toISOString();
     const expiresAt = createExpiry(7);
 
-    await db.query(
-      `
-      INSERT INTO sessions (user_id, token, created_at, expires_at)
-      VALUES ($1, $2, $3, $4)
-    `,
-      [user.id, token, createdAt, expiresAt]
-    );
+    await db.transaction(async (client) => {
+      const activeDraft = await client.query(
+        `
+        SELECT 1
+        FROM draft_reports d
+        JOIN assignments a ON a.id = d.assignment_id
+        WHERE d.user_id = $1
+          AND a.status = 'assigned'
+        LIMIT 1
+      `,
+        [user.id]
+      );
+
+      if (!activeDraft.rows[0]) {
+        await client.query("DELETE FROM sessions WHERE user_id = $1", [user.id]);
+      }
+
+      await client.query(
+        `
+        INSERT INTO sessions (user_id, token, created_at, expires_at)
+        VALUES ($1, $2, $3, $4)
+      `,
+        [user.id, token, createdAt, expiresAt]
+      );
+    });
 
     res.json({
       token,

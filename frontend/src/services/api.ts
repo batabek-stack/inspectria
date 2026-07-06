@@ -15,6 +15,8 @@ const configuredApiBase =
 const configuredFileBase =
   viteEnv.VITE_FILE_BASE ? String(viteEnv.VITE_FILE_BASE) : "";
 
+export const SESSION_INVALID_EVENT = "inspectria:session-invalid";
+
 function getApiHostBase(apiBase: string) {
   return apiBase.replace(/\/api\/?$/, "");
 }
@@ -49,6 +51,13 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function handleUnauthorizedResponse(res: Response) {
+  if (res.status !== 401 || typeof window === "undefined") return;
+  localStorage.removeItem("mod_token");
+  localStorage.removeItem("mod_session");
+  window.dispatchEvent(new Event(SESSION_INVALID_EVENT));
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -60,6 +69,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    handleUnauthorizedResponse(res);
     throw new Error((data as { message?: string }).message || `GET ${path} failed`);
   }
 
@@ -79,6 +89,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    handleUnauthorizedResponse(res);
     throw new Error((data as { message?: string }).message || `POST ${path} failed`);
   }
 
@@ -98,6 +109,7 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    handleUnauthorizedResponse(res);
     throw new Error((data as { message?: string }).message || `PUT ${path} failed`);
   }
 
@@ -116,6 +128,7 @@ export async function apiDelete<T>(path: string): Promise<T> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    handleUnauthorizedResponse(res);
     throw new Error((data as { message?: string }).message || `DELETE ${path} failed`);
   }
 
@@ -190,6 +203,7 @@ export async function uploadPhotos(files: FileList | null): Promise<string[]> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    handleUnauthorizedResponse(res);
     throw new Error((data as { message?: string }).message || "Photo upload failed");
   }
 
@@ -218,6 +232,7 @@ export async function getLocalFiles(kind: LocalFileKind): Promise<LocalFile[]> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    handleUnauthorizedResponse(res);
     throw new Error((data as { message?: string }).message || "Local files could not be listed");
   }
 
@@ -237,6 +252,7 @@ export async function copyLocalImageToUploads(path: string): Promise<string[]> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    handleUnauthorizedResponse(res);
     throw new Error((data as { message?: string }).message || "Local image could not be copied");
   }
 
@@ -252,6 +268,7 @@ export async function getLocalFileBlob(path: string): Promise<Blob> {
   });
 
   if (!res.ok) {
+    handleUnauthorizedResponse(res);
     const data = await res.json().catch(() => ({}));
     throw new Error((data as { message?: string }).message || "Local file could not be opened");
   }

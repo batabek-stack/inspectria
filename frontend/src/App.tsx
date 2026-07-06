@@ -9,6 +9,7 @@ import LegalPage, { getLegalPageFromHash, isLegalPageHash } from "./pages/LegalP
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SupportPage from "./pages/SupportPage";
 import { importSharedChecklist } from "./services/checklistService";
+import { SESSION_INVALID_EVENT } from "./services/api";
 
 const AUTO_LOGOFF_MS = 10 * 60 * 1000;
 const AUTO_LOGOFF_SAVE_EVENT = "inspectria:auto-logoff-save";
@@ -87,6 +88,17 @@ export default function App() {
     const syncRoute = () => setRouteHash(window.location.hash || "#top");
     window.addEventListener("hashchange", syncRoute);
     return () => window.removeEventListener("hashchange", syncRoute);
+  }, []);
+
+  useEffect(() => {
+    const handleSessionInvalid = () => {
+      setSession(null);
+      window.location.hash = "login";
+      setRouteHash("#login");
+    };
+
+    window.addEventListener(SESSION_INVALID_EVENT, handleSessionInvalid);
+    return () => window.removeEventListener(SESSION_INVALID_EVENT, handleSessionInvalid);
   }, []);
 
   useEffect(() => {
