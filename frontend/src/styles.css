@@ -784,45 +784,82 @@ textarea {
   margin-top: 12px;
 }
 
-.action-plan-user-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 44px;
-  max-height: 118px;
-  overflow: auto;
-  padding: 8px;
-  border: 1px solid #d7e6e4;
-  border-radius: 8px;
-  background: #fbfefd;
+.action-plan-recipient-dropdown {
+  position: relative;
 }
 
-.action-plan-user-chip {
-  display: inline-flex;
+.action-plan-recipient-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
-  max-width: 280px;
-  padding: 7px 10px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
   border: 1px solid #b9d3d1;
   border-radius: 8px;
   background: #ffffff;
   color: #06323f;
   cursor: pointer;
+  font-weight: 800;
 }
 
-.action-plan-user-chip span {
+.action-plan-recipient-menu {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
   display: grid;
-  min-width: 0;
-  font-size: 12px;
-  line-height: 1.2;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #b9d3d1;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 34px rgba(3, 32, 42, 0.14);
 }
 
-.action-plan-user-chip strong,
-.action-plan-user-chip span {
+.action-plan-recipient-option {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 8px;
+  color: #06323f;
+  cursor: pointer;
+}
+
+.action-plan-recipient-option:hover,
+.action-plan-recipient-option:focus-within {
+  background: #eef6f5;
+}
+
+.action-plan-recipient-option span,
+.action-plan-selected-summary {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.action-plan-recipient-option span {
+  display: grid;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.action-plan-selected-summary {
+  margin-top: 6px;
+  color: #5e7378;
+  font-size: 12px;
+}
+
+.action-plan-helper-note {
+  margin-top: 10px;
+  color: #5e7378;
+  font-size: 13px;
 }
 
 .action-plan-builder-actions {

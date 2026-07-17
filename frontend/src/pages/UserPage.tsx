@@ -1701,6 +1701,9 @@ export default function UserPage({ user, onLogout }: Props) {
           {activeUserPage === "actionPlans" ? (
             <div style={styles.section}>
               <h3 style={styles.title}>Action Plan</h3>
+              <div style={{ ...styles.small, marginBottom: 12 }}>
+                Items assigned to your email appear here. Update Remarks and choose Done from Status when completed.
+              </div>
               {actionPlans.length === 0 ? (
                 <div style={styles.small}>No Action Plan items assigned to you.</div>
               ) : (
@@ -1714,33 +1717,39 @@ export default function UserPage({ user, onLogout }: Props) {
                         </span>
                       </div>
                       <div className="compact-row-form">
-                        <textarea
-                          style={{ ...styles.input, minHeight: 70 }}
-                          defaultValue={plan.remarks}
-                          onBlur={(event) => {
-                            const nextRemarks = event.target.value;
-                            if (nextRemarks !== plan.remarks) {
-                              saveActionPlanProgress(plan, nextRemarks, plan.status);
+                        <label>
+                          <span style={styles.label}>Remarks</span>
+                          <textarea
+                            style={{ ...styles.input, minHeight: 70 }}
+                            defaultValue={plan.remarks}
+                            onBlur={(event) => {
+                              const nextRemarks = event.target.value;
+                              if (nextRemarks !== plan.remarks) {
+                                saveActionPlanProgress(plan, nextRemarks, plan.status);
+                              }
+                            }}
+                          />
+                        </label>
+                        <label>
+                          <span style={styles.label}>Status</span>
+                          <select
+                            style={styles.input}
+                            value={plan.status}
+                            onChange={(event) =>
+                              saveActionPlanProgress(
+                                plan,
+                                plan.remarks,
+                                event.target.value as ActionPlanStatus
+                              )
                             }
-                          }}
-                        />
-                        <select
-                          style={styles.input}
-                          value={plan.status}
-                          onChange={(event) =>
-                            saveActionPlanProgress(
-                              plan,
-                              plan.remarks,
-                              event.target.value as ActionPlanStatus
-                            )
-                          }
-                        >
-                          {ACTION_PLAN_STATUSES.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
+                          >
+                            {ACTION_PLAN_STATUSES.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                       </div>
                     </div>
                   ))}

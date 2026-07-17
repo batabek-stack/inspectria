@@ -959,6 +959,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [actionPlanRemarks, setActionPlanRemarks] = useState("");
   const [actionPlanDueDate, setActionPlanDueDate] = useState("");
   const [actionPlanResponsibleEmails, setActionPlanResponsibleEmails] = useState<string[]>([]);
+  const [actionPlanResponsibleOpen, setActionPlanResponsibleOpen] = useState(false);
   const [actionPlanManualEmails, setActionPlanManualEmails] = useState("");
   const [actionPlanDraftItems, setActionPlanDraftItems] = useState<ActionPlanDraftItem[]>([]);
   const [actionPlanSaving, setActionPlanSaving] = useState(false);
@@ -1282,6 +1283,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     setActionPlanRemarks("");
     setActionPlanDueDate("");
     setActionPlanResponsibleEmails([]);
+    setActionPlanResponsibleOpen(false);
     setActionPlanManualEmails("");
   };
 
@@ -6852,6 +6854,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         onChange={(event) => {
                           setActionPlanOrganizationId(Number(event.target.value));
                           setActionPlanResponsibleEmails([]);
+                          setActionPlanResponsibleOpen(false);
                         }}
                       >
                         <option value={0}>Select organization</option>
@@ -6891,58 +6894,85 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
                   <div className="action-plan-responsible-row">
                     <div>
-                    <div style={{ ...styles.label, marginBottom: 6 }}>Responsible Parties</div>
-                      <div className="action-plan-user-list">
-                        {actionPlanAssignableUsers.length === 0 ? (
-                          <div style={styles.small}>No active users found for this organization.</div>
-                        ) : actionPlanUsersWithEmail.length === 0 ? (
-                          <div style={styles.small}>
-                            Users in this organization do not have email addresses yet. You can enter manual emails.
+                      <div style={{ ...styles.label, marginBottom: 6 }}>Responsible Parties</div>
+                      <div className="action-plan-recipient-dropdown">
+                        <button
+                          type="button"
+                          className="action-plan-recipient-trigger"
+                          onClick={() => setActionPlanResponsibleOpen((isOpen) => !isOpen)}
+                          aria-expanded={actionPlanResponsibleOpen}
+                        >
+                          <span>
+                            {actionPlanResponsibleEmails.length > 0
+                              ? `${actionPlanResponsibleEmails.length} selected`
+                              : "Select users"}
+                          </span>
+                          <span aria-hidden="true">{actionPlanResponsibleOpen ? "-" : "+"}</span>
+                        </button>
+
+                        {actionPlanResponsibleOpen ? (
+                          <div className="action-plan-recipient-menu">
+                            {actionPlanAssignableUsers.length === 0 ? (
+                              <div style={styles.small}>No active users found for this organization.</div>
+                            ) : actionPlanUsersWithEmail.length === 0 ? (
+                              <div style={styles.small}>
+                                Users in this organization do not have email addresses yet. You can enter manual emails.
+                              </div>
+                            ) : (
+                              actionPlanUsersWithEmail.map((candidate) => (
+                                <label key={candidate.id} className="action-plan-recipient-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={actionPlanResponsibleEmails.includes(candidate.email)}
+                                    onChange={(event) => {
+                                      setActionPlanResponsibleEmails((current) =>
+                                        event.target.checked
+                                          ? Array.from(new Set([...current, candidate.email]))
+                                          : current.filter((email) => email !== candidate.email)
+                                      );
+                                    }}
+                                  />
+                                  <span>
+                                    <strong>{candidate.name}</strong>
+                                    {candidate.email}
+                                  </span>
+                                </label>
+                              ))
+                            )}
                           </div>
-                      ) : (
-                          actionPlanUsersWithEmail.map((candidate) => (
-                            <label key={candidate.id} className="action-plan-user-chip">
-                            <input
-                              type="checkbox"
-                              checked={actionPlanResponsibleEmails.includes(candidate.email)}
-                              onChange={(event) => {
-                                setActionPlanResponsibleEmails((current) =>
-                                  event.target.checked
-                                    ? Array.from(new Set([...current, candidate.email]))
-                                    : current.filter((email) => email !== candidate.email)
-                                  );
-                              }}
-                            />
-                              <span>
-                                <strong>{candidate.name}</strong>
-                                {candidate.email}
-                            </span>
-                          </label>
-                        ))
-                      )}
+                        ) : null}
                       </div>
+                      {actionPlanResponsibleEmails.length > 0 ? (
+                        <div className="action-plan-selected-summary">
+                          {actionPlanResponsibleEmails.join(", ")}
+                        </div>
+                      ) : null}
                     </div>
 
-                  <textarea
+                    <textarea
                       style={{ ...styles.input, minHeight: 76 }}
-                    placeholder="Manual emails separated by comma, semicolon or space"
-                    value={actionPlanManualEmails}
-                    onChange={(event) => setActionPlanManualEmails(event.target.value)}
-                  />
+                      placeholder="Manual emails separated by comma, semicolon or space"
+                      value={actionPlanManualEmails}
+                      onChange={(event) => setActionPlanManualEmails(event.target.value)}
+                    />
 
                     <div className="action-plan-builder-actions">
-                    <button type="button" style={styles.secondaryButton} onClick={addActionPlanDraftItem}>
-                      Add Item
-                    </button>
-                    <button
-                      type="button"
-                      style={styles.button}
-                      onClick={submitActionPlanDraft}
-                      disabled={actionPlanSaving || actionPlanDraftItems.length === 0}
-                    >
-                      {actionPlanSaving ? "Sending..." : "Create & Send"}
-                    </button>
+                      <button type="button" style={styles.secondaryButton} onClick={addActionPlanDraftItem}>
+                        Add Item
+                      </button>
+                      <button
+                        type="button"
+                        style={styles.button}
+                        onClick={submitActionPlanDraft}
+                        disabled={actionPlanSaving || actionPlanDraftItems.length === 0}
+                      >
+                        {actionPlanSaving ? "Sending..." : "Create & Send"}
+                      </button>
+                    </div>
                   </div>
+
+                  <div className="action-plan-helper-note">
+                    Assigned users see these items in their own Action Plan menu and can update only Remarks and Status.
                   </div>
 
                   {actionPlanDraftItems.length > 0 ? (
