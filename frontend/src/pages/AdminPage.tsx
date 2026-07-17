@@ -1146,6 +1146,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       ).filter((section): section is (typeof ADMIN_SECTIONS)[number] => Boolean(section))
     : ADMIN_SECTIONS.filter(
         (section) =>
+          section.key !== "maintenance" &&
           section.key !== "organizationUsers" &&
           (canViewSubOrganizations || section.key !== "organizations") &&
           (isDesktop || section.key !== "dashboard")
@@ -1849,10 +1850,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   }, [activeAdminPage, unreadReportCount]);
 
   useEffect(() => {
+    if (activeAdminPage === "maintenance" && !isPlatformAdmin) {
+      setActiveAdminPage(isDesktop ? "dashboard" : "templates");
+      return;
+    }
+
     if (activeAdminPage === "maintenance" && isPlatformAdmin) {
       loadMaintenanceBackups();
     }
-  }, [activeAdminPage, isPlatformAdmin]);
+  }, [activeAdminPage, isDesktop, isPlatformAdmin]);
 
   useEffect(() => {
     return () => {
