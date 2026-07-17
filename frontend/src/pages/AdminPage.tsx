@@ -1322,18 +1322,55 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     resetActionPlanForm();
   };
 
+  const createActionPlanDraftFromForm = (): ActionPlanDraftItem | null => {
+    const emails = getActionPlanEmails();
+    if (!actionPlanItem.trim() && !actionPlanAction.trim() && !actionPlanDueDate && emails.length === 0) {
+      return null;
+    }
+
+    if (!actionPlanItem.trim() || !actionPlanAction.trim() || !actionPlanDueDate || emails.length === 0) {
+      setError("Action Plan item, action, responsible email and due date are required.");
+      return null;
+    }
+
+    return {
+      item: actionPlanItem.trim(),
+      action: actionPlanAction.trim(),
+      remarks: actionPlanRemarks.trim(),
+      responsibleEmails: emails,
+      dueDate: actionPlanDueDate,
+      status: "Open",
+    };
+  };
+
+  const hasActionPlanFormInput = Boolean(
+    actionPlanItem.trim() ||
+      actionPlanAction.trim() ||
+      actionPlanDueDate ||
+      actionPlanResponsibleEmails.length > 0 ||
+      actionPlanManualEmails.trim()
+  );
+
   const submitActionPlanDraft = async () => {
-    if (!actionPlanOrganizationId || actionPlanDraftItems.length === 0) {
-      setError("Add at least one Action Plan item before sending.");
+    const currentFormDraft = createActionPlanDraftFromForm();
+    if (!currentFormDraft && hasActionPlanFormInput) return;
+
+    const itemsToSend = currentFormDraft
+      ? [...actionPlanDraftItems, currentFormDraft]
+      : actionPlanDraftItems;
+
+    if (!actionPlanOrganizationId || itemsToSend.length === 0) {
+      setError("Add at least one complete Action Plan item before sending.");
       return;
     }
 
     try {
       setActionPlanSaving(true);
       setError("");
-      const result = await createActionPlans(actionPlanOrganizationId, actionPlanDraftItems);
+      const result = await createActionPlans(actionPlanOrganizationId, itemsToSend);
       setActionPlans(await getActionPlans());
       setActionPlanDraftItems([]);
+      resetActionPlanForm();
       setMessage(
         result.emailError
           ? `Action Plan saved. Email warning: ${result.emailError}`
@@ -4135,6 +4172,71 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         </div>
       ) : null}
 
+      {actionPlanResponsibleOpen ? (
+        <div
+          className="app-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="action-plan-recipients-title"
+        >
+          <div className="app-modal action-plan-recipient-modal">
+            <div className="app-modal-heading">
+              <div>
+                <span>Action Plan</span>
+                <h3 id="action-plan-recipients-title">Responsible Parties</h3>
+              </div>
+            </div>
+            <div className="app-modal-body">
+              {actionPlanAssignableUsers.length === 0 ? (
+                <div style={styles.small}>No active users found for this organization.</div>
+              ) : actionPlanUsersWithEmail.length === 0 ? (
+                <div style={styles.small}>
+                  Users in this organization do not have email addresses yet. You can enter manual emails.
+                </div>
+              ) : (
+                <div className="action-plan-recipient-modal-list">
+                  {actionPlanUsersWithEmail.map((candidate) => (
+                    <label key={candidate.id} className="action-plan-recipient-option">
+                      <input
+                        type="checkbox"
+                        checked={actionPlanResponsibleEmails.includes(candidate.email)}
+                        onChange={(event) => {
+                          setActionPlanResponsibleEmails((current) =>
+                            event.target.checked
+                              ? Array.from(new Set([...current, candidate.email]))
+                              : current.filter((email) => email !== candidate.email)
+                          );
+                        }}
+                      />
+                      <span>
+                        <strong>{candidate.name}</strong>
+                        {candidate.email}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="app-modal-actions">
+              <button
+                type="button"
+                style={styles.secondaryButton}
+                onClick={() => setActionPlanResponsibleEmails([])}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                style={styles.button}
+                onClick={() => setActionPlanResponsibleOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {selectedWalkthrough ? (
         <WalkthroughDetail
           walkthrough={selectedWalkthrough}
@@ -6907,40 +7009,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               ? `${actionPlanResponsibleEmails.length} selected`
                               : "Select users"}
                           </span>
-                          <span aria-hidden="true">{actionPlanResponsibleOpen ? "-" : "+"}</span>
+                          <span aria-hidden="true">+</span>
                         </button>
-
-                        {actionPlanResponsibleOpen ? (
-                          <div className="action-plan-recipient-menu">
-                            {actionPlanAssignableUsers.length === 0 ? (
-                              <div style={styles.small}>No active users found for this organization.</div>
-                            ) : actionPlanUsersWithEmail.length === 0 ? (
-                              <div style={styles.small}>
-                                Users in this organization do not have email addresses yet. You can enter manual emails.
-                              </div>
-                            ) : (
-                              actionPlanUsersWithEmail.map((candidate) => (
-                                <label key={candidate.id} className="action-plan-recipient-option">
-                                  <input
-                                    type="checkbox"
-                                    checked={actionPlanResponsibleEmails.includes(candidate.email)}
-                                    onChange={(event) => {
-                                      setActionPlanResponsibleEmails((current) =>
-                                        event.target.checked
-                                          ? Array.from(new Set([...current, candidate.email]))
-                                          : current.filter((email) => email !== candidate.email)
-                                      );
-                                    }}
-                                  />
-                                  <span>
-                                    <strong>{candidate.name}</strong>
-                                    {candidate.email}
-                                  </span>
-                                </label>
-                              ))
-                            )}
-                          </div>
-                        ) : null}
                       </div>
                       {actionPlanResponsibleEmails.length > 0 ? (
                         <div className="action-plan-selected-summary">
@@ -6964,7 +7034,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         type="button"
                         style={styles.button}
                         onClick={submitActionPlanDraft}
-                        disabled={actionPlanSaving || actionPlanDraftItems.length === 0}
+                        disabled={actionPlanSaving || (actionPlanDraftItems.length === 0 && !hasActionPlanFormInput)}
                       >
                         {actionPlanSaving ? "Sending..." : "Create & Send"}
                       </button>
