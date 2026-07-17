@@ -4040,6 +4040,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const overallSuccessRate = overallScoredAnswers
     ? Math.round((overallSuccessfulAnswers / overallScoredAnswers) * 100)
     : 0;
+  const openActionPlanItems = actionPlans.filter((plan) => plan.status !== "Done");
   const recentReports = [...reports]
     .sort((first, second) => new Date(second.completed_at).getTime() - new Date(first.completed_at).getTime());
   const dashboardSiteRows = siteNames.length ? siteNames : [user.organizationName || "Main location"];
@@ -4548,6 +4549,11 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     <span>Open Assignments</span>
                     <strong>{openAssignments.length}</strong>
                     <small>{completedAssignments.length} completed assignments</small>
+                  </div>
+                  <div>
+                    <span>Open Action Plan Items</span>
+                    <strong>{openActionPlanItems.length}</strong>
+                    <small>{actionPlans.length} total action plan items</small>
                   </div>
                   <div>
                     <span>Plan Usage</span>
