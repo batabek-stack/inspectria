@@ -105,6 +105,44 @@ async function dropConstraintIfExists(tableName, constraintName) {
   }
 }
 
+async function ensureForeignKeyCascade(tableName, constraintName, columnName, referencedTableName) {
+  const constraint = await one(
+    `
+    SELECT pg_get_constraintdef(c.oid) AS definition
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE n.nspname = 'public'
+      AND t.relname = $1
+      AND c.conname = $2
+      AND c.contype = 'f'
+  `,
+    [tableName, constraintName]
+  );
+
+  const expectedDefinition =
+    `FOREIGN KEY (${columnName}) REFERENCES ${referencedTableName}(id) ON DELETE CASCADE`;
+
+  if (
+    constraint &&
+    String(constraint.definition || "").toUpperCase() === expectedDefinition.toUpperCase()
+  ) {
+    return;
+  }
+
+  if (constraint) {
+    await query(`ALTER TABLE ${tableName} DROP CONSTRAINT ${constraintName}`);
+  }
+
+  await query(`
+    ALTER TABLE ${tableName}
+    ADD CONSTRAINT ${constraintName}
+    FOREIGN KEY (${columnName})
+    REFERENCES ${referencedTableName}(id)
+    ON DELETE CASCADE
+  `);
+}
+
 async function initDb() {
   await query(`
     CREATE TABLE IF NOT EXISTS organizations (
@@ -427,14 +465,12 @@ async function initDb() {
       ON iyzico_checkout_sessions(organization_id);
   `);
 
-  await dropConstraintIfExists("users", "users_organization_id_fkey");
-  await query(`
-    ALTER TABLE users
-    ADD CONSTRAINT users_organization_id_fkey
-    FOREIGN KEY (organization_id)
-    REFERENCES organizations(id)
-    ON DELETE CASCADE
-  `);
+  await ensureForeignKeyCascade(
+    "users",
+    "users_organization_id_fkey",
+    "organization_id",
+    "organizations"
+  );
 
   await ensureColumn(
     "organizations",

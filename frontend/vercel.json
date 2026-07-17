@@ -12,6 +12,18 @@
   ],
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://inspectria-backend.onrender.com/api/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://inspectria-backend.onrender.com/uploads/:path*"
+    },
+    {
+      "source": "/downloads/:path*",
+      "destination": "https://inspectria-backend.onrender.com/downloads/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
