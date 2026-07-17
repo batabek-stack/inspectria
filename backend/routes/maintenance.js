@@ -79,6 +79,12 @@ function backupPath(id) {
   return path.join(backupRoot, safeId);
 }
 
+function backupArchivePath(id) {
+  const safeId = safeBackupId(id);
+  if (!safeId) return "";
+  return path.join(backupRoot, `${safeId}.tar.gz`);
+}
+
 function timestampId(suffix = "") {
   const now = new Date();
   const pad = (value) => String(value).padStart(2, "0");
@@ -178,6 +184,8 @@ async function cleanupRetention() {
     const createdAt = new Date(manifest.createdAt || 0).getTime();
     if (createdAt && createdAt < cutoff) {
       await fs.promises.rm(dir, { recursive: true, force: true });
+      const archive = backupArchivePath(entry.name);
+      if (archive) await fs.promises.rm(archive, { force: true });
     }
   }
 }
@@ -335,6 +343,39 @@ async function restoreBackup(id, user) {
   };
 }
 
+async function createBackupArchive(id) {
+  const dir = backupPath(id);
+  const archive = backupArchivePath(id);
+  if (!dir || !archive || !fs.existsSync(dir)) {
+    const error = new Error("Backup not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const manifest = await readManifest(dir);
+  if (manifest.status !== "completed") {
+    const error = new Error("Only completed backups can be downloaded");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const dirStat = await fs.promises.stat(dir);
+  if (fs.existsSync(archive)) {
+    const archiveStat = await fs.promises.stat(archive);
+    if (archiveStat.mtimeMs >= dirStat.mtimeMs) return archive;
+  }
+
+  const tempArchive = `${archive}.${process.pid}.tmp`;
+  await fs.promises.rm(tempArchive, { force: true });
+  await runFile("tar", ["-czf", tempArchive, "-C", backupRoot, id], {
+    cwd: backupRoot,
+    maxBuffer: 1024 * 1024 * 10,
+  });
+  await fs.promises.rename(tempArchive, archive);
+
+  return archive;
+}
+
 function withBackupLock(handler) {
   return async (req, res, next) => {
     if (activeJob) {
@@ -384,6 +425,18 @@ router.post(
   })
 );
 
+router.get("/backups/:id/download", authRequired, platformAdminOnly, async (req, res, next) => {
+  try {
+    const safeId = safeBackupId(req.params.id);
+    if (!safeId) return res.status(404).json({ message: "Backup not found" });
+
+    const archive = await createBackupArchive(safeId);
+    res.download(archive, `${safeId}.tar.gz`);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.delete("/backups/:id", authRequired, platformAdminOnly, async (req, res, next) => {
   try {
     const dir = backupPath(req.params.id);
@@ -392,6 +445,8 @@ router.delete("/backups/:id", authRequired, platformAdminOnly, async (req, res, 
     }
 
     await fs.promises.rm(dir, { recursive: true, force: true });
+    const archive = backupArchivePath(req.params.id);
+    if (archive) await fs.promises.rm(archive, { force: true });
     res.json({ success: true, backups: await listBackups() });
   } catch (error) {
     next(error);

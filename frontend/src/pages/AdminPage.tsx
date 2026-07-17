@@ -106,6 +106,7 @@ import {
 import {
   createMaintenanceBackup,
   deleteMaintenanceBackup,
+  getMaintenanceBackupDownloadUrl,
   getMaintenanceBackups,
   MaintenanceBackup,
   restoreMaintenanceBackup,
@@ -1397,6 +1398,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     } finally {
       setMaintenanceAction(null);
     }
+  };
+
+  const handleDownloadMaintenanceBackup = (backup: MaintenanceBackup) => {
+    window.location.href = getMaintenanceBackupDownloadUrl(backup.id);
   };
 
   const load = async () => {
@@ -4806,6 +4811,14 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           <div style={{ ...styles.small, color: "#991b1b" }}>{backup.error}</div>
                         ) : null}
                         <div className="compact-row-actions">
+                          <button
+                            type="button"
+                            style={styles.secondaryButton}
+                            onClick={() => handleDownloadMaintenanceBackup(backup)}
+                            disabled={!isCompleted || Boolean(maintenanceAction)}
+                          >
+                            Download
+                          </button>
                           <button
                             type="button"
                             style={styles.button}

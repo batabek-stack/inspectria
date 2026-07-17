@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost } from "./api";
+import { API_BASE, apiDelete, apiGet, apiPost } from "./api";
 
 export type MaintenanceBackup = {
   id: string;
@@ -45,4 +45,11 @@ export async function deleteMaintenanceBackup(id: string) {
   return apiDelete<MaintenanceBackupList & { success: boolean }>(
     `/maintenance/backups/${encodeURIComponent(id)}`
   );
+}
+
+export function getMaintenanceBackupDownloadUrl(id: string) {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("mod_token") : "";
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
+  return `${API_BASE}/maintenance/backups/${encodeURIComponent(id)}/download${tokenQuery}`;
 }

@@ -3,6 +3,9 @@ const db = require("../db");
 function getToken(req) {
   const authHeader = req.headers.authorization || "";
   if (authHeader.startsWith("Bearer ")) return authHeader.slice(7);
+  if (req.method === "GET" && req.query?.token) {
+    return String(req.query.token || "");
+  }
   return null;
 }
 
