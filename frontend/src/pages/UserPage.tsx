@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AnswerType,
+  ActionPlanItem,
+  ActionPlanStatus,
   AppMessage,
   Assignment,
   Checklist,
@@ -64,9 +66,11 @@ import {
   revokeDownload,
 } from "../utils/downloadFile";
 import { getMessages, markMessageRead } from "../services/messageService";
+import { getActionPlans, updateActionPlan } from "../services/actionPlanService";
 
 const AUTO_LOGOFF_SAVE_EVENT = "inspectria:auto-logoff-save";
 const LIST_PAGE_SIZE = 10;
+const ACTION_PLAN_STATUSES: ActionPlanStatus[] = ["Open", "In Progress", "Blocked", "Done"];
 
 type FillItem = {
   itemId: number;
@@ -101,6 +105,7 @@ type UserSectionKey =
   | "dashboard"
   | "availableTemplates"
   | "assignments"
+  | "actionPlans"
   | "communityTemplates"
   | "messages"
   | "walkthroughs"
@@ -138,6 +143,11 @@ const USER_SECTIONS: Array<{
     key: "assignments",
     label: "My Assignments",
     description: "Open assigned checklist work",
+  },
+  {
+    key: "actionPlans",
+    label: "Action Plan",
+    description: "Update your assigned action items",
   },
   {
     key: "communityTemplates",
@@ -386,6 +396,7 @@ function ShowMoreButton({
 export default function UserPage({ user, onLogout }: Props) {
   const localDraftKey = `mod_draft_${user.id}`;
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [communityTemplates, setCommunityTemplates] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
@@ -461,8 +472,9 @@ export default function UserPage({ user, onLogout }: Props) {
     }, 3000);
 
     try {
-      const [a, c, community, r, w, inbox, emailRecipients] = await Promise.all([
+      const [a, actionPlanRows, c, community, r, w, inbox, emailRecipients] = await Promise.all([
         getAssignments(),
+        getActionPlans(),
         getChecklists(),
         getCommunityTemplates(),
         getReports(),
@@ -471,6 +483,7 @@ export default function UserPage({ user, onLogout }: Props) {
         getReportEmailRecipients().catch(() => []),
       ]);
       setAssignments(a);
+      setActionPlans(actionPlanRows);
       setChecklists(c);
       setCommunityTemplates(community);
       setMessages(inbox.messages);
@@ -489,6 +502,20 @@ export default function UserPage({ user, onLogout }: Props) {
   useEffect(() => {
     load();
   }, []);
+
+  const saveActionPlanProgress = async (
+    plan: ActionPlanItem,
+    remarks: string,
+    status: ActionPlanStatus
+  ) => {
+    try {
+      await updateActionPlan(plan.id, { remarks, status });
+      setActionPlans(await getActionPlans());
+      setMessage("Action Plan item updated.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Action Plan item could not be updated");
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -1669,6 +1696,57 @@ export default function UserPage({ user, onLogout }: Props) {
               onClick={() => showMoreListItems("my-assignments")}
             />
           </div>
+          ) : null}
+
+          {activeUserPage === "actionPlans" ? (
+            <div style={styles.section}>
+              <h3 style={styles.title}>Action Plan</h3>
+              {actionPlans.length === 0 ? (
+                <div style={styles.small}>No Action Plan items assigned to you.</div>
+              ) : (
+                <div className="compact-list">
+                  {actionPlans.map((plan) => (
+                    <div key={plan.id} className="compact-row compact-row-open">
+                      <div className="compact-row-title">
+                        <strong>{plan.item}</strong>
+                        <span>
+                          {plan.action} | Due: {plan.dueDate} | Status: {plan.status}
+                        </span>
+                      </div>
+                      <div className="compact-row-form">
+                        <textarea
+                          style={{ ...styles.input, minHeight: 70 }}
+                          defaultValue={plan.remarks}
+                          onBlur={(event) => {
+                            const nextRemarks = event.target.value;
+                            if (nextRemarks !== plan.remarks) {
+                              saveActionPlanProgress(plan, nextRemarks, plan.status);
+                            }
+                          }}
+                        />
+                        <select
+                          style={styles.input}
+                          value={plan.status}
+                          onChange={(event) =>
+                            saveActionPlanProgress(
+                              plan,
+                              plan.remarks,
+                              event.target.value as ActionPlanStatus
+                            )
+                          }
+                        >
+                          {ACTION_PLAN_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : null}
 
           {activeUserPage === "availableTemplates" ? (

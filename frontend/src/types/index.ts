@@ -217,6 +217,29 @@ export type Walkthrough = {
   sections: WalkthroughSection[];
 };
 
+export type ActionPlanStatus = "Open" | "In Progress" | "Blocked" | "Done";
+
+export type ActionPlanResponsibleParty = {
+  id: number;
+  userId?: number | null;
+  email: string;
+  name?: string | null;
+};
+
+export type ActionPlanItem = {
+  id: number;
+  organizationId: number;
+  organizationName?: string;
+  item: string;
+  action: string;
+  remarks: string;
+  dueDate: string;
+  status: ActionPlanStatus;
+  responsibleParties: ActionPlanResponsibleParty[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AiActionPlan = {
   failedItemId: string;
   reportId: string;

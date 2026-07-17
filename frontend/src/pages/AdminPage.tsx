@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import {
   AnswerType,
+  ActionPlanItem,
+  ActionPlanStatus,
   AppMessage,
   Assignment,
   BillingCycle,
@@ -111,6 +113,14 @@ import {
   MaintenanceBackup,
   restoreMaintenanceBackup,
 } from "../services/maintenanceService";
+import {
+  ActionPlanDraftItem,
+  createActionPlans,
+  deleteAllActionPlans,
+  deleteActionPlan,
+  getActionPlans,
+  updateActionPlan,
+} from "../services/actionPlanService";
 
 const AUTO_LOGOFF_SAVE_EVENT = "inspectria:auto-logoff-save";
 const LIST_PAGE_SIZE = 10;
@@ -189,6 +199,7 @@ type AdminSectionKey =
   | "communityTemplates"
   | "myWork"
   | "assignments"
+  | "actionPlans"
   | "walkthroughs"
   | "users"
   | "reports"
@@ -210,6 +221,8 @@ const BUILDER_ANSWER_TYPE_LABELS: Record<BuilderAnswerType, string> = {
   ...ANSWER_TYPE_LABELS,
   CONDITIONAL: "Conditional Question",
 };
+
+const ACTION_PLAN_STATUSES: ActionPlanStatus[] = ["Open", "In Progress", "Blocked", "Done"];
 
 function getQuestionAnswerFormat(item: QuestionForm): BuilderAnswerType {
   return item.answerType === "FORMAT1" &&
@@ -303,6 +316,11 @@ const ADMIN_SECTIONS: Array<{
     description: "Assign checklist work to users",
   },
   {
+    key: "actionPlans",
+    label: "Action Plan",
+    description: "Assign action items and due dates",
+  },
+  {
     key: "reports",
     label: "Completed Reports",
     description: "Review reports and export files",
@@ -361,6 +379,7 @@ const PLATFORM_ADMIN_SECTION_KEYS: AdminSectionKey[] = [
   "templates",
   "communityTemplates",
   "assignments",
+  "actionPlans",
   "reports",
   "walkthroughs",
   "messages",
@@ -933,6 +952,16 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [selectedMessageRecipientIds, setSelectedMessageRecipientIds] = useState<number[]>([]);
   const [messageSending, setMessageSending] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([]);
+  const [actionPlanOrganizationId, setActionPlanOrganizationId] = useState<number>(0);
+  const [actionPlanItem, setActionPlanItem] = useState("");
+  const [actionPlanAction, setActionPlanAction] = useState("");
+  const [actionPlanRemarks, setActionPlanRemarks] = useState("");
+  const [actionPlanDueDate, setActionPlanDueDate] = useState("");
+  const [actionPlanResponsibleEmails, setActionPlanResponsibleEmails] = useState<string[]>([]);
+  const [actionPlanManualEmails, setActionPlanManualEmails] = useState("");
+  const [actionPlanDraftItems, setActionPlanDraftItems] = useState<ActionPlanDraftItem[]>([]);
+  const [actionPlanSaving, setActionPlanSaving] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [unreadReportCount, setUnreadReportCount] = useState(0);
   const [reportEmailRecipients, setReportEmailRecipients] = useState<ReportEmailRecipient[]>([]);
@@ -1154,6 +1183,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       candidate.approvalStatus !== "rejected" &&
       (candidate.role === "admin" || candidate.role === "user")
   );
+  const actionPlanAssignableUsers = messageRecipients.filter((candidate) => {
+    if (!actionPlanOrganizationId) return true;
+    return candidate.organizationId === actionPlanOrganizationId;
+  });
+  const actionPlanUsersWithEmail = actionPlanAssignableUsers.filter((candidate) =>
+    Boolean(candidate.email)
+  );
   const fallbackReportEmailRecipients: ReportEmailRecipient[] = messageRecipients
     .filter((candidate) => Boolean(candidate.email))
     .map((candidate) => ({
@@ -1239,6 +1275,117 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const sectionCount = visibleChecklistSections.length;
   const isFirstSection = activeSectionIndex === 0;
   const isLastSection = activeSectionIndex >= sectionCount - 1;
+
+  const resetActionPlanForm = () => {
+    setActionPlanItem("");
+    setActionPlanAction("");
+    setActionPlanRemarks("");
+    setActionPlanDueDate("");
+    setActionPlanResponsibleEmails([]);
+    setActionPlanManualEmails("");
+  };
+
+  const getActionPlanEmails = () =>
+    Array.from(
+      new Set(
+        [
+          ...actionPlanResponsibleEmails,
+          ...actionPlanManualEmails
+            .split(/[\s,;]+/)
+            .map((email) => email.trim().toLowerCase())
+            .filter(Boolean),
+        ].filter(Boolean)
+      )
+    );
+
+  const addActionPlanDraftItem = () => {
+    const emails = getActionPlanEmails();
+    if (!actionPlanItem.trim() || !actionPlanAction.trim() || !actionPlanDueDate || emails.length === 0) {
+      setError("Action Plan item, action, responsible email and due date are required.");
+      return;
+    }
+
+    setActionPlanDraftItems((current) => [
+      ...current,
+      {
+        item: actionPlanItem.trim(),
+        action: actionPlanAction.trim(),
+        remarks: actionPlanRemarks.trim(),
+        responsibleEmails: emails,
+        dueDate: actionPlanDueDate,
+        status: "Open",
+      },
+    ]);
+    setError("");
+    resetActionPlanForm();
+  };
+
+  const submitActionPlanDraft = async () => {
+    if (!actionPlanOrganizationId || actionPlanDraftItems.length === 0) {
+      setError("Add at least one Action Plan item before sending.");
+      return;
+    }
+
+    try {
+      setActionPlanSaving(true);
+      setError("");
+      const result = await createActionPlans(actionPlanOrganizationId, actionPlanDraftItems);
+      setActionPlans(await getActionPlans());
+      setActionPlanDraftItems([]);
+      setMessage(
+        result.emailError
+          ? `Action Plan saved. Email warning: ${result.emailError}`
+          : "Action Plan saved and sent to responsible parties."
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action Plan could not be saved");
+    } finally {
+      setActionPlanSaving(false);
+    }
+  };
+
+  const saveActionPlanProgress = async (plan: ActionPlanItem, remarks: string, status: ActionPlanStatus) => {
+    try {
+      await updateActionPlan(plan.id, { remarks, status });
+      setActionPlans(await getActionPlans());
+      setMessage("Action Plan item updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action Plan item could not be updated");
+    }
+  };
+
+  const removeActionPlan = async (plan: ActionPlanItem) => {
+    if (!window.confirm(`Delete Action Plan item "${plan.item}"?`)) return;
+
+    try {
+      await deleteActionPlan(plan.id);
+      setActionPlans((current) => current.filter((candidate) => candidate.id !== plan.id));
+      setMessage("Action Plan item deleted.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action Plan item could not be deleted");
+    }
+  };
+
+  const removeAllActionPlans = async () => {
+    if (!actionPlanOrganizationId) {
+      setError("Select an organization before deleting all Action Plan items.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete all Action Plan items for the selected organization? This cannot be undone."
+    );
+    if (!confirmed) return;
+
+    try {
+      await deleteAllActionPlans(actionPlanOrganizationId);
+      setActionPlans(await getActionPlans());
+      setActionPlanDraftItems([]);
+      setMessage("All Action Plan items for the selected organization were deleted.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action Plan items could not be deleted");
+    }
+  };
 
   useEffect(() => {
     if (activeSectionIndex > Math.max(sectionCount - 1, 0)) {
@@ -1420,6 +1567,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         c,
         community,
         a,
+        actionPlanRows,
         r,
         w,
         billingSummary,
@@ -1432,6 +1580,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         getChecklists(),
         getCommunityTemplates(),
         getAssignments(),
+        getActionPlans(),
         getReports(),
         getWalkthroughs(),
         getBillingSummary(),
@@ -1446,6 +1595,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       setCommunityTemplates(community);
       setMessages(inbox.messages);
       setAssignments(a);
+      setActionPlans(actionPlanRows);
       setReports(r);
       setUnreadReportCount(Number(unreadReports.count || 0));
       setReportEmailRecipients(emailRecipients);
@@ -1492,6 +1642,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
       if (isPlatformAdmin && !billingOrganizationId && orgs[0]) {
         setBillingOrganizationId(orgs[0].id);
+      }
+
+      if (!actionPlanOrganizationId) {
+        const ownOrganization = orgs.find((organization) => organization.id === user.organizationId);
+        if (ownOrganization) setActionPlanOrganizationId(ownOrganization.id);
+        else if (orgs[0]) setActionPlanOrganizationId(orgs[0].id);
       }
 
       if (!newOrgParentOrganizationId) {
@@ -6675,6 +6831,221 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             </div>
             </div>
           </div>
+          ) : null}
+
+          {activeAdminPage === "actionPlans" ? (
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Action Plan</h3>
+                  <p>Create action items, assign responsible parties, and track due dates.</p>
+                </div>
+              </div>
+
+              <div className="action-plan-layout">
+                <div className="action-plan-builder" style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+                  <div className="action-plan-fields">
+                    {organizations.length > 0 ? (
+                      <select
+                        style={styles.input}
+                        value={actionPlanOrganizationId}
+                        onChange={(event) => {
+                          setActionPlanOrganizationId(Number(event.target.value));
+                          setActionPlanResponsibleEmails([]);
+                        }}
+                      >
+                        <option value={0}>Select organization</option>
+                        {organizations.map((organization) => (
+                          <option key={organization.id} value={organization.id}>
+                            {organization.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    <input
+                      style={styles.input}
+                      placeholder="Item"
+                      value={actionPlanItem}
+                      onChange={(event) => setActionPlanItem(event.target.value)}
+                    />
+                    <input
+                      style={styles.input}
+                      placeholder="Action"
+                      value={actionPlanAction}
+                      onChange={(event) => setActionPlanAction(event.target.value)}
+                    />
+                    <input
+                      style={styles.input}
+                      type="date"
+                      value={actionPlanDueDate}
+                      onChange={(event) => setActionPlanDueDate(event.target.value)}
+                    />
+
+                    <textarea
+                      style={{ ...styles.input, minHeight: 76 }}
+                      placeholder="Remarks"
+                      value={actionPlanRemarks}
+                      onChange={(event) => setActionPlanRemarks(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="action-plan-responsible-row">
+                    <div>
+                    <div style={{ ...styles.label, marginBottom: 6 }}>Responsible Parties</div>
+                      <div className="action-plan-user-list">
+                        {actionPlanAssignableUsers.length === 0 ? (
+                          <div style={styles.small}>No active users found for this organization.</div>
+                        ) : actionPlanUsersWithEmail.length === 0 ? (
+                          <div style={styles.small}>
+                            Users in this organization do not have email addresses yet. You can enter manual emails.
+                          </div>
+                      ) : (
+                          actionPlanUsersWithEmail.map((candidate) => (
+                            <label key={candidate.id} className="action-plan-user-chip">
+                            <input
+                              type="checkbox"
+                              checked={actionPlanResponsibleEmails.includes(candidate.email)}
+                              onChange={(event) => {
+                                setActionPlanResponsibleEmails((current) =>
+                                  event.target.checked
+                                    ? Array.from(new Set([...current, candidate.email]))
+                                    : current.filter((email) => email !== candidate.email)
+                                  );
+                              }}
+                            />
+                              <span>
+                                <strong>{candidate.name}</strong>
+                                {candidate.email}
+                            </span>
+                          </label>
+                        ))
+                      )}
+                      </div>
+                    </div>
+
+                  <textarea
+                      style={{ ...styles.input, minHeight: 76 }}
+                    placeholder="Manual emails separated by comma, semicolon or space"
+                    value={actionPlanManualEmails}
+                    onChange={(event) => setActionPlanManualEmails(event.target.value)}
+                  />
+
+                    <div className="action-plan-builder-actions">
+                    <button type="button" style={styles.secondaryButton} onClick={addActionPlanDraftItem}>
+                      Add Item
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.button}
+                      onClick={submitActionPlanDraft}
+                      disabled={actionPlanSaving || actionPlanDraftItems.length === 0}
+                    >
+                      {actionPlanSaving ? "Sending..." : "Create & Send"}
+                    </button>
+                  </div>
+                  </div>
+
+                  {actionPlanDraftItems.length > 0 ? (
+                    <div className="action-plan-drafts">
+                      <strong>Draft Items</strong>
+                      <div className="compact-list" style={{ marginTop: 8 }}>
+                        {actionPlanDraftItems.map((draft, index) => (
+                          <div key={`${draft.item}-${index}`} className="compact-row">
+                            <div className="compact-row-title">
+                              <strong>{draft.item}</strong>
+                              <span>
+                                {draft.action} | {draft.dueDate} | {draft.responsibleEmails.join(", ")}
+                              </span>
+                            </div>
+                            <div className="compact-row-actions">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setActionPlanDraftItems((current) =>
+                                    current.filter((_, itemIndex) => itemIndex !== index)
+                                  )
+                                }
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="admin-main-panel">
+                  <div className="action-plan-list-heading">
+                    <strong>Current Action Plan Items</strong>
+                    <button
+                      type="button"
+                      style={styles.secondaryButton}
+                      onClick={removeAllActionPlans}
+                      disabled={actionPlans.length === 0}
+                    >
+                      Delete All
+                    </button>
+                  </div>
+                  {actionPlans.length === 0 ? (
+                    <div style={styles.small}>No Action Plan items yet.</div>
+                  ) : (
+                    <div className="compact-list">
+                      {actionPlans.map((plan) => (
+                        <div key={plan.id} className="compact-row compact-row-open">
+                          <div className="compact-row-title">
+                            <strong>{plan.item}</strong>
+                            <span>
+                              {plan.action} | Due: {plan.dueDate} | Status: {plan.status}
+                              {plan.organizationName ? ` | ${plan.organizationName}` : ""}
+                            </span>
+                            <span>
+                              Responsible:{" "}
+                              {plan.responsibleParties.map((party) => party.email).join(", ")}
+                            </span>
+                          </div>
+                          <div className="compact-row-form">
+                            <textarea
+                              style={{ ...styles.input, minHeight: 70 }}
+                              defaultValue={plan.remarks}
+                              onBlur={(event) => {
+                                const nextRemarks = event.target.value;
+                                if (nextRemarks !== plan.remarks) {
+                                  saveActionPlanProgress(plan, nextRemarks, plan.status);
+                                }
+                              }}
+                            />
+                            <select
+                              style={styles.input}
+                              value={plan.status}
+                              onChange={(event) =>
+                                saveActionPlanProgress(
+                                  plan,
+                                  plan.remarks,
+                                  event.target.value as ActionPlanStatus
+                                )
+                              }
+                            >
+                              {ACTION_PLAN_STATUSES.map((status) => (
+                                <option key={status} value={status}>
+                                  {status}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="compact-row-actions">
+                            <button type="button" onClick={() => removeActionPlan(plan)}>
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           ) : null}
 
           {activeAdminPage === "users" ? (

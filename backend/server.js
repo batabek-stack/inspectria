@@ -16,6 +16,7 @@ const emailRoutes = require("./routes/emails");
 const uploadRoutes = require("./routes/uploads");
 const localFileRoutes = require("./routes/localFiles");
 const aiActionPlanRoutes = require("./routes/aiActionPlan");
+const actionPlanRoutes = require("./routes/actionPlans");
 const billingRoutes = require("./routes/billing");
 const downloadRoutes = require("./routes/downloads");
 const messageRoutes = require("./routes/messages");
@@ -43,6 +44,7 @@ app.use("/api/emails", emailRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/local-files", localFileRoutes);
 app.use("/api/ai", aiActionPlanRoutes);
+app.use("/api/action-plans", actionPlanRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/downloads", downloadRoutes);
 app.use("/api/messages", messageRoutes);
@@ -82,8 +84,15 @@ const PORT = Number(process.env.PORT || 4000);
 
 initDb()
   .then(() => {
+    const runActionPlanNotifications = () => {
+      actionPlanRoutes.runActionPlanNotifications().catch((error) => {
+        console.error("Action plan notification check failed", error);
+      });
+    };
     const server = app.listen(PORT, "0.0.0.0", () => {
       console.log(`Inspectria running on http://localhost:${PORT}`);
+      runActionPlanNotifications();
+      setInterval(runActionPlanNotifications, 60 * 60 * 1000);
     });
 
     server.on("error", (error) => {

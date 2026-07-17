@@ -304,6 +304,108 @@ async function sendAppMessageEmail({ to, recipientName, senderName, title, body 
   });
 }
 
+function actionPlanRowsHtml(items) {
+  return items
+    .map(
+      (item) => `
+        <tr>
+          <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.item)}</td>
+          <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.action)}</td>
+          <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.remarks || "")}</td>
+          <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.dueDate || item.due_date || "")}</td>
+          <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.status || "Open")}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+function actionPlanRowsText(items) {
+  return items
+    .map(
+      (item, index) =>
+        `${index + 1}. Item: ${item.item}\nAction: ${item.action}\nRemarks: ${item.remarks || "-"}\nDue Date: ${item.dueDate || item.due_date || "-"}\nStatus: ${item.status || "Open"}`
+    )
+    .join("\n\n");
+}
+
+async function sendActionPlanEmail({ to, organizationName, items }) {
+  const safeOrganizationName = escapeHtml(organizationName || "your organization");
+
+  return sendReportEmail({
+    to,
+    subject: `Inspectria Action Plan - ${organizationName || "Assigned items"}`,
+    text: [
+      "Hello,",
+      "",
+      `You have action plan item(s) assigned in ${organizationName || "Inspectria"}.`,
+      "",
+      actionPlanRowsText(items),
+      "",
+      "Please open Inspectria and update Remarks and Status as work progresses.",
+    ].join("\n"),
+    html: `
+      <p>Hello,</p>
+      <p>You have action plan item(s) assigned in <strong>${safeOrganizationName}</strong>.</p>
+      <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">
+        <thead>
+          <tr>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Item</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Action</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Remarks</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Due Date</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Status</th>
+          </tr>
+        </thead>
+        <tbody>${actionPlanRowsHtml(items)}</tbody>
+      </table>
+      <p>Please open Inspectria and update Remarks and Status as work progresses.</p>
+    `,
+  });
+}
+
+async function sendActionPlanReminderEmail({ to, organizationName, items }) {
+  return sendReportEmail({
+    to,
+    subject: "Inspectria Action Plan reminder",
+    text: [
+      "Hello,",
+      "",
+      `The following action plan item(s) are due tomorrow in ${organizationName || "Inspectria"}.`,
+      "",
+      actionPlanRowsText(items),
+    ].join("\n"),
+    html: `
+      <p>Hello,</p>
+      <p>The following action plan item(s) are due tomorrow in <strong>${escapeHtml(organizationName || "Inspectria")}</strong>.</p>
+      <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">
+        <tbody>${actionPlanRowsHtml(items)}</tbody>
+      </table>
+    `,
+  });
+}
+
+async function sendActionPlanOverdueAdminEmail({ to, organizationName, items }) {
+  return sendReportEmail({
+    to,
+    subject: `Overdue Inspectria Action Plan item(s) - ${organizationName || "Organization"}`,
+    text: [
+      "Hello,",
+      "",
+      `The following action plan item(s) are overdue and not marked Done in ${organizationName || "Inspectria"}.`,
+      "",
+      actionPlanRowsText(items),
+    ].join("\n"),
+    html: `
+      <p>Hello,</p>
+      <p>The following action plan item(s) are overdue and not marked <strong>Done</strong> in <strong>${escapeHtml(organizationName || "Inspectria")}</strong>.</p>
+      <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">
+        <tbody>${actionPlanRowsHtml(items)}</tbody>
+      </table>
+    `,
+  });
+}
+
 async function verifyEmailConnection() {
   const transporter = createTransporter();
   return transporter.verify();
@@ -312,6 +414,9 @@ async function verifyEmailConnection() {
 module.exports = {
   getMailFrom,
   isEmailConfigured,
+  sendActionPlanEmail,
+  sendActionPlanOverdueAdminEmail,
+  sendActionPlanReminderEmail,
   sendAppMessageEmail,
   sendPasswordResetCode,
   sendTemplateShareEmail,

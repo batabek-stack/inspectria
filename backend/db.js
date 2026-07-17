@@ -348,6 +348,30 @@ async function initDb() {
       file_path TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS action_plan_items (
+      id SERIAL PRIMARY KEY,
+      organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      item TEXT NOT NULL,
+      action TEXT NOT NULL,
+      remarks TEXT NOT NULL DEFAULT '',
+      due_date DATE NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Open'
+        CHECK (status IN ('Open', 'In Progress', 'Blocked', 'Done')),
+      reminder_sent_at TIMESTAMPTZ,
+      overdue_admin_sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS action_plan_responsible_parties (
+      id SERIAL PRIMARY KEY,
+      action_plan_item_id INTEGER NOT NULL REFERENCES action_plan_items(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      email TEXT NOT NULL,
+      UNIQUE (action_plan_item_id, email)
+    );
+
     CREATE TABLE IF NOT EXISTS email_logs (
       id SERIAL PRIMARY KEY,
       organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
@@ -451,6 +475,13 @@ async function initDb() {
       ON walkthrough_sections(walkthrough_id);
     CREATE INDEX IF NOT EXISTS idx_walkthrough_items_section_id
       ON walkthrough_items(section_id);
+    CREATE INDEX IF NOT EXISTS idx_action_plan_items_organization_id
+      ON action_plan_items(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_action_plan_items_due_date
+      ON action_plan_items(due_date)
+      WHERE status != 'Done';
+    CREATE INDEX IF NOT EXISTS idx_action_plan_responsible_email
+      ON action_plan_responsible_parties(LOWER(email));
     CREATE INDEX IF NOT EXISTS idx_email_logs_organization_id
       ON email_logs(organization_id);
     CREATE INDEX IF NOT EXISTS idx_email_logs_report
