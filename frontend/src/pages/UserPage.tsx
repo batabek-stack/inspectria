@@ -17,6 +17,7 @@ import PasswordInput from "../components/PasswordInput";
 import ReportDetail from "../components/ReportDetail";
 import ReportEmailDialog from "../components/ReportEmailDialog";
 import WalkthroughDetail from "../components/WalkthroughDetail";
+import SlowDataLoadDialog from "../components/SlowDataLoadDialog";
 import { getAssignments, startTemplate } from "../services/assignmentService";
 import {
   getChecklists,
@@ -79,12 +80,25 @@ type FillItem = {
   touchedAt?: string;
 };
 
+type VisibleChecklistItem = Checklist["sections"][number]["items"][number] & {
+  id: number;
+  parentItemId?: number;
+  reportSectionTitle?: string;
+};
+
+type VisibleChecklistSection = {
+  id: string;
+  title: string;
+  items: VisibleChecklistItem[];
+};
+
 type Props = {
   user: User;
   onLogout: () => Promise<void>;
 };
 
 type UserSectionKey =
+  | "dashboard"
   | "availableTemplates"
   | "assignments"
   | "communityTemplates"
@@ -110,6 +124,11 @@ const USER_SECTIONS: Array<{
   label: string;
   description: string;
 }> = [
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    description: "Your work summary",
+  },
   {
     key: "availableTemplates",
     label: "Available Templates",
@@ -287,6 +306,10 @@ function findChecklistItemSectionIndex(checklist: Checklist, itemId: number) {
   );
 }
 
+function getConditionalItemId(parentItemId: number, conditionalIndex: number) {
+  return -(parentItemId * 1000 + conditionalIndex + 1);
+}
+
 function findResumeItemId(checklist: Checklist, form: Record<number, FillItem>) {
   const orderedItemIds = checklist.sections.flatMap((section) =>
     section.items.map((item) => item.id)
@@ -311,6 +334,22 @@ function findResumeItemId(checklist: Checklist, form: Record<number, FillItem>) 
   });
 
   return newestTouchedItemId || lastAnsweredItemId;
+}
+
+function getReportScore(report: Report) {
+  const scoredItems = (report.items || []).filter((item) => {
+    const answer = String(item.answer || "").trim().toUpperCase();
+    return answer === "YES" || answer === "NO";
+  });
+  const yesCount = scoredItems.filter(
+    (item) => String(item.answer || "").trim().toUpperCase() === "YES"
+  ).length;
+
+  return {
+    yesCount,
+    scoredCount: scoredItems.length,
+    percent: scoredItems.length > 0 ? Math.round((yesCount / scoredItems.length) * 100) : null,
+  };
 }
 
 function ShowMoreButton({
@@ -350,7 +389,7 @@ export default function UserPage({ user, onLogout }: Props) {
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [communityTemplates, setCommunityTemplates] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
-  const [activeUserPage, setActiveUserPage] = useState<UserSectionKey>("availableTemplates");
+  const [activeUserPage, setActiveUserPage] = useState<UserSectionKey>("dashboard");
   const [reports, setReports] = useState<Report[]>([]);
   const [reportEmailRecipients, setReportEmailRecipients] = useState<ReportEmailRecipient[]>([]);
   const [reportEmailTarget, setReportEmailTarget] = useState<ReportEmailTarget | null>(null);
@@ -360,6 +399,7 @@ export default function UserPage({ user, onLogout }: Props) {
   const [startingTemplateId, setStartingTemplateId] = useState<number | null>(null);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [selectedWalkthrough, setSelectedWalkthrough] = useState<Walkthrough | null>(null);
+  const [showSlowDataLoadDialog, setShowSlowDataLoadDialog] = useState(false);
   const [form, setForm] = useState<Record<number, FillItem>>({});
   const [message, setMessage] = useState("");
   const [managerSummaryReportId, setManagerSummaryReportId] = useState<number | null>(null);
@@ -388,6 +428,7 @@ export default function UserPage({ user, onLogout }: Props) {
   const activeAssignmentIdRef = useRef<number | null>(null);
   const latestFormRef = useRef<Record<number, FillItem>>({});
   const saveTimeoutRef = useRef<number | null>(null);
+  const slowDataLoadTimerRef = useRef<number | null>(null);
   const questionRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [resumeItemId, setResumeItemId] = useState<number | null>(null);
   const getVisibleListCount = (listKey: string) =>
@@ -411,26 +452,50 @@ export default function UserPage({ user, onLogout }: Props) {
   };
 
   const load = async () => {
-    const [a, c, community, r, w, inbox, emailRecipients] = await Promise.all([
-      getAssignments(),
-      getChecklists(),
-      getCommunityTemplates(),
-      getReports(),
-      getWalkthroughs(),
-      getMessages(),
-      getReportEmailRecipients().catch(() => []),
-    ]);
-    setAssignments(a);
-    setChecklists(c);
-    setCommunityTemplates(community);
-    setMessages(inbox.messages);
-    setReports(r);
-    setReportEmailRecipients(emailRecipients);
-    setWalkthroughs(w);
+    if (slowDataLoadTimerRef.current) {
+      window.clearTimeout(slowDataLoadTimerRef.current);
+    }
+
+    slowDataLoadTimerRef.current = window.setTimeout(() => {
+      setShowSlowDataLoadDialog(true);
+    }, 3000);
+
+    try {
+      const [a, c, community, r, w, inbox, emailRecipients] = await Promise.all([
+        getAssignments(),
+        getChecklists(),
+        getCommunityTemplates(),
+        getReports(),
+        getWalkthroughs(),
+        getMessages(),
+        getReportEmailRecipients().catch(() => []),
+      ]);
+      setAssignments(a);
+      setChecklists(c);
+      setCommunityTemplates(community);
+      setMessages(inbox.messages);
+      setReports(r);
+      setReportEmailRecipients(emailRecipients);
+      setWalkthroughs(w);
+    } finally {
+      if (slowDataLoadTimerRef.current) {
+        window.clearTimeout(slowDataLoadTimerRef.current);
+        slowDataLoadTimerRef.current = null;
+      }
+      setShowSlowDataLoadDialog(false);
+    }
   };
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (slowDataLoadTimerRef.current) {
+        window.clearTimeout(slowDataLoadTimerRef.current);
+      }
+    };
   }, []);
 
   const activeAssignment =
@@ -448,26 +513,62 @@ export default function UserPage({ user, onLogout }: Props) {
     if (!activeAssignment) return null;
     return checklists.find((c) => c.id === activeAssignment.checklist_id) || null;
   }, [activeAssignment, checklists]);
-  const activeSection = activeChecklist?.sections[activeSectionIndex] || null;
-  const sectionCount = activeChecklist?.sections.length || 0;
 
-  const checklistProgress = useMemo(() => {
-    const items = activeChecklist?.sections.flatMap((section) => section.items) || [];
-    const total = items.length;
-    const answered = items.filter((item) => (form[item.id]?.answer || "").trim()).length;
-    const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
+  const visibleChecklistSections = useMemo<VisibleChecklistSection[]>(() => {
+    if (!activeChecklist) return [];
 
-    return { answered, total, percent };
+    return activeChecklist.sections.map((section) => ({
+      id: `section-${section.id}`,
+      title: section.title,
+      items: section.items.flatMap((item) => {
+        const visibleItems: VisibleChecklistItem[] = [item as VisibleChecklistItem];
+        const conditionalItems = item.conditionalItems || [];
+        const conditionalSectionTitle =
+          item.conditionalSectionTitle || item.conditional_section_title || "";
+
+        if (
+          (form[item.id]?.answer || "") === "YES" &&
+          conditionalSectionTitle.trim() &&
+          conditionalItems.length > 0
+        ) {
+          visibleItems.push(
+            ...conditionalItems.map((conditionalItem, index) => ({
+              ...conditionalItem,
+              id: getConditionalItemId(item.id, index),
+              checklist_id: item.checklist_id,
+              section_id: item.section_id,
+              sort_order: index + 1,
+              parentItemId: item.id,
+              reportSectionTitle: conditionalSectionTitle,
+            }))
+          );
+        }
+
+        return visibleItems;
+      }),
+    }));
   }, [activeChecklist, form]);
 
-  const activeSectionProgress = useMemo(() => {
-    const items = activeChecklist?.sections[activeSectionIndex]?.items || [];
+  const activeSection = visibleChecklistSections[activeSectionIndex] || null;
+  const sectionCount = visibleChecklistSections.length;
+
+  const checklistProgress = useMemo(() => {
+    const items = visibleChecklistSections.flatMap((section) => section.items);
     const total = items.length;
     const answered = items.filter((item) => (form[item.id]?.answer || "").trim()).length;
     const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
 
     return { answered, total, percent };
-  }, [activeChecklist, activeSectionIndex, form]);
+  }, [visibleChecklistSections, form]);
+
+  const activeSectionProgress = useMemo(() => {
+    const items = visibleChecklistSections[activeSectionIndex]?.items || [];
+    const total = items.length;
+    const answered = items.filter((item) => (form[item.id]?.answer || "").trim()).length;
+    const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
+
+    return { answered, total, percent };
+  }, [visibleChecklistSections, activeSectionIndex, form]);
 
   useEffect(() => {
     if (!activeChecklist) {
@@ -476,9 +577,9 @@ export default function UserPage({ user, onLogout }: Props) {
     }
 
     setActiveSectionIndex((currentIndex) =>
-      Math.min(currentIndex, Math.max(activeChecklist.sections.length - 1, 0))
+      Math.min(currentIndex, Math.max(sectionCount - 1, 0))
     );
-  }, [activeChecklist]);
+  }, [activeChecklist, sectionCount]);
 
   useEffect(() => {
     if (!resumeItemId || !activeSection?.items.some((item) => item.id === resumeItemId)) return;
@@ -611,6 +712,12 @@ export default function UserPage({ user, onLogout }: Props) {
             },
           ])
         ) as Record<number, FillItem>;
+        Object.entries(newestDraft.form).forEach(([itemId, draftItem]) => {
+          const numericItemId = Number(itemId);
+          if (numericItemId < 0) {
+            merged[numericItemId] = draftItem;
+          }
+        });
 
         setMessage("Saved draft loaded. You can continue from where you left off.");
       } else {
@@ -631,6 +738,12 @@ export default function UserPage({ user, onLogout }: Props) {
             },
           ])
         ) as Record<number, FillItem>;
+        Object.entries(localDraft.form).forEach(([itemId, draftItem]) => {
+          const numericItemId = Number(itemId);
+          if (numericItemId < 0) {
+            merged[numericItemId] = draftItem;
+          }
+        });
         setMessage("Offline saved draft loaded.");
       }
     } finally {
@@ -755,6 +868,15 @@ export default function UserPage({ user, onLogout }: Props) {
 
   const updateAnswer = (itemId: number, answer: string) => {
     setForm((prev) => {
+      const item = activeChecklist?.sections
+        .flatMap((section) => section.items)
+        .find((candidate) => candidate.id === itemId);
+      const conditionalItemIds =
+        item && answer !== "YES"
+          ? (item.conditionalItems || []).map((_, index) =>
+              getConditionalItemId(item.id, index)
+            )
+          : [];
       const nextForm = {
         ...prev,
         [itemId]: {
@@ -763,6 +885,9 @@ export default function UserPage({ user, onLogout }: Props) {
           touchedAt: new Date().toISOString(),
         },
       };
+      conditionalItemIds.forEach((conditionalItemId) => {
+        delete nextForm[conditionalItemId];
+      });
 
       if (activeAssignmentIdRef.current) {
         persistDraft(activeAssignmentIdRef.current, nextForm);
@@ -802,11 +927,15 @@ export default function UserPage({ user, onLogout }: Props) {
   const submit = async () => {
     if (!activeChecklist || !activeAssignment) return;
 
-    const items = activeChecklist.sections.flatMap((section) =>
+    const items = visibleChecklistSections.flatMap((section) =>
       section.items.map((item) => ({
         ...form[item.id],
-        sectionTitle: section.title,
+        itemId: item.parentItemId || item.id,
+        question: item.question,
+        sectionTitle: item.reportSectionTitle || section.title,
         answerType: item.answerType || item.answer_type || "FORMAT1",
+        options: item.options || [],
+        photos: form[item.id]?.photos || [],
       }))
     );
 
@@ -1190,6 +1319,36 @@ export default function UserPage({ user, onLogout }: Props) {
       .filter((assignment) => assignment.isSelfStarted)
       .map((assignment) => assignment.checklist_id)
   );
+  const draftTemplateCount = activeAssignments.filter(
+    (assignment) => assignment.isSelfStarted
+  ).length;
+  const completedWalkthroughCount = walkthroughs.filter(
+    (walkthrough) => walkthrough.status === "completed"
+  ).length;
+  const draftWalkthroughCount = walkthroughs.filter(
+    (walkthrough) => walkthrough.status === "draft"
+  ).length;
+  const dashboardScore = reports.reduce(
+    (total, report) => {
+      const score = getReportScore(report);
+      return {
+        yesCount: total.yesCount + score.yesCount,
+        scoredCount: total.scoredCount + score.scoredCount,
+      };
+    },
+    { yesCount: 0, scoredCount: 0 }
+  );
+  const totalSuccessRate =
+    dashboardScore.scoredCount > 0
+      ? Math.round((dashboardScore.yesCount / dashboardScore.scoredCount) * 100)
+      : null;
+  const latestReports = [...reports]
+    .sort(
+      (left, right) =>
+        new Date(right.completed_at || 0).getTime() -
+        new Date(left.completed_at || 0).getTime()
+    )
+    .slice(0, 3);
 
   const goToSection = (nextIndex: number) => {
     setActiveSectionIndex(Math.max(0, Math.min(nextIndex, sectionCount - 1)));
@@ -1252,6 +1411,7 @@ export default function UserPage({ user, onLogout }: Props) {
 
   return (
     <DashboardShell user={user} onLogout={onLogout}>
+      <SlowDataLoadDialog open={showSlowDataLoadDialog} />
       {reportEmailTarget ? (
         <ReportEmailDialog
           title={
@@ -1377,6 +1537,104 @@ export default function UserPage({ user, onLogout }: Props) {
             </nav>
 
             <div className="admin-workspace-main">
+          {activeUserPage === "dashboard" ? (
+          <div className="user-dashboard">
+            <div className="user-dashboard-hero">
+              <div>
+                <span>Today</span>
+                <h3>{user.name || user.username}</h3>
+                <p>
+                  {adminAssignedAssignments.length > 0
+                    ? `${adminAssignedAssignments.length} assignment waiting for you.`
+                    : draftTemplateCount > 0
+                      ? "You have template drafts ready to continue."
+                      : "No assigned work is waiting right now."}
+                </p>
+              </div>
+              <button
+                type="button"
+                style={styles.button}
+                onClick={() =>
+                  setActiveUserPage(
+                    adminAssignedAssignments.length > 0 ? "assignments" : "availableTemplates"
+                  )
+                }
+              >
+                {adminAssignedAssignments.length > 0 ? "Open Assignments" : "Start Template"}
+              </button>
+            </div>
+
+            <div className="user-dashboard-metrics">
+              <button type="button" onClick={() => setActiveUserPage("reports")}>
+                <span>Completed Templates</span>
+                <strong>{reports.length}</strong>
+              </button>
+              <button type="button" onClick={() => setActiveUserPage("reports")}>
+                <span>Total Success Rate</span>
+                <strong>{totalSuccessRate === null ? "-" : `${totalSuccessRate}%`}</strong>
+              </button>
+              <button type="button" onClick={() => setActiveUserPage("assignments")}>
+                <span>Waiting Assignments</span>
+                <strong>{adminAssignedAssignments.length}</strong>
+              </button>
+              <button type="button" onClick={() => setActiveUserPage("walkthroughs")}>
+                <span>Walkthroughs</span>
+                <strong>{completedWalkthroughCount}</strong>
+              </button>
+            </div>
+
+            <div className="user-dashboard-lower">
+              <div className="user-dashboard-panel">
+                <div className="user-dashboard-panel-title">
+                  <strong>Work Queue</strong>
+                  <span>{activeAssignments.length} open</span>
+                </div>
+                <div className="user-dashboard-queue">
+                  <button type="button" onClick={() => setActiveUserPage("assignments")}>
+                    <span>Assigned by admin</span>
+                    <strong>{adminAssignedAssignments.length}</strong>
+                  </button>
+                  <button type="button" onClick={() => setActiveUserPage("availableTemplates")}>
+                    <span>Template drafts</span>
+                    <strong>{draftTemplateCount}</strong>
+                  </button>
+                  <button type="button" onClick={() => setActiveUserPage("walkthroughs")}>
+                    <span>Walkthrough drafts</span>
+                    <strong>{draftWalkthroughCount}</strong>
+                  </button>
+                </div>
+              </div>
+
+              <div className="user-dashboard-panel">
+                <div className="user-dashboard-panel-title">
+                  <strong>Recent Performance</strong>
+                  <span>{dashboardScore.scoredCount} scored answers</span>
+                </div>
+                {latestReports.length === 0 ? (
+                  <div className="user-dashboard-empty">No completed reports yet.</div>
+                ) : (
+                  <div className="user-dashboard-recent">
+                    {latestReports.map((report) => {
+                      const score = getReportScore(report);
+
+                      return (
+                        <button
+                          type="button"
+                          key={report.id}
+                          onClick={() => setSelectedReport(report)}
+                        >
+                          <span>{report.checklistTitle}</span>
+                          <strong>{score.percent === null ? "-" : `${score.percent}%`}</strong>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          ) : null}
+
           {activeUserPage === "assignments" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>My Assignments</h3>
@@ -2128,8 +2386,18 @@ export default function UserPage({ user, onLogout }: Props) {
                   ref={(element) => {
                     questionRefs.current[item.id] = element;
                   }}
-                  style={{ ...styles.section, background: "#fff" }}
+                  style={{
+                    ...styles.section,
+                    background: item.parentItemId ? "#f8fafc" : "#fff",
+                    marginLeft: item.parentItemId ? 18 : undefined,
+                    borderLeft: item.parentItemId ? "4px solid #0f766e" : undefined,
+                  }}
                 >
+                  {item.parentItemId ? (
+                    <div style={{ ...styles.small, marginBottom: 6 }}>
+                      {item.reportSectionTitle || "Conditional questions"}
+                    </div>
+                  ) : null}
                   <strong>
                     {index + 1}. {item.question}
                   </strong>

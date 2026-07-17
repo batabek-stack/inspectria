@@ -12,6 +12,7 @@ export type User = {
   role: Role;
   active?: boolean;
   approvalStatus?: "pending" | "approved" | "rejected";
+  lastLoginAt?: string | null;
   created_at?: string;
 };
 
@@ -114,6 +115,15 @@ export type ChecklistItem = {
   answer_type?: AnswerType;
   options?: string[];
   options_json?: string;
+  conditionalSectionTitle?: string;
+  conditional_section_title?: string;
+  conditionalItems?: Array<{
+    question: string;
+    answerType?: AnswerType;
+    answer_type?: AnswerType;
+    options?: string[];
+  }>;
+  conditional_items_json?: string;
   sort_order: number;
 };
 

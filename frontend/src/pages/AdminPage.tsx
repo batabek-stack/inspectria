@@ -21,6 +21,7 @@ import ReportDetail from "../components/ReportDetail";
 import ReportEmailDialog from "../components/ReportEmailDialog";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import WalkthroughDetail from "../components/WalkthroughDetail";
+import SlowDataLoadDialog from "../components/SlowDataLoadDialog";
 import { createAssignment, getAssignments, startTemplate } from "../services/assignmentService";
 import {
   createChecklist,
@@ -102,6 +103,13 @@ import {
   markMessageRead,
   sendAppMessage,
 } from "../services/messageService";
+import {
+  createMaintenanceBackup,
+  deleteMaintenanceBackup,
+  getMaintenanceBackups,
+  MaintenanceBackup,
+  restoreMaintenanceBackup,
+} from "../services/maintenanceService";
 
 const AUTO_LOGOFF_SAVE_EVENT = "inspectria:auto-logoff-save";
 const LIST_PAGE_SIZE = 10;
@@ -125,6 +133,29 @@ type QuestionForm = {
   question: string;
   answerType: AnswerType;
   options: string[];
+  conditionalSectionTitle: string;
+  conditionalItems: QuestionForm[];
+};
+
+type VisibleChecklistItem = Checklist["sections"][number]["items"][number] & {
+  id: number;
+  parentItemId?: number;
+};
+
+type VisibleChecklistSection = {
+  id: string;
+  title: string;
+  items: VisibleChecklistItem[];
+};
+
+type LooseQuestionInput = {
+  question?: string;
+  answerType?: AnswerType;
+  answer_type?: AnswerType;
+  options?: string[];
+  conditionalSectionTitle?: string;
+  conditional_section_title?: string;
+  conditionalItems?: LooseQuestionInput[];
 };
 
 type FillItem = {
@@ -160,6 +191,7 @@ type AdminSectionKey =
   | "walkthroughs"
   | "users"
   | "reports"
+  | "maintenance"
   | "support"
   | "account";
 
@@ -170,6 +202,21 @@ const ANSWER_TYPE_LABELS: Record<AnswerType, string> = {
   MULTIPLE_CHOICE: "Dropdown",
   RADIO_BUTTON: "Check Box",
 };
+
+type BuilderAnswerType = AnswerType | "CONDITIONAL";
+
+const BUILDER_ANSWER_TYPE_LABELS: Record<BuilderAnswerType, string> = {
+  ...ANSWER_TYPE_LABELS,
+  CONDITIONAL: "Conditional Question",
+};
+
+function getQuestionAnswerFormat(item: QuestionForm): BuilderAnswerType {
+  return item.answerType === "FORMAT1" &&
+    (item.conditionalSectionTitle.trim() ||
+      item.conditionalItems.length > 0)
+    ? "CONDITIONAL"
+    : item.answerType;
+}
 
 function getAnswerButtonStyle(
   option: "YES" | "NO" | "N/A",
@@ -285,6 +332,11 @@ const ADMIN_SECTIONS: Array<{
     description: "Manage plans and subscriptions",
   },
   {
+    key: "maintenance",
+    label: "Maintenance",
+    description: "Manual backups and restore",
+  },
+  {
     key: "support",
     label: "Support",
     description: "Role guide and support tickets",
@@ -313,6 +365,7 @@ const PLATFORM_ADMIN_SECTION_KEYS: AdminSectionKey[] = [
   "messages",
   "account",
   "billing",
+  "maintenance",
 ];
 
 function createEmptyQuestion(): QuestionForm {
@@ -320,19 +373,39 @@ function createEmptyQuestion(): QuestionForm {
     question: "",
     answerType: "FORMAT1",
     options: [""],
+    conditionalSectionTitle: "",
+    conditionalItems: [],
   };
 }
 
-function normalizeQuestionForm(item: {
-  question?: string;
-  answerType?: AnswerType;
-  answer_type?: AnswerType;
-  options?: string[];
-}): QuestionForm {
+function createEmptyConditionalQuestion(): QuestionForm {
+  return {
+    ...createEmptyQuestion(),
+    conditionalSectionTitle: "",
+    conditionalItems: [],
+  };
+}
+
+function normalizeQuestionForm(item: LooseQuestionInput): QuestionForm {
+  const answerType = item.answerType || item.answer_type || "FORMAT1";
+  const conditionalItems =
+    answerType === "FORMAT1" && Array.isArray(item.conditionalItems)
+      ? item.conditionalItems.map(normalizeQuestionForm).map((child) => ({
+          ...child,
+          conditionalSectionTitle: "",
+          conditionalItems: [],
+        }))
+      : [];
+
   return {
     question: item.question || "",
-    answerType: item.answerType || item.answer_type || "FORMAT1",
+    answerType,
     options: item.options?.length ? item.options : [""],
+    conditionalSectionTitle:
+      conditionalItems.length > 0
+        ? item.conditionalSectionTitle || item.conditional_section_title || ""
+        : "",
+    conditionalItems,
   };
 }
 
@@ -509,6 +582,53 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   return next;
 }
 
+function questionHasTemplateContent(item: QuestionForm) {
+  return Boolean(
+    item.question.trim() ||
+      item.answerType !== "FORMAT1" ||
+      item.options.some((option) => option.trim()) ||
+      item.conditionalSectionTitle.trim() ||
+      item.conditionalItems.some(questionHasTemplateContent)
+  );
+}
+
+function buildQuestionPayload(item: QuestionForm) {
+  const answerType = item.answerType;
+  const conditionalItems =
+    answerType === "FORMAT1" && item.conditionalSectionTitle.trim()
+      ? item.conditionalItems
+          .map(buildQuestionPayload)
+          .filter((conditionalItem) => conditionalItem.question)
+      : [];
+
+  return {
+    question: item.question.trim(),
+    answerType,
+    options: ["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(answerType)
+      ? item.options.map((option) => option.trim()).filter(Boolean)
+      : [],
+    conditionalSectionTitle: conditionalItems.length
+      ? item.conditionalSectionTitle.trim()
+      : "",
+    conditionalItems,
+  };
+}
+
+function questionHasChoiceWithoutOptions(item: ReturnType<typeof buildQuestionPayload>): boolean {
+  return (
+    (["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(item.answerType) &&
+      item.options.length === 0) ||
+    item.conditionalItems.some(questionHasChoiceWithoutOptions)
+  );
+}
+
+function questionHasConditionalItemsWithoutTitle(item: QuestionForm): boolean {
+  return Boolean(
+    item.conditionalItems.some(questionHasTemplateContent) &&
+      !item.conditionalSectionTitle.trim()
+  );
+}
+
 function getOrganizationLabel(organization: Organization | undefined, organizationId?: number | null) {
   if (organization) return organization.name;
   if (organizationId) return `Organization #${organizationId}`;
@@ -542,6 +662,19 @@ function formatDate(value?: string | null) {
   } catch {
     return value;
   }
+}
+
+function formatLastLogin(value?: string | null) {
+  return value ? formatDateTime(value) : "Never logged in";
+}
+
+function formatBytes(value?: number | null) {
+  const bytes = Number(value || 0);
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const amount = bytes / Math.pow(1024, exponent);
+  return `${amount.toFixed(amount >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
 }
 
 function getDaysBetween(start?: string | null, end?: string | null) {
@@ -807,6 +940,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [walkthroughs, setWalkthroughs] = useState<Walkthrough[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [selectedWalkthrough, setSelectedWalkthrough] = useState<Walkthrough | null>(null);
+  const [showSlowDataLoadDialog, setShowSlowDataLoadDialog] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [visibleListCounts, setVisibleListCounts] = useState<Record<string, number>>({});
   const [walkthroughTitle, setWalkthroughTitle] = useState("");
@@ -859,6 +993,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const activeAssignmentIdRef = useRef<number | null>(null);
   const latestFormRef = useRef<Record<number, FillItem>>({});
   const saveTimeoutRef = useRef<number | null>(null);
+  const slowDataLoadTimerRef = useRef<number | null>(null);
   const questionRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [resumeItemId, setResumeItemId] = useState<number | null>(null);
 
@@ -873,12 +1008,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       draft.sections.some(
         (section) =>
           section.title.trim() ||
-          section.items.some(
-            (item) =>
-              item.question.trim() ||
-              item.answerType !== "FORMAT1" ||
-              item.options.some((option) => option.trim())
-          )
+          section.items.some(questionHasTemplateContent)
       )
     );
 
@@ -963,6 +1093,11 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [billingExternalSubscriptionId, setBillingExternalSubscriptionId] = useState("");
   const [iyzicoCheckoutContent, setIyzicoCheckoutContent] = useState("");
   const [iyzicoCheckoutToken, setIyzicoCheckoutToken] = useState("");
+  const [maintenanceBackups, setMaintenanceBackups] = useState<MaintenanceBackup[]>([]);
+  const [maintenanceRetentionDays, setMaintenanceRetentionDays] = useState(14);
+  const [maintenanceActiveJob, setMaintenanceActiveJob] = useState<string | null>(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [maintenanceAction, setMaintenanceAction] = useState<string | null>(null);
   const currentPlanCode = String(
     billing.currentSubscription?.planCode || ownOrganization?.plan || ""
   ).toLowerCase();
@@ -1042,26 +1177,73 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     if (!activeAssignment) return null;
     return checklists.find((checklist) => checklist.id === activeAssignment.checklist_id) || null;
   }, [activeAssignment, checklists]);
-  const checklistProgress = useMemo(() => {
-    const items = activeChecklist?.sections.flatMap((section) => section.items) || [];
-    const total = items.length;
-    const answered = items.filter((item) => (form[item.id]?.answer || "").trim()).length;
-    const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
+  const visibleChecklistSections = useMemo<VisibleChecklistSection[]>(() => {
+    if (!activeChecklist) return [];
 
-    return { answered, total, percent };
+    return activeChecklist.sections.flatMap((section) => {
+      const visibleSections: VisibleChecklistSection[] = [
+        {
+          id: `section-${section.id}`,
+          title: section.title,
+          items: section.items as VisibleChecklistItem[],
+        },
+      ];
+
+      section.items.forEach((item) => {
+        const conditionalItems = item.conditionalItems || [];
+        const conditionalSectionTitle =
+          item.conditionalSectionTitle || item.conditional_section_title || "";
+        if (
+          (form[item.id]?.answer || "") !== "YES" ||
+          !conditionalSectionTitle.trim() ||
+          conditionalItems.length === 0
+        ) {
+          return;
+        }
+
+        visibleSections.push({
+          id: `conditional-${item.id}`,
+          title: conditionalSectionTitle,
+          items: conditionalItems.map((conditionalItem, index) => ({
+            ...conditionalItem,
+            id: -(item.id * 1000 + index + 1),
+            checklist_id: item.checklist_id,
+            section_id: item.section_id,
+            sort_order: index + 1,
+            parentItemId: item.id,
+          })),
+        });
+      });
+
+      return visibleSections;
+    });
   }, [activeChecklist, form]);
-  const activeSectionProgress = useMemo(() => {
-    const items = activeChecklist?.sections[activeSectionIndex]?.items || [];
+  const checklistProgress = useMemo(() => {
+    const items = visibleChecklistSections.flatMap((section) => section.items);
     const total = items.length;
     const answered = items.filter((item) => (form[item.id]?.answer || "").trim()).length;
     const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
 
     return { answered, total, percent };
-  }, [activeChecklist, activeSectionIndex, form]);
-  const activeSection = activeChecklist?.sections[activeSectionIndex] || null;
-  const sectionCount = activeChecklist?.sections.length || 0;
+  }, [visibleChecklistSections, form]);
+  const activeSectionProgress = useMemo(() => {
+    const items = visibleChecklistSections[activeSectionIndex]?.items || [];
+    const total = items.length;
+    const answered = items.filter((item) => (form[item.id]?.answer || "").trim()).length;
+    const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
+
+    return { answered, total, percent };
+  }, [visibleChecklistSections, activeSectionIndex, form]);
+  const activeSection = visibleChecklistSections[activeSectionIndex] || null;
+  const sectionCount = visibleChecklistSections.length;
   const isFirstSection = activeSectionIndex === 0;
   const isLastSection = activeSectionIndex >= sectionCount - 1;
+
+  useEffect(() => {
+    if (activeSectionIndex > Math.max(sectionCount - 1, 0)) {
+      setActiveSectionIndex(Math.max(sectionCount - 1, 0));
+    }
+  }, [activeSectionIndex, sectionCount]);
   const myActiveAssignments = assignments.filter(
     (assignment) =>
       assignment.status === "assigned" && assignment.assigned_to_user_id === user.id
@@ -1140,111 +1322,212 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     scheduleRemoteDraftSave(assignmentId, nextForm);
   }
 
-  const load = async () => {
-    const [
-      orgs,
-      u,
-      c,
-      community,
-      a,
-      r,
-      w,
-      billingSummary,
-      inbox,
-      emailRecipients,
-      unreadReports,
-    ] = await Promise.all([
-      getOrganizations(),
-      getUsers(),
-      getChecklists(),
-      getCommunityTemplates(),
-      getAssignments(),
-      getReports(),
-      getWalkthroughs(),
-      getBillingSummary(),
-      getMessages(),
-      getReportEmailRecipients().catch(() => []),
-      getUnreadReportCount().catch(() => ({ count: 0 })),
-    ]);
+  const loadMaintenanceBackups = async () => {
+    if (!isPlatformAdmin) return;
 
-    setOrganizations(orgs);
-    setUsers(u);
-    setChecklists(c);
-    setCommunityTemplates(community);
-    setMessages(inbox.messages);
-    setAssignments(a);
-    setReports(r);
-    setUnreadReportCount(Number(unreadReports.count || 0));
-    setReportEmailRecipients(emailRecipients);
-    setWalkthroughs(w);
-    setBilling(billingSummary);
-    setPendingUserForms((prev) => {
-      const next = { ...prev };
-
-      u.filter((candidate) => candidate.approvalStatus === "pending").forEach((candidate) => {
-        next[candidate.id] = next[candidate.id] || {
-          username: candidate.username,
-          name: candidate.name,
-          email: candidate.email || "",
-        };
-      });
-
-      Object.keys(next).forEach((key) => {
-        const pendingExists = u.some(
-          (candidate) =>
-            candidate.id === Number(key) && candidate.approvalStatus === "pending"
-        );
-
-        if (!pendingExists) {
-          delete next[Number(key)];
-        }
-      });
-
-      return next;
-    });
-
-    if (!selectedChecklistId && c[0]) {
-      setSelectedChecklistId(c[0].id);
+    try {
+      setMaintenanceLoading(true);
+      const result = await getMaintenanceBackups();
+      setMaintenanceBackups(result.backups);
+      setMaintenanceRetentionDays(result.retentionDays);
+      setMaintenanceActiveJob(result.activeJob);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Maintenance backups could not be loaded");
+    } finally {
+      setMaintenanceLoading(false);
     }
+  };
 
-    const assignableUsers = u.filter(
-      (x) =>
-        (x.role === "user" || x.id === user.id) &&
-        x.active !== false &&
-        x.approvalStatus !== "pending"
+  const handleCreateMaintenanceBackup = async () => {
+    try {
+      setError("");
+      setMessage("Creating backup. Keep this tab open until it finishes.");
+      setMaintenanceAction("create");
+      const result = await createMaintenanceBackup();
+      setMaintenanceBackups(result.backups);
+      setMaintenanceRetentionDays(result.retentionDays);
+      setMaintenanceActiveJob(result.activeJob);
+      setMessage(`Backup created: ${result.backup.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Backup could not be created");
+    } finally {
+      setMaintenanceAction(null);
+    }
+  };
+
+  const handleRestoreMaintenanceBackup = async (backup: MaintenanceBackup) => {
+    const confirmed = window.confirm(
+      `Restore ${backup.id}? Current database and uploads will be replaced. A pre-restore safety backup will be created first.`
     );
-    if (!selectedUserId && assignableUsers[0]) {
-      setSelectedUserId(assignableUsers[0].id);
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      setMessage("Restoring backup. Keep this tab open until it finishes.");
+      setMaintenanceAction(`restore:${backup.id}`);
+      const result = await restoreMaintenanceBackup(backup.id);
+      setMaintenanceBackups(result.backups);
+      setMaintenanceRetentionDays(result.retentionDays);
+      setMaintenanceActiveJob(result.activeJob);
+      setMessage(
+        `Backup restored: ${result.restoredBackup.id}. Safety backup created: ${result.safetyBackup.id}`
+      );
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Backup could not be restored");
+    } finally {
+      setMaintenanceAction(null);
+    }
+  };
+
+  const handleDeleteMaintenanceBackup = async (backup: MaintenanceBackup) => {
+    const confirmed = window.confirm(`Delete backup ${backup.id}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      setMaintenanceAction(`delete:${backup.id}`);
+      const result = await deleteMaintenanceBackup(backup.id);
+      setMaintenanceBackups(result.backups);
+      setMaintenanceRetentionDays(result.retentionDays);
+      setMaintenanceActiveJob(result.activeJob);
+      setMessage(`Backup deleted: ${backup.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Backup could not be deleted");
+    } finally {
+      setMaintenanceAction(null);
+    }
+  };
+
+  const load = async () => {
+    if (slowDataLoadTimerRef.current) {
+      window.clearTimeout(slowDataLoadTimerRef.current);
     }
 
-    if (isPlatformAdmin && !billingOrganizationId && orgs[0]) {
-      setBillingOrganizationId(orgs[0].id);
-    }
+    slowDataLoadTimerRef.current = window.setTimeout(() => {
+      setShowSlowDataLoadDialog(true);
+    }, 3000);
 
-    if (!newOrgParentOrganizationId) {
-      const ownOrganization = orgs.find((organization) => organization.id === user.organizationId);
-      if (ownOrganization) setNewOrgParentOrganizationId(ownOrganization.id);
-    }
+    try {
+      const [
+        orgs,
+        u,
+        c,
+        community,
+        a,
+        r,
+        w,
+        billingSummary,
+        inbox,
+        emailRecipients,
+        unreadReports,
+      ] = await Promise.all([
+        getOrganizations(),
+        getUsers(),
+        getChecklists(),
+        getCommunityTemplates(),
+        getAssignments(),
+        getReports(),
+        getWalkthroughs(),
+        getBillingSummary(),
+        getMessages(),
+        getReportEmailRecipients().catch(() => []),
+        getUnreadReportCount().catch(() => ({ count: 0 })),
+      ]);
 
-    if (!newUserOrganizationId) {
-      const ownOrganization = orgs.find((organization) => organization.id === user.organizationId);
-      if (ownOrganization) setNewUserOrganizationId(ownOrganization.id);
-      else if (orgs[0]) setNewUserOrganizationId(orgs[0].id);
-    }
+      setOrganizations(orgs);
+      setUsers(u);
+      setChecklists(c);
+      setCommunityTemplates(community);
+      setMessages(inbox.messages);
+      setAssignments(a);
+      setReports(r);
+      setUnreadReportCount(Number(unreadReports.count || 0));
+      setReportEmailRecipients(emailRecipients);
+      setWalkthroughs(w);
+      setBilling(billingSummary);
+      setPendingUserForms((prev) => {
+        const next = { ...prev };
 
-    if (!billingPlanId) {
-      const currentPlanId = billingSummary.currentSubscription?.billingPlanId;
-      if (currentPlanId) setBillingPlanId(currentPlanId);
-      else if (billingSummary.plans[0]) setBillingPlanId(billingSummary.plans[0].id);
-    }
+        u.filter((candidate) => candidate.approvalStatus === "pending").forEach((candidate) => {
+          next[candidate.id] = next[candidate.id] || {
+            username: candidate.username,
+            name: candidate.name,
+            email: candidate.email || "",
+          };
+        });
 
-    if (billingSummary.currentSubscription?.billingCycle) {
-      setBillingCycle(billingSummary.currentSubscription.billingCycle);
+        Object.keys(next).forEach((key) => {
+          const pendingExists = u.some(
+            (candidate) =>
+              candidate.id === Number(key) && candidate.approvalStatus === "pending"
+          );
+
+          if (!pendingExists) {
+            delete next[Number(key)];
+          }
+        });
+
+        return next;
+      });
+
+      if (!selectedChecklistId && c[0]) {
+        setSelectedChecklistId(c[0].id);
+      }
+
+      const assignableUsers = u.filter(
+        (x) =>
+          (x.role === "user" || x.id === user.id) &&
+          x.active !== false &&
+          x.approvalStatus !== "pending"
+      );
+      if (!selectedUserId && assignableUsers[0]) {
+        setSelectedUserId(assignableUsers[0].id);
+      }
+
+      if (isPlatformAdmin && !billingOrganizationId && orgs[0]) {
+        setBillingOrganizationId(orgs[0].id);
+      }
+
+      if (!newOrgParentOrganizationId) {
+        const ownOrganization = orgs.find((organization) => organization.id === user.organizationId);
+        if (ownOrganization) setNewOrgParentOrganizationId(ownOrganization.id);
+      }
+
+      if (!newUserOrganizationId) {
+        const ownOrganization = orgs.find((organization) => organization.id === user.organizationId);
+        if (ownOrganization) setNewUserOrganizationId(ownOrganization.id);
+        else if (orgs[0]) setNewUserOrganizationId(orgs[0].id);
+      }
+
+      if (!billingPlanId) {
+        const currentPlanId = billingSummary.currentSubscription?.billingPlanId;
+        if (currentPlanId) setBillingPlanId(currentPlanId);
+        else if (billingSummary.plans[0]) setBillingPlanId(billingSummary.plans[0].id);
+      }
+
+      if (billingSummary.currentSubscription?.billingCycle) {
+        setBillingCycle(billingSummary.currentSubscription.billingCycle);
+      }
+    } finally {
+      if (slowDataLoadTimerRef.current) {
+        window.clearTimeout(slowDataLoadTimerRef.current);
+        slowDataLoadTimerRef.current = null;
+      }
+      setShowSlowDataLoadDialog(false);
     }
   };
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (slowDataLoadTimerRef.current) {
+        window.clearTimeout(slowDataLoadTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -1366,6 +1649,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   }, [activeAdminPage, unreadReportCount]);
 
   useEffect(() => {
+    if (activeAdminPage === "maintenance" && isPlatformAdmin) {
+      loadMaintenanceBackups();
+    }
+  }, [activeAdminPage, isPlatformAdmin]);
+
+  useEffect(() => {
     return () => {
       revokeDownload(generatedDownload);
     };
@@ -1447,6 +1736,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             },
           ])
         ) as Record<number, FillItem>;
+        Object.entries(newestDraft.form).forEach(([itemId, draftItem]) => {
+          const numericItemId = Number(itemId);
+          if (numericItemId < 0) {
+            merged[numericItemId] = draftItem;
+          }
+        });
 
         setMessage("Saved draft loaded. You can continue from where you left off.");
       } else {
@@ -1467,6 +1762,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             },
           ])
         ) as Record<number, FillItem>;
+        Object.entries(localDraft.form).forEach(([itemId, draftItem]) => {
+          const numericItemId = Number(itemId);
+          if (numericItemId < 0) {
+            merged[numericItemId] = draftItem;
+          }
+        });
         setMessage("Offline saved draft loaded.");
       }
     } finally {
@@ -1557,6 +1858,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   const updateAnswer = (itemId: number, answer: string) => {
     setForm((prev) => {
+      const item = activeChecklist?.sections
+        .flatMap((section) => section.items)
+        .find((candidate) => candidate.id === itemId);
+      const conditionalItemIds =
+        item && answer !== "YES"
+          ? (item.conditionalItems || []).map((_, index) => -(item.id * 1000 + index + 1))
+          : [];
       const nextForm = {
         ...prev,
         [itemId]: {
@@ -1565,6 +1873,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           touchedAt: new Date().toISOString(),
         },
       };
+      conditionalItemIds.forEach((conditionalItemId) => {
+        delete nextForm[conditionalItemId];
+      });
 
       if (activeAssignmentIdRef.current) {
         persistDraft(activeAssignmentIdRef.current, nextForm);
@@ -1633,11 +1944,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const submitChecklist = async () => {
     if (!activeChecklist || !activeAssignment) return;
 
-    const items = activeChecklist.sections.flatMap((section) =>
+    const items = visibleChecklistSections.flatMap((section) =>
       section.items.map((item) => ({
         ...form[item.id],
+        itemId: item.parentItemId || item.id,
+        question: item.question,
         sectionTitle: section.title,
         answerType: item.answerType || item.answer_type || "FORMAT1",
+        options: item.options || [],
+        photos: form[item.id]?.photos || [],
       }))
     );
 
@@ -1712,12 +2027,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     const section = sections[sectionIndex];
     const hasSectionContent = Boolean(
       section?.title.trim() ||
-        section?.items.some(
-          (item) =>
-            item.question.trim() ||
-            item.answerType !== "FORMAT1" ||
-            item.options.some((option) => option.trim())
-        )
+        section?.items.some(questionHasTemplateContent)
     );
 
     if (
@@ -1815,7 +2125,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const updateQuestionAnswerType = (
     sectionIndex: number,
     questionIndex: number,
-    answerType: AnswerType
+    answerType: BuilderAnswerType
   ) => {
     setSections((prev) =>
       prev.map((section, sIndex) => {
@@ -1827,13 +2137,21 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             qIndex === questionIndex
               ? {
                   ...question,
-                  answerType,
+                  answerType: answerType === "CONDITIONAL" ? "FORMAT1" : answerType,
                   options:
                     ["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(answerType)
                       ? question.options.length
                         ? question.options
                         : [""]
                       : [""],
+                  conditionalSectionTitle:
+                    answerType === "CONDITIONAL" ? question.conditionalSectionTitle : "",
+                  conditionalItems:
+                    answerType === "CONDITIONAL"
+                      ? question.conditionalItems.length
+                        ? question.conditionalItems
+                        : [createEmptyConditionalQuestion()]
+                      : [],
                 }
               : question
           ),
@@ -2051,14 +2369,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         .map((section) => ({
           title: section.title.trim(),
           items: section.items
-            .map((item) => ({
-              question: item.question.trim(),
-              answerType: item.answerType,
-              options:
-                ["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(item.answerType)
-                  ? item.options.map((option) => option.trim()).filter(Boolean)
-                  : [],
-            }))
+            .map(buildQuestionPayload)
             .filter((item) => item.question),
         }))
         .filter((section) => section.items.length > 0),
@@ -2070,15 +2381,20 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     }
 
     const hasChoiceWithoutOptions = payload.sections.some((section) =>
-      section.items.some(
-        (item) =>
-          ["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(item.answerType) &&
-          item.options.length === 0
-      )
+      section.items.some(questionHasChoiceWithoutOptions)
     );
 
     if (hasChoiceWithoutOptions) {
       setError("Dropdown and Check Box questions require at least one option.");
+      return;
+    }
+
+    const hasConditionalWithoutTitle = sections.some((section) =>
+      section.items.some(questionHasConditionalItemsWithoutTitle)
+    );
+
+    if (hasConditionalWithoutTitle) {
+      setError("Conditional question sets require a section title.");
       return;
     }
 
@@ -2111,6 +2427,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           question: item.question,
           answerType: item.answerType || item.answer_type || "FORMAT1",
           options: item.options || [],
+          conditionalSectionTitle:
+            item.conditionalSectionTitle || item.conditional_section_title || "",
+          conditionalItems: (item.conditionalItems || []).map((conditionalItem) => ({
+            question: conditionalItem.question,
+            answerType: conditionalItem.answerType || conditionalItem.answer_type || "FORMAT1",
+            options: conditionalItem.options || [],
+          })),
         })),
       })),
     };
@@ -3036,6 +3359,243 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     );
   };
 
+  const updateConditionalSectionTitle = (
+    sectionIndex: number,
+    questionIndex: number,
+    value: string
+  ) => {
+    setSections((prev) =>
+      prev.map((section, sIndex) =>
+        sIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((question, qIndex) =>
+                qIndex === questionIndex
+                  ? { ...question, conditionalSectionTitle: value }
+                  : question
+              ),
+            }
+          : section
+      )
+    );
+  };
+
+  const addConditionalQuestion = (sectionIndex: number, questionIndex: number) => {
+    setSections((prev) =>
+      prev.map((section, sIndex) =>
+        sIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((question, qIndex) =>
+                qIndex === questionIndex
+                  ? {
+                      ...question,
+                      conditionalItems: [
+                        ...question.conditionalItems,
+                        createEmptyConditionalQuestion(),
+                      ],
+                    }
+                  : question
+              ),
+            }
+          : section
+      )
+    );
+  };
+
+  const removeConditionalQuestion = (
+    sectionIndex: number,
+    questionIndex: number,
+    conditionalIndex: number
+  ) => {
+    setSections((prev) =>
+      prev.map((section, sIndex) =>
+        sIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((question, qIndex) =>
+                qIndex === questionIndex
+                  ? {
+                      ...question,
+                      conditionalItems: question.conditionalItems.filter(
+                        (_, index) => index !== conditionalIndex
+                      ),
+                    }
+                  : question
+              ),
+            }
+          : section
+      )
+    );
+  };
+
+  const updateConditionalQuestion = (
+    sectionIndex: number,
+    questionIndex: number,
+    conditionalIndex: number,
+    value: string
+  ) => {
+    setSections((prev) =>
+      prev.map((section, sIndex) =>
+        sIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((question, qIndex) =>
+                qIndex === questionIndex
+                  ? {
+                      ...question,
+                      conditionalItems: question.conditionalItems.map((conditionalQuestion, index) =>
+                        index === conditionalIndex
+                          ? { ...conditionalQuestion, question: value }
+                          : conditionalQuestion
+                      ),
+                    }
+                  : question
+              ),
+            }
+          : section
+      )
+    );
+  };
+
+  const updateConditionalQuestionAnswerType = (
+    sectionIndex: number,
+    questionIndex: number,
+    conditionalIndex: number,
+    answerType: AnswerType
+  ) => {
+    setSections((prev) =>
+      prev.map((section, sIndex) =>
+        sIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((question, qIndex) =>
+                qIndex === questionIndex
+                  ? {
+                      ...question,
+                      conditionalItems: question.conditionalItems.map((conditionalQuestion, index) =>
+                        index === conditionalIndex
+                          ? {
+                              ...conditionalQuestion,
+                              answerType,
+                              options:
+                                ["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(answerType)
+                                  ? conditionalQuestion.options.length
+                                    ? conditionalQuestion.options
+                                    : [""]
+                                  : [""],
+                            }
+                          : conditionalQuestion
+                      ),
+                    }
+                  : question
+              ),
+            }
+          : section
+      )
+    );
+  };
+
+  const updateConditionalQuestionOption = (
+    sectionIndex: number,
+    questionIndex: number,
+    conditionalIndex: number,
+    optionIndex: number,
+    value: string
+  ) => {
+    setSections((prev) =>
+      prev.map((section, sIndex) =>
+        sIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((question, qIndex) =>
+                qIndex === questionIndex
+                  ? {
+                      ...question,
+                      conditionalItems: question.conditionalItems.map((conditionalQuestion, index) =>
+                        index === conditionalIndex
+                          ? {
+                              ...conditionalQuestion,
+                              options: conditionalQuestion.options.map((option, currentOptionIndex) =>
+                                currentOptionIndex === optionIndex ? value : option
+                              ),
+                            }
+                          : conditionalQuestion
+                      ),
+                    }
+                  : question
+              ),
+            }
+          : section
+      )
+    );
+  };
+
+  const addConditionalQuestionOption = (
+    sectionIndex: number,
+    questionIndex: number,
+    conditionalIndex: number
+  ) => {
+    setSections((prev) =>
+      prev.map((section, sIndex) =>
+        sIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((question, qIndex) =>
+                qIndex === questionIndex
+                  ? {
+                      ...question,
+                      conditionalItems: question.conditionalItems.map((conditionalQuestion, index) =>
+                        index === conditionalIndex
+                          ? {
+                              ...conditionalQuestion,
+                              options: [...conditionalQuestion.options, ""],
+                            }
+                          : conditionalQuestion
+                      ),
+                    }
+                  : question
+              ),
+            }
+          : section
+      )
+    );
+  };
+
+  const removeConditionalQuestionOption = (
+    sectionIndex: number,
+    questionIndex: number,
+    conditionalIndex: number,
+    optionIndex: number
+  ) => {
+    setSections((prev) =>
+      prev.map((section, sIndex) =>
+        sIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((question, qIndex) =>
+                qIndex === questionIndex
+                  ? {
+                      ...question,
+                      conditionalItems: question.conditionalItems.map((conditionalQuestion, index) =>
+                        index === conditionalIndex
+                          ? {
+                              ...conditionalQuestion,
+                              options: conditionalQuestion.options.filter(
+                                (_, currentOptionIndex) => currentOptionIndex !== optionIndex
+                              ),
+                            }
+                          : conditionalQuestion
+                      ),
+                    }
+                  : question
+              ),
+            }
+          : section
+      )
+    );
+  };
+
   const updateWalkthroughItem = (
     sectionIndex: number,
     itemIndex: number,
@@ -3293,6 +3853,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         userName: candidate.name || candidate.username,
         email: candidate.email || "No email provided",
         role: candidate.role,
+        lastLoginAt: candidate.lastLoginAt,
       };
     })
     .sort((first, second) => {
@@ -3339,6 +3900,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   return (
     <DashboardShell user={user} onLogout={onLogout}>
+      <SlowDataLoadDialog open={showSlowDataLoadDialog} />
       {reportEmailTarget ? (
         <ReportEmailDialog
           title={
@@ -3793,9 +4355,13 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         getVisibleListStart("dashboard-users"),
                         getVisibleListCount("dashboard-users")
                       )
-                      .map((member) => (
+                        .map((member) => (
                       <div key={member.id}>
-                        <span>{member.name || member.username}</span>
+                        <span>
+                          {member.name || member.username}
+                          <br />
+                          Last login: {formatLastLogin(member.lastLoginAt)}
+                        </span>
                         <strong>{member.role}</strong>
                       </div>
                     ))}
@@ -4136,6 +4702,138 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
             </div>
           ) : null}
 
+          {activeAdminPage === "maintenance" && isPlatformAdmin ? (
+            <div className="admin-page-panel" style={styles.section}>
+              <div className="admin-panel-heading">
+                <div>
+                  <h3 style={styles.title}>Maintenance</h3>
+                  <p>
+                    Create local backups of the database and uploaded photos, restore from a
+                    backup, or delete backup files that are no longer needed.
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    style={styles.secondaryButton}
+                    onClick={loadMaintenanceBackups}
+                    disabled={maintenanceLoading || Boolean(maintenanceAction)}
+                  >
+                    {maintenanceLoading ? "Refreshing..." : "Refresh"}
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.button}
+                    onClick={handleCreateMaintenanceBackup}
+                    disabled={Boolean(maintenanceAction || maintenanceActiveJob)}
+                  >
+                    {maintenanceAction === "create" ? "Creating..." : "Create Backup"}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                className="billing-summary-grid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                  gap: 12,
+                  marginBottom: 14,
+                }}
+              >
+                <div style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+                  <div style={styles.small}>Retention</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>
+                    {maintenanceRetentionDays} days
+                  </div>
+                  <div style={{ ...styles.small, marginTop: 8 }}>
+                    Older backups are removed automatically when this page or backup jobs run.
+                  </div>
+                </div>
+                <div style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+                  <div style={styles.small}>Stored Backups</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>
+                    {maintenanceBackups.length}
+                  </div>
+                  <div style={{ ...styles.small, marginTop: 8 }}>
+                    Backup files are stored on this machine, outside the public uploads folder.
+                  </div>
+                </div>
+                <div style={{ ...styles.section, background: "#fff", marginTop: 0 }}>
+                  <div style={styles.small}>Active Job</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>
+                    {maintenanceActiveJob || maintenanceAction || "Idle"}
+                  </div>
+                  <div style={{ ...styles.small, marginTop: 8 }}>
+                    Keep this tab open while a backup or restore is running.
+                  </div>
+                </div>
+              </div>
+
+              {maintenanceBackups.length === 0 ? (
+                <div style={styles.small}>
+                  {maintenanceLoading ? "Loading backups..." : "No backups found."}
+                </div>
+              ) : (
+                <div className="compact-list" aria-label="Maintenance backup list">
+                  {maintenanceBackups.map((backup) => {
+                    const isCompleted = backup.status === "completed";
+                    const isRestoreRunning = maintenanceAction === `restore:${backup.id}`;
+                    const isDeleteRunning = maintenanceAction === `delete:${backup.id}`;
+                    const counts = backup.tableCounts || {};
+
+                    return (
+                      <div key={backup.id} className="compact-row">
+                        <div className="compact-row-main">
+                          <div className="compact-row-title">
+                            <strong>{backup.id}</strong>
+                            <span>
+                              {backup.reason} | {backup.status} | {formatDateTime(backup.createdAt)}
+                            </span>
+                            <span>
+                              DB {formatBytes(backup.dbBytes)} | uploads{" "}
+                              {formatBytes(backup.uploadBytes)} | total {formatBytes(backup.bytes)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="compact-row-meta">
+                          <span>{backup.createdByUsername || "system"}</span>
+                          <span>{counts.users ?? 0} users</span>
+                          <span>{counts.reports ?? 0} reports</span>
+                          <span>{counts.report_photos ?? 0} photos</span>
+                        </div>
+                        {backup.error ? (
+                          <div style={{ ...styles.small, color: "#991b1b" }}>{backup.error}</div>
+                        ) : null}
+                        <div className="compact-row-actions">
+                          <button
+                            type="button"
+                            style={styles.button}
+                            onClick={() => handleRestoreMaintenanceBackup(backup)}
+                            disabled={
+                              !isCompleted ||
+                              Boolean(maintenanceAction || maintenanceActiveJob)
+                            }
+                          >
+                            {isRestoreRunning ? "Restoring..." : "Restore"}
+                          </button>
+                          <button
+                            type="button"
+                            style={styles.removeButton}
+                            onClick={() => handleDeleteMaintenanceBackup(backup)}
+                            disabled={Boolean(maintenanceAction || maintenanceActiveJob)}
+                          >
+                            {isDeleteRunning ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : null}
+
           {activeAdminPage === "organizations" && canViewSubOrganizations ? (
             <div className="admin-page-panel" style={styles.section}>
               <div className="admin-panel-heading">
@@ -4368,6 +5066,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                       {" | "}
                                       {member.approvalStatus || "approved"}
                                       {member.active === false ? " | inactive" : ""}
+                                      {" | "}
+                                      Last login: {formatLastLogin(member.lastLoginAt)}
                                       {" | Password stored securely"}
                                     </span>
                                   </div>
@@ -4443,6 +5143,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       <strong>E-Mail Address</strong>
                     </div>
                     <div className="compact-row-title">
+                      <strong>Last Login</strong>
+                    </div>
+                    <div className="compact-row-title">
                       <strong>Action</strong>
                     </div>
                   </div>
@@ -4462,6 +5165,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       </div>
                       <div className="compact-row-title">
                         <span>{row.email}</span>
+                      </div>
+                      <div className="compact-row-title">
+                        <span>{formatLastLogin(row.lastLoginAt)}</span>
                       </div>
                       <div className="compact-row-title">
                         <button
@@ -4961,18 +5667,18 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       />
                       <select
                         style={{ ...styles.input, marginBottom: 8 }}
-                        value={item.answerType}
+                        value={getQuestionAnswerFormat(item)}
                         onChange={(e) =>
                           updateQuestionAnswerType(
                             sectionIndex,
                             questionIndex,
-                            e.target.value as AnswerType
+                            e.target.value as BuilderAnswerType
                           )
                         }
                       >
-                        {(Object.keys(ANSWER_TYPE_LABELS) as AnswerType[]).map((type) => (
+                        {(Object.keys(BUILDER_ANSWER_TYPE_LABELS) as BuilderAnswerType[]).map((type) => (
                           <option key={type} value={type}>
-                            {ANSWER_TYPE_LABELS[type]}
+                            {BUILDER_ANSWER_TYPE_LABELS[type]}
                           </option>
                         ))}
                       </select>
@@ -5022,6 +5728,153 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       onClick={() => addQuestionOption(sectionIndex, questionIndex)}
                           >
                             Add Option
+                          </button>
+                        </div>
+                      ) : null}
+
+                      {getQuestionAnswerFormat(item) === "CONDITIONAL" ? (
+                        <div style={{ ...styles.section, marginTop: 0, background: "#f8fafc" }}>
+                          <div style={{ ...styles.small, marginBottom: 8 }}>
+                            YES conditional section
+                          </div>
+                          <input
+                            style={{ ...styles.input, marginBottom: 8 }}
+                            placeholder="Section title shown when this answer is YES"
+                            value={item.conditionalSectionTitle}
+                            onChange={(e) =>
+                              updateConditionalSectionTitle(
+                                sectionIndex,
+                                questionIndex,
+                                e.target.value
+                              )
+                            }
+                          />
+                          {item.conditionalItems.map((conditionalItem, conditionalIndex) => (
+                            <div
+                              key={conditionalIndex}
+                              style={{
+                                ...styles.section,
+                                marginTop: 0,
+                                marginBottom: 8,
+                                background: "#fff",
+                              }}
+                            >
+                              <input
+                                style={{ ...styles.input, marginBottom: 8 }}
+                                placeholder={`Conditional question ${conditionalIndex + 1}`}
+                                value={conditionalItem.question}
+                                onChange={(e) =>
+                                  updateConditionalQuestion(
+                                    sectionIndex,
+                                    questionIndex,
+                                    conditionalIndex,
+                                    e.target.value
+                                  )
+                                }
+                              />
+                              <select
+                                style={{ ...styles.input, marginBottom: 8 }}
+                                value={conditionalItem.answerType}
+                                onChange={(e) =>
+                                  updateConditionalQuestionAnswerType(
+                                    sectionIndex,
+                                    questionIndex,
+                                    conditionalIndex,
+                                    e.target.value as AnswerType
+                                  )
+                                }
+                              >
+                                {(Object.keys(ANSWER_TYPE_LABELS) as AnswerType[]).map((type) => (
+                                  <option key={type} value={type}>
+                                    {ANSWER_TYPE_LABELS[type]}
+                                  </option>
+                                ))}
+                              </select>
+
+                              {["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(
+                                conditionalItem.answerType
+                              ) ? (
+                                <div style={{ ...styles.section, marginTop: 0, background: "#f5fbfa" }}>
+                                  <div style={{ ...styles.small, marginBottom: 8 }}>
+                                    Answer options
+                                  </div>
+                                  {conditionalItem.options.map((option, optionIndex) => (
+                                    <div
+                                      key={optionIndex}
+                                      style={{
+                                        ...styles.row,
+                                        marginBottom: 8,
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      <input
+                                        style={{ ...styles.input, flex: 1 }}
+                                        placeholder={`Option ${optionIndex + 1}`}
+                                        value={option}
+                                        onChange={(e) =>
+                                          updateConditionalQuestionOption(
+                                            sectionIndex,
+                                            questionIndex,
+                                            conditionalIndex,
+                                            optionIndex,
+                                            e.target.value
+                                          )
+                                        }
+                                      />
+                                      <button
+                                        type="button"
+                                        style={styles.secondaryButton}
+                                        onClick={() =>
+                                          removeConditionalQuestionOption(
+                                            sectionIndex,
+                                            questionIndex,
+                                            conditionalIndex,
+                                            optionIndex
+                                          )
+                                        }
+                                        disabled={conditionalItem.options.length === 1}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    style={styles.secondaryButton}
+                                    onClick={() =>
+                                      addConditionalQuestionOption(
+                                        sectionIndex,
+                                        questionIndex,
+                                        conditionalIndex
+                                      )
+                                    }
+                                  >
+                                    Add Option
+                                  </button>
+                                </div>
+                              ) : null}
+
+                              <button
+                                type="button"
+                                style={styles.secondaryButton}
+                                onClick={() =>
+                                  removeConditionalQuestion(
+                                    sectionIndex,
+                                    questionIndex,
+                                    conditionalIndex
+                                  )
+                                }
+                              >
+                                Remove conditional question
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            style={styles.secondaryButton}
+                            onClick={() => addConditionalQuestion(sectionIndex, questionIndex)}
+                          >
+                            Add child question
                           </button>
                         </div>
                       ) : null}
@@ -5332,7 +6185,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   ) : null}
 
                   <div style={{ ...styles.row, marginBottom: 12 }}>
-                    {activeChecklist.sections.map((section, index) => (
+                    {visibleChecklistSections.map((section, index) => (
                       <button
                         key={section.id}
                         type="button"
@@ -6116,7 +6969,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                         <div className="compact-row-title">
                           <strong>{u.name}</strong>
                           <span>
-                            {u.email || "No email"} | {u.username} | Password stored securely
+                            {u.email || "No email"} | {u.username} | Last login:{" "}
+                            {formatLastLogin(u.lastLoginAt)} | Password stored securely
                           </span>
                         </div>
                       </div>

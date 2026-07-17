@@ -4,6 +4,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "db:clone": "node scripts/cloneDatabaseToLocal.js",
     "cleanup:uploads": "node scripts/cleanupUploads.js",
     "email:verify": "node scripts/verifyEmail.js"
   },

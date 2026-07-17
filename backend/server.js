@@ -19,6 +19,7 @@ const aiActionPlanRoutes = require("./routes/aiActionPlan");
 const billingRoutes = require("./routes/billing");
 const downloadRoutes = require("./routes/downloads");
 const messageRoutes = require("./routes/messages");
+const maintenanceRoutes = require("./routes/maintenance");
 
 const app = express();
 const frontendDistPath = path.join(__dirname, "..", "frontend", "dist");
@@ -45,6 +46,7 @@ app.use("/api/ai", aiActionPlanRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/downloads", downloadRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/maintenance", maintenanceRoutes);
 app.use("/downloads", downloadRoutes);
 
 if (hasBuiltFrontend) {

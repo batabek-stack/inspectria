@@ -5,6 +5,8 @@ type ChecklistItemPayload = {
   question: string;
   answerType: AnswerType;
   options?: string[];
+  conditionalSectionTitle?: string;
+  conditionalItems?: ChecklistItemPayload[];
 };
 
 export type ChecklistImportPreview = {

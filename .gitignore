@@ -23,6 +23,7 @@ backend/pgdata/
 backend/data/
 backend/uploads/
 backend/generated-downloads/
+backend/backups/
 backups/
 
 # OS/editor files
@@ -34,3 +35,5 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+.vercel
+.env*
