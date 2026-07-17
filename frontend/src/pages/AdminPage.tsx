@@ -4179,7 +4179,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           aria-modal="true"
           aria-labelledby="action-plan-recipients-title"
         >
-          <div className="app-modal action-plan-recipient-modal">
+          <div className="app-modal" style={{ width: "min(100%, 720px)" }}>
             <div className="app-modal-heading">
               <div>
                 <span>Action Plan</span>
@@ -4194,9 +4194,21 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   Users in this organization do not have email addresses yet. You can enter manual emails.
                 </div>
               ) : (
-                <div className="action-plan-recipient-modal-list">
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                    gap: 8,
+                    maxHeight: "min(58vh, 520px)",
+                    overflow: "auto",
+                  }}
+                >
                   {actionPlanUsersWithEmail.map((candidate) => (
-                    <label key={candidate.id} className="action-plan-recipient-option">
+                    <label
+                      key={candidate.id}
+                      className="action-plan-recipient-option"
+                      style={{ border: "1px solid #d7e6e4" }}
+                    >
                       <input
                         type="checkbox"
                         checked={actionPlanResponsibleEmails.includes(candidate.email)}
