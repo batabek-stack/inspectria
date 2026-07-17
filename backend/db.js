@@ -165,6 +165,7 @@ async function initDb() {
       active BOOLEAN NOT NULL DEFAULT TRUE,
       approval_status TEXT NOT NULL DEFAULT 'approved'
         CHECK (approval_status IN ('pending', 'approved', 'rejected')),
+      last_login_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
@@ -554,6 +555,7 @@ async function initDb() {
 
   await dropConstraintIfExists("users", "users_username_key");
   await ensureColumn("users", "email", "email TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("users", "last_login_at", "last_login_at TIMESTAMPTZ");
 
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_platform_username_unique

@@ -81,6 +81,7 @@ function publicUser(user) {
     role: user.role,
     active: Boolean(user.active),
     approvalStatus: user.approval_status ?? user.approvalStatus,
+    lastLoginAt: user.last_login_at ?? user.lastLoginAt ?? null,
   };
 }
 
@@ -106,6 +107,7 @@ router.post("/login", async (req, res, next) => {
         u.role,
         u.active,
         u.approval_status,
+        u.last_login_at,
         COALESCE(o.active, TRUE) AS organization_active
       FROM users u
       LEFT JOIN organizations o ON o.id = u.organization_id
@@ -169,7 +171,14 @@ router.post("/login", async (req, res, next) => {
       `,
         [user.id, token, createdAt, expiresAt]
       );
+
+      await client.query("UPDATE users SET last_login_at = $1 WHERE id = $2", [
+        createdAt,
+        user.id,
+      ]);
     });
+
+    user.last_login_at = createdAt;
 
     res.json({
       token,

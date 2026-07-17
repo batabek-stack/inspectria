@@ -23,6 +23,7 @@ async function authRequired(req, res, next) {
         u.role,
         u.active,
         u.approval_status,
+        u.last_login_at,
         o.name AS organization_name,
         COALESCE(o.active, TRUE) AS organization_active
       FROM sessions s
@@ -54,6 +55,7 @@ async function authRequired(req, res, next) {
       role: session.role,
       active: Boolean(session.active),
       approvalStatus: session.approval_status,
+      lastLoginAt: session.last_login_at,
     };
     next();
   } catch (error) {

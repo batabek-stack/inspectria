@@ -64,6 +64,7 @@ router.get("/", authRequired, adminOnly, async (req, res, next) => {
         u.role,
         u.active,
         u.approval_status AS "approvalStatus",
+        u.last_login_at AS "lastLoginAt",
         u.created_at
       FROM users u
       LEFT JOIN organizations o ON o.id = u.organization_id
@@ -324,6 +325,7 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
         role,
         active,
         approval_status AS "approvalStatus",
+        last_login_at AS "lastLoginAt",
         created_at
     `,
       [

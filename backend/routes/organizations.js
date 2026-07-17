@@ -35,6 +35,7 @@ async function mapOrganization(org) {
       role,
       active,
       approval_status AS "approvalStatus",
+      last_login_at AS "lastLoginAt",
       created_at
     FROM users
     WHERE organization_id = $1 AND role = 'admin'
@@ -54,6 +55,7 @@ async function mapOrganization(org) {
       role,
       active,
       approval_status AS "approvalStatus",
+      last_login_at AS "lastLoginAt",
       created_at
     FROM users
     WHERE organization_id = $1
@@ -416,6 +418,7 @@ router.get("/:id/users", authRequired, adminOnly, async (req, res, next) => {
         role,
         active,
         approval_status AS "approvalStatus",
+        last_login_at AS "lastLoginAt",
         created_at
       FROM users
       WHERE organization_id = $1
