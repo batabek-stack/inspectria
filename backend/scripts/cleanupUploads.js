@@ -59,6 +59,9 @@ async function referencedUploadUrls() {
   const reportPhotos = await db.many("SELECT file_path FROM report_photos");
   reportPhotos.forEach((row) => collectUploadUrls(row.file_path, referenced));
 
+  const walkthroughPhotos = await db.many("SELECT file_path FROM walkthrough_photos");
+  walkthroughPhotos.forEach((row) => collectUploadUrls(row.file_path, referenced));
+
   const checklistImages = await db.many(
     "SELECT image_path FROM checklists WHERE image_path LIKE '/uploads/%'"
   );
