@@ -2,15 +2,22 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
+const crypto = require("crypto");
 const { authRequired } = require("../middleware/auth");
-const { saveCompressedImageFromBuffer } = require("../imageProcessing");
+const { saveCompressedImageFromFile } = require("../imageProcessing");
 
 const router = express.Router();
 
 const uploadRoot = path.join(__dirname, "..", "uploads");
+const uploadTempRoot = path.join(os.tmpdir(), "inspectria-upload-temp");
 
 if (!fs.existsSync(uploadRoot)) {
   fs.mkdirSync(uploadRoot, { recursive: true });
+}
+
+if (!fs.existsSync(uploadTempRoot)) {
+  fs.mkdirSync(uploadTempRoot, { recursive: true });
 }
 
 const blockedVideoExtensions = new Set([
@@ -55,8 +62,37 @@ function isImageFile(file) {
   );
 }
 
+function tempUploadName(_, file, cb) {
+  const extension = path.extname(file.originalname || "").toLowerCase();
+  const random = crypto.randomBytes(12).toString("hex");
+  cb(null, `${Date.now()}-${random}${extension}`);
+}
+
+async function removeTempFile(file) {
+  if (!file?.path) return;
+
+  try {
+    await fs.promises.unlink(file.path);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.warn(`Could not remove temporary upload ${file.path}:`, error);
+    }
+  }
+}
+
+async function cleanupTempFiles(files = []) {
+  await Promise.all(files.map((file) => removeTempFile(file)));
+}
+
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_, __, cb) => {
+      fs.mkdir(uploadTempRoot, { recursive: true }, (error) => {
+        cb(error, uploadTempRoot);
+      });
+    },
+    filename: tempUploadName,
+  }),
 
   limits: {
     fileSize: maxUploadBytes,
@@ -97,10 +133,12 @@ router.post(
   authRequired,
 
   (req, res, next) => {
-    upload.array("photos", maxUploadFiles)(req, res, (error) => {
+    upload.array("photos", maxUploadFiles)(req, res, async (error) => {
       if (!error) {
         return next();
       }
+
+      await cleanupTempFiles(req.files || []);
 
       if (error.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
@@ -138,22 +176,23 @@ router.post(
 
       const files = [];
 
-      // Fotoğrafları aynı anda değil, sırayla işle.
+      // Fotoğrafları RAM'de tutmadan, temp dosyadan sırayla işle.
       for (const file of uploadedFiles) {
-        const fileName = await saveCompressedImageFromBuffer(
-          file.buffer,
-          uploadDir,
-          file.originalname
-        );
-
-        files.push(`/uploads/${orgSegment}/${fileName}`);
-
-        // Buffer referansını mümkün olduğunca erken bırak.
-        file.buffer = null;
+        try {
+          const fileName = await saveCompressedImageFromFile(
+            file.path,
+            uploadDir,
+            file.originalname
+          );
+          files.push(`/uploads/${orgSegment}/${fileName}`);
+        } finally {
+          await removeTempFile(file);
+        }
       }
 
       return res.json({ files });
     } catch (error) {
+      await cleanupTempFiles(req.files || []);
       return next(error);
     }
   }

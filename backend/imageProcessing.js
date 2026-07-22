@@ -4,6 +4,15 @@ const sharp = require("sharp");
 
 const IMAGE_QUALITY = 82;
 const MAX_IMAGE_WIDTH = 1600;
+const SHARP_CACHE_MEMORY_MB = Number(process.env.SHARP_CACHE_MEMORY_MB || 32);
+const SHARP_CONCURRENCY = Number(process.env.SHARP_CONCURRENCY || 1);
+
+sharp.cache({
+  files: 0,
+  items: 0,
+  memory: SHARP_CACHE_MEMORY_MB,
+});
+sharp.concurrency(SHARP_CONCURRENCY);
 
 function safeImageBaseName(originalName) {
   const extension = path.extname(originalName || "");
@@ -30,9 +39,9 @@ async function saveCompressedImageFromBuffer(buffer, uploadDir, originalName) {
   return fileName;
 }
 
-async function saveCompressedImageFromFile(filePath, uploadDir) {
+async function saveCompressedImageFromFile(filePath, uploadDir, originalName) {
   await fs.promises.mkdir(uploadDir, { recursive: true });
-  const fileName = compressedImageName(path.basename(filePath));
+  const fileName = compressedImageName(originalName || path.basename(filePath));
   await compressImage(filePath).toFile(path.join(uploadDir, fileName));
   return fileName;
 }
