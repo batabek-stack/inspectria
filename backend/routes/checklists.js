@@ -370,8 +370,8 @@ function normalizeChecklistItem(item) {
     question,
     answerType,
     options: ["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(answerType) ? options : [],
-    conditionalSectionTitle: conditionalItems.length > 0 ? conditionalSectionTitle : "",
-    conditionalItems: conditionalSectionTitle ? conditionalItems : [],
+    conditionalSectionTitle: "",
+    conditionalItems,
   };
 }
 

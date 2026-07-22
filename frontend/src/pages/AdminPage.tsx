@@ -226,8 +226,7 @@ const ACTION_PLAN_STATUSES: ActionPlanStatus[] = ["Open", "In Progress", "Blocke
 
 function getQuestionAnswerFormat(item: QuestionForm): BuilderAnswerType {
   return item.answerType === "FORMAT1" &&
-    (item.conditionalSectionTitle.trim() ||
-      item.conditionalItems.length > 0)
+    item.conditionalItems.length > 0
     ? "CONDITIONAL"
     : item.answerType;
 }
@@ -615,7 +614,7 @@ function questionHasTemplateContent(item: QuestionForm) {
 function buildQuestionPayload(item: QuestionForm) {
   const answerType = item.answerType;
   const conditionalItems =
-    answerType === "FORMAT1" && item.conditionalSectionTitle.trim()
+    answerType === "FORMAT1"
       ? item.conditionalItems
           .map(buildQuestionPayload)
           .filter((conditionalItem) => conditionalItem.question)
@@ -627,9 +626,7 @@ function buildQuestionPayload(item: QuestionForm) {
     options: ["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(answerType)
       ? item.options.map((option) => option.trim()).filter(Boolean)
       : [],
-    conditionalSectionTitle: conditionalItems.length
-      ? item.conditionalSectionTitle.trim()
-      : "",
+    conditionalSectionTitle: "",
     conditionalItems,
   };
 }
@@ -639,13 +636,6 @@ function questionHasChoiceWithoutOptions(item: ReturnType<typeof buildQuestionPa
     (["MULTIPLE_CHOICE", "RADIO_BUTTON"].includes(item.answerType) &&
       item.options.length === 0) ||
     item.conditionalItems.some(questionHasChoiceWithoutOptions)
-  );
-}
-
-function questionHasConditionalItemsWithoutTitle(item: QuestionForm): boolean {
-  return Boolean(
-    item.conditionalItems.some(questionHasTemplateContent) &&
-      !item.conditionalSectionTitle.trim()
   );
 }
 
@@ -1219,43 +1209,29 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const visibleChecklistSections = useMemo<VisibleChecklistSection[]>(() => {
     if (!activeChecklist) return [];
 
-    return activeChecklist.sections.flatMap((section) => {
-      const visibleSections: VisibleChecklistSection[] = [
-        {
-          id: `section-${section.id}`,
-          title: section.title,
-          items: section.items as VisibleChecklistItem[],
-        },
-      ];
-
-      section.items.forEach((item) => {
+    return activeChecklist.sections.map((section) => ({
+      id: `section-${section.id}`,
+      title: section.title,
+      items: section.items.flatMap((item) => {
+        const visibleItems: VisibleChecklistItem[] = [item as VisibleChecklistItem];
         const conditionalItems = item.conditionalItems || [];
-        const conditionalSectionTitle =
-          item.conditionalSectionTitle || item.conditional_section_title || "";
-        if (
-          (form[item.id]?.answer || "") !== "YES" ||
-          !conditionalSectionTitle.trim() ||
-          conditionalItems.length === 0
-        ) {
-          return;
+
+        if ((form[item.id]?.answer || "") === "YES" && conditionalItems.length > 0) {
+          visibleItems.push(
+            ...conditionalItems.map((conditionalItem, index) => ({
+              ...conditionalItem,
+              id: -(item.id * 1000 + index + 1),
+              checklist_id: item.checklist_id,
+              section_id: item.section_id,
+              sort_order: index + 1,
+              parentItemId: item.id,
+            }))
+          );
         }
 
-        visibleSections.push({
-          id: `conditional-${item.id}`,
-          title: conditionalSectionTitle,
-          items: conditionalItems.map((conditionalItem, index) => ({
-            ...conditionalItem,
-            id: -(item.id * 1000 + index + 1),
-            checklist_id: item.checklist_id,
-            section_id: item.section_id,
-            sort_order: index + 1,
-            parentItemId: item.id,
-          })),
-        });
-      });
-
-      return visibleSections;
-    });
+        return visibleItems;
+      }),
+    }));
   }, [activeChecklist, form]);
   const checklistProgress = useMemo(() => {
     const items = visibleChecklistSections.flatMap((section) => section.items);
@@ -2592,15 +2568,6 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
     if (hasChoiceWithoutOptions) {
       setError("Dropdown and Check Box questions require at least one option.");
-      return;
-    }
-
-    const hasConditionalWithoutTitle = sections.some((section) =>
-      section.items.some(questionHasConditionalItemsWithoutTitle)
-    );
-
-    if (hasConditionalWithoutTitle) {
-      setError("Conditional question sets require a section title.");
       return;
     }
 
@@ -6032,20 +5999,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       {getQuestionAnswerFormat(item) === "CONDITIONAL" ? (
                         <div style={{ ...styles.section, marginTop: 0, background: "#f8fafc" }}>
                           <div style={{ ...styles.small, marginBottom: 8 }}>
-                            YES conditional section
+                            Child questions shown when this answer is YES
                           </div>
-                          <input
-                            style={{ ...styles.input, marginBottom: 8 }}
-                            placeholder="Section title shown when this answer is YES"
-                            value={item.conditionalSectionTitle}
-                            onChange={(e) =>
-                              updateConditionalSectionTitle(
-                                sectionIndex,
-                                questionIndex,
-                                e.target.value
-                              )
-                            }
-                          />
                           {item.conditionalItems.map((conditionalItem, conditionalIndex) => (
                             <div
                               key={conditionalIndex}
@@ -6506,8 +6461,18 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             ref={(element) => {
                               questionRefs.current[item.id] = element;
                             }}
-                            style={{ ...styles.section, background: "#fff" }}
+                            style={{
+                              ...styles.section,
+                              background: item.parentItemId ? "#f8fafc" : "#fff",
+                              marginLeft: item.parentItemId ? 18 : undefined,
+                              borderLeft: item.parentItemId ? "4px solid #0f766e" : undefined,
+                            }}
                           >
+                            {item.parentItemId ? (
+                              <div style={{ ...styles.small, marginBottom: 6 }}>
+                                Conditional question
+                              </div>
+                            ) : null}
                             <strong>
                               {index + 1}. {item.question}
                             </strong>

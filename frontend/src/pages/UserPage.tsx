@@ -87,7 +87,6 @@ type FillItem = {
 type VisibleChecklistItem = Checklist["sections"][number]["items"][number] & {
   id: number;
   parentItemId?: number;
-  reportSectionTitle?: string;
 };
 
 type VisibleChecklistSection = {
@@ -550,14 +549,8 @@ export default function UserPage({ user, onLogout }: Props) {
       items: section.items.flatMap((item) => {
         const visibleItems: VisibleChecklistItem[] = [item as VisibleChecklistItem];
         const conditionalItems = item.conditionalItems || [];
-        const conditionalSectionTitle =
-          item.conditionalSectionTitle || item.conditional_section_title || "";
 
-        if (
-          (form[item.id]?.answer || "") === "YES" &&
-          conditionalSectionTitle.trim() &&
-          conditionalItems.length > 0
-        ) {
+        if ((form[item.id]?.answer || "") === "YES" && conditionalItems.length > 0) {
           visibleItems.push(
             ...conditionalItems.map((conditionalItem, index) => ({
               ...conditionalItem,
@@ -566,7 +559,6 @@ export default function UserPage({ user, onLogout }: Props) {
               section_id: item.section_id,
               sort_order: index + 1,
               parentItemId: item.id,
-              reportSectionTitle: conditionalSectionTitle,
             }))
           );
         }
@@ -959,7 +951,7 @@ export default function UserPage({ user, onLogout }: Props) {
         ...form[item.id],
         itemId: item.parentItemId || item.id,
         question: item.question,
-        sectionTitle: item.reportSectionTitle || section.title,
+        sectionTitle: section.title,
         answerType: item.answerType || item.answer_type || "FORMAT1",
         options: item.options || [],
         photos: form[item.id]?.photos || [],
@@ -2482,7 +2474,7 @@ export default function UserPage({ user, onLogout }: Props) {
                 >
                   {item.parentItemId ? (
                     <div style={{ ...styles.small, marginBottom: 6 }}>
-                      {item.reportSectionTitle || "Conditional questions"}
+                      Conditional question
                     </div>
                   ) : null}
                   <strong>
