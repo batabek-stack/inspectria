@@ -974,6 +974,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   const [title, setTitle] = useState("");
   const [templateImagePath, setTemplateImagePath] = useState("");
+  const [templateImagePreviewUrl, setTemplateImagePreviewUrl] = useState("");
   const [templateImageLoadError, setTemplateImageLoadError] = useState(false);
   const [templateImageUploading, setTemplateImageUploading] = useState(false);
   const [templateSearchQuery, setTemplateSearchQuery] = useState("");
@@ -1016,11 +1017,30 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const saveTimeoutRef = useRef<number | null>(null);
   const slowDataLoadTimerRef = useRef<number | null>(null);
   const questionRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const templateImagePreviewUrlRef = useRef("");
   const [resumeItemId, setResumeItemId] = useState<number | null>(null);
+
+  const replaceTemplateImagePreviewUrl = (nextUrl = "") => {
+    if (templateImagePreviewUrlRef.current) {
+      URL.revokeObjectURL(templateImagePreviewUrlRef.current);
+    }
+
+    templateImagePreviewUrlRef.current = nextUrl;
+    setTemplateImagePreviewUrl(nextUrl);
+  };
 
   useEffect(() => {
     setTemplateImageLoadError(false);
   }, [templateImagePath]);
+
+  useEffect(
+    () => () => {
+      if (templateImagePreviewUrlRef.current) {
+        URL.revokeObjectURL(templateImagePreviewUrlRef.current);
+      }
+    },
+    []
+  );
 
   const hasTemplateDraftContent = (draft: Omit<TemplateDraft, "savedAt">) =>
     Boolean(
@@ -2164,6 +2184,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     setEditingId(null);
     setTitle("");
     setTemplateImagePath("");
+    replaceTemplateImagePreviewUrl("");
     setSections([
       {
         title: "",
@@ -2415,6 +2436,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     setEditingId(checklist.id);
     setTitle(checklist.title);
     setTemplateImagePath(checklist.image_path || checklist.imagePath || "");
+    replaceTemplateImagePreviewUrl("");
     setSections(
       (checklist.sections || []).map((section) => ({
         title: section.title,
@@ -2429,11 +2451,17 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const handleTemplateImageUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
+    const previewUrl = URL.createObjectURL(files[0]);
+    replaceTemplateImagePreviewUrl(previewUrl);
+    setTemplateImageLoadError(false);
+
     try {
       setTemplateImageUploading(true);
       const uploaded = await uploadPhotos(files);
       setTemplateImagePath(uploaded[0] || "");
     } catch (err) {
+      replaceTemplateImagePreviewUrl("");
+      setTemplateImagePath("");
       setError(err instanceof Error ? err.message : "Template image could not be uploaded");
     } finally {
       setTemplateImageUploading(false);
@@ -5811,7 +5839,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               <div style={{ ...styles.small, marginTop: 8 }}>
                 You can also drag and drop an image here.
               </div>
-              {templateImagePath ? (
+              {templateImagePath || templateImagePreviewUrl ? (
                 <div style={{ marginTop: 12 }}>
                   {templateImageLoadError ? (
                     <div style={{ ...styles.small, color: "#8a4b12" }}>
@@ -5819,7 +5847,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     </div>
                   ) : (
                     <img
-                      src={resolveFileUrl(templateImagePath)}
+                      src={templateImagePreviewUrl || resolveFileUrl(templateImagePath)}
                       alt="Template"
                       onError={() => setTemplateImageLoadError(true)}
                       style={{
@@ -5837,7 +5865,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   <button
                     type="button"
                     style={{ ...styles.secondaryButton, marginTop: 10 }}
-                      onClick={() => setTemplateImagePath("")}
+                      onClick={() => {
+                        setTemplateImagePath("");
+                        replaceTemplateImagePreviewUrl("");
+                      }}
                   >
                     Remove Image
                   </button>
