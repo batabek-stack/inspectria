@@ -141,41 +141,63 @@ router.get("/", authRequired, async (req, res, next) => {
       params
     );
 
-    const result = await Promise.all(
-      reports.map(async (report) => {
-        const items = await db.many(
-          `
-          SELECT ri.*
-          FROM report_items ri
-          LEFT JOIN checklist_items ci ON ci.id = ri.checklist_item_id
-          LEFT JOIN checklist_sections cs ON cs.id = ci.section_id
-          WHERE ri.report_id = $1
-          ORDER BY
-            COALESCE(cs.sort_order, 999999),
-            COALESCE(ci.sort_order, 999999),
-            ri.id
-        `,
-          [report.id]
-        );
+    if (reports.length === 0) {
+      return res.json([]);
+    }
 
-        const itemsWithPhotos = await Promise.all(
-          items.map(async (item) => ({
-            ...item,
-            photos: (
-              await db.many(
-                "SELECT file_path, data_url FROM report_photos WHERE report_item_id = $1 ORDER BY id",
-                [item.id]
-              )
-            ).map((p) => p.data_url || p.file_path),
-          }))
-        );
-
-        return {
-          ...report,
-          items: itemsWithPhotos,
-        };
-      })
+    const reportIds = reports.map((report) => report.id);
+    const items = await db.many(
+      `
+      SELECT ri.*
+      FROM report_items ri
+      LEFT JOIN checklist_items ci ON ci.id = ri.checklist_item_id
+      LEFT JOIN checklist_sections cs ON cs.id = ci.section_id
+      WHERE ri.report_id = ANY($1::int[])
+      ORDER BY
+        ri.report_id DESC,
+        COALESCE(cs.sort_order, 999999),
+        COALESCE(ci.sort_order, 999999),
+        ri.id
+    `,
+      [reportIds]
     );
+
+    const itemIds = items.map((item) => item.id);
+    const photos = itemIds.length
+      ? await db.many(
+          `
+          SELECT report_item_id, file_path
+          FROM report_photos
+          WHERE report_item_id = ANY($1::int[])
+          ORDER BY id
+        `,
+          [itemIds]
+        )
+      : [];
+
+    const photosByItemId = new Map();
+    for (const photo of photos) {
+      if (!photosByItemId.has(photo.report_item_id)) {
+        photosByItemId.set(photo.report_item_id, []);
+      }
+      photosByItemId.get(photo.report_item_id).push(photo.file_path);
+    }
+
+    const itemsByReportId = new Map();
+    for (const item of items) {
+      if (!itemsByReportId.has(item.report_id)) {
+        itemsByReportId.set(item.report_id, []);
+      }
+      itemsByReportId.get(item.report_id).push({
+        ...item,
+        photos: photosByItemId.get(item.id) || [],
+      });
+    }
+
+    const result = reports.map((report) => ({
+      ...report,
+      items: itemsByReportId.get(report.id) || [],
+    }));
 
     res.json(result);
   } catch (error) {
@@ -271,19 +293,12 @@ router.post("/", authRequired, async (req, res, next) => {
         );
 
         for (const photo of item.photos || []) {
-          let photoDataUrl = "";
-          try {
-            photoDataUrl = await getPhotoDataUrl(photo);
-          } catch {
-            photoDataUrl = "";
-          }
-
           await client.query(
             `
             INSERT INTO report_photos (report_item_id, file_path, data_url)
             VALUES ($1, $2, $3)
           `,
-            [itemResult.rows[0].id, photo, photoDataUrl || null]
+            [itemResult.rows[0].id, photo, null]
           );
         }
       }
