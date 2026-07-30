@@ -80,6 +80,7 @@ import {
   generateManagerSummary,
   getActionPlanExcelDownloadUrl,
   getReportFailedItems,
+  getReportManagerSummaryItems,
 } from "../services/aiActionPlanService";
 import {
   apiPost,
@@ -2967,10 +2968,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     setMessage("");
     setError("");
 
-    const failedItems = getReportFailedItems(report);
+    const summaryItems = getReportManagerSummaryItems(report);
 
-    if (failedItems.length === 0) {
-      setError("This report has no negative YES/NO items to summarize.");
+    if (summaryItems.length === 0) {
+      setError("This report has no negative YES/NO items or comments to summarize.");
       return;
     }
 

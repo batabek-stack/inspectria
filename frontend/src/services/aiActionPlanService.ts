@@ -27,6 +27,15 @@ export function getReportFailedItems(report: Report) {
   );
 }
 
+export function getReportManagerSummaryItems(report: Report) {
+  return (report.items || []).filter((item) => {
+    const answerType = item.answerType || item.answer_type || "FORMAT1";
+    const hasNegativeAnswer = answerType === "FORMAT1" && isNegativeChecklistAnswer(item.answer);
+    const hasComment = Boolean(String(item.comment || "").trim());
+    return hasNegativeAnswer || hasComment;
+  });
+}
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -60,29 +69,37 @@ function fallbackActionPlans(report: Report, failedItems: ReturnType<typeof getR
   }));
 }
 
-function fallbackManagerSummary(report: Report, failedItems: ReturnType<typeof getReportFailedItems>): ManagerSummaryResponse {
+function fallbackManagerSummary(report: Report, summaryItems: ReturnType<typeof getReportManagerSummaryItems>): ManagerSummaryResponse {
+  const negativeItems = summaryItems.filter((item) => {
+    const answerType = item.answerType || item.answer_type || "FORMAT1";
+    return answerType === "FORMAT1" && isNegativeChecklistAnswer(item.answer);
+  });
+  const commentOnlyItems = summaryItems.filter((item) => {
+    const answerType = item.answerType || item.answer_type || "FORMAT1";
+    return !(answerType === "FORMAT1" && isNegativeChecklistAnswer(item.answer)) && String(item.comment || "").trim();
+  });
   const sections = [
     ...new Set(
-      failedItems
+      summaryItems
         .map((item) => item.sectionTitle)
         .filter((section): section is string => Boolean(section && section.trim()))
     ),
   ];
-  const comments = failedItems.map((item) => item.comment).filter(Boolean);
-  const examples = failedItems.slice(0, 5).map((item) => item.question).filter(Boolean);
+  const comments = summaryItems.map((item) => item.comment).filter(Boolean);
+  const examples = summaryItems.slice(0, 5).map((item) => item.question).filter(Boolean);
 
   return {
     provider: "fallback",
     summaryTitle: `Manager Summary - ${report.checklistTitle}`,
     summaryText: [
-      `${report.checklistTitle} includes ${failedItems.length} negative checklist item${failedItems.length === 1 ? "" : "s"} requiring management attention.`,
+      `${report.checklistTitle} includes ${negativeItems.length} negative checklist item${negativeItems.length === 1 ? "" : "s"} and ${commentOnlyItems.length} additional commented item${commentOnlyItems.length === 1 ? "" : "s"} requiring management review.`,
       sections.length
-        ? `The findings are concentrated around ${sections.join(", ")}. Key examples include ${examples.join("; ")}.`
-        : `The findings are spread across the completed checklist. Key examples include ${examples.join("; ")}.`,
+        ? `The reviewed observations are concentrated around ${sections.join(", ")}. Key examples include ${examples.join("; ")}.`
+        : `The reviewed observations are spread across the completed checklist. Key examples include ${examples.join("; ")}.`,
       comments.length
         ? `Inspector comments indicate: ${comments.slice(0, 4).join("; ")}.`
-        : "No detailed inspector comments were provided for these negative findings.",
-      "These points suggest that the expected operating standard was not fully met and should be reviewed for correction, ownership, and follow-up evidence.",
+        : "No detailed inspector comments were provided for these reviewed items.",
+      "These points should be reviewed for operational meaning, correction where needed, ownership, and follow-up evidence.",
     ].join("\n\n"),
   };
 }
@@ -115,14 +132,14 @@ export function getActionPlanExcelDownloadUrl(reportId: number | string) {
 }
 
 export async function generateManagerSummary(report: Report): Promise<ManagerSummaryResponse> {
-  const failedItems = getReportFailedItems(report);
+  const summaryItems = getReportManagerSummaryItems(report);
 
   try {
     return await apiPost<ManagerSummaryResponse>("/ai/manager-summary", {
       report,
-      failedItems,
+      failedItems: summaryItems,
     });
   } catch {
-    return fallbackManagerSummary(report, failedItems);
+    return fallbackManagerSummary(report, summaryItems);
   }
 }

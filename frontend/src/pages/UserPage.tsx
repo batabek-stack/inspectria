@@ -57,6 +57,7 @@ import {
   generateManagerSummary,
   getActionPlanExcelDownloadUrl,
   getReportFailedItems,
+  getReportManagerSummaryItems,
 } from "../services/aiActionPlanService";
 import { generateChecklistPdf } from "../utils/generateChecklistPdf";
 import {
@@ -1053,10 +1054,10 @@ export default function UserPage({ user, onLogout }: Props) {
   };
 
   const handleDownloadManagerSummary = async (report: Report) => {
-    const failedItems = getReportFailedItems(report);
+    const summaryItems = getReportManagerSummaryItems(report);
 
-    if (failedItems.length === 0) {
-      alert("This report has no negative YES/NO items to summarize.");
+    if (summaryItems.length === 0) {
+      alert("This report has no negative YES/NO items or comments to summarize.");
       return;
     }
 

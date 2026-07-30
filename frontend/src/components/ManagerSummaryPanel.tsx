@@ -1,5 +1,8 @@
 import { ManagerSummaryResponse, Report } from "../types";
-import { getReportFailedItems } from "../services/aiActionPlanService";
+import {
+  getReportFailedItems,
+  getReportManagerSummaryItems,
+} from "../services/aiActionPlanService";
 import { styles } from "../styles/appStyles";
 
 type Props = {
@@ -10,6 +13,8 @@ type Props = {
 
 export default function ManagerSummaryPanel({ report, summary, onClose }: Props) {
   const noItems = getReportFailedItems(report);
+  const summaryItems = getReportManagerSummaryItems(report);
+  const commentedOnlyCount = summaryItems.length - noItems.length;
   const paragraphs = summary.summaryText
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -36,21 +41,22 @@ export default function ManagerSummaryPanel({ report, summary, onClose }: Props)
       </div>
       <h4 style={{ margin: "0 0 8px" }}>{summary.summaryTitle}</h4>
       <div style={{ ...styles.small, marginBottom: 12 }}>
-        {noItems.length} negative item{noItems.length === 1 ? "" : "s"} reviewed
+        {noItems.length} negative item{noItems.length === 1 ? "" : "s"} and {commentedOnlyCount} commented item{commentedOnlyCount === 1 ? "" : "s"} reviewed
       </div>
       {paragraphs.map((paragraph) => (
         <p key={paragraph} style={{ marginTop: 0 }}>
           {paragraph}
         </p>
       ))}
-      {noItems.length > 0 ? (
+      {summaryItems.length > 0 ? (
         <>
-          <h4>Negative Items Reviewed</h4>
-          {noItems.map((item, index) => (
+          <h4>Items Reviewed</h4>
+          {summaryItems.map((item, index) => (
             <div key={`${item.id || item.question}-${index}`} style={{ borderTop: "1px solid #d7e6e4", padding: "10px 0" }}>
               <strong>
                 {index + 1}. {item.question}
               </strong>
+              {item.answer ? <div>Answer: {item.answer}</div> : null}
               {item.comment ? <div>Comment: {item.comment}</div> : null}
             </div>
           ))}

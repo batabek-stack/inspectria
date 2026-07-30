@@ -360,7 +360,7 @@ function buildAiPayload(report, failedItems, profile) {
   };
 }
 
-function buildManagerSummaryPayload(report, failedItems, profile) {
+function buildManagerSummaryPayload(report, summaryItems, profile) {
   return {
     response_format: { type: "json_object" },
     messages: [
@@ -368,8 +368,9 @@ function buildManagerSummaryPayload(report, failedItems, profile) {
         role: "system",
         content: [
           "You are an executive operations reporting assistant.",
-          "Write a concise manager summary from failed checklist items.",
-          "Interpret the negative findings, explain operational risk, and group related issues when useful.",
+          "Write a concise manager summary from negative checklist items and inspector comments.",
+          "Interpret NO answers as negative findings and interpret any additional commented items as inspector observations.",
+          "Explain operational risk and group related issues when useful.",
           "Do not create an action-plan table.",
           "Use clear management language and the same language as the checklist content when practical.",
           "Return only valid JSON with summaryTitle and summaryText strings.",
@@ -378,11 +379,11 @@ function buildManagerSummaryPayload(report, failedItems, profile) {
       {
         role: "user",
         content: JSON.stringify({
-          task: "Create a manager-facing narrative summary of the failed checklist items.",
+          task: "Create a manager-facing narrative summary of negative checklist items and commented observations.",
           constraints: [
             "summaryText should be plain paragraphs, not markdown",
             "mention the most important risk patterns",
-            "include practical interpretation of what the negative items may mean for operations",
+            "include practical interpretation of what the negative items and comments may mean for operations",
             "avoid inventing facts that are not implied by the report",
             "do not list every item mechanically unless the report is very short",
           ],
@@ -399,7 +400,7 @@ function buildManagerSummaryPayload(report, failedItems, profile) {
             assignedToName: report.assignedToName,
             assignedByName: report.assignedByName,
           },
-          failedItems,
+          summaryItems,
         }),
       },
     ],
@@ -543,38 +544,45 @@ async function callAiProviderWithPayload(payload) {
   return { provider: "fallback", result: null };
 }
 
-function fallbackManagerSummary(report, failedItems, profile) {
+function isNegativeManagerSummaryItem(item) {
+  const answerType = item.answerType || item.answer_type || "FORMAT1";
+  return answerType === "FORMAT1" && ["no", "fail", "failed", "false"].includes(normalizeText(item.answer).toLowerCase());
+}
+
+function fallbackManagerSummary(report, summaryItems, profile) {
   const checklistTitle = normalizeText(report.checklistTitle) || "Selected checklist";
-  const sections = [...new Set(failedItems.map((item) => normalizeText(item.sectionTitle || item.section_title)).filter(Boolean))];
-  const comments = failedItems.map((item) => normalizeText(item.comment)).filter(Boolean);
-  const examples = failedItems
+  const negativeItems = summaryItems.filter(isNegativeManagerSummaryItem);
+  const commentOnlyItems = summaryItems.filter((item) => !isNegativeManagerSummaryItem(item) && normalizeText(item.comment));
+  const sections = [...new Set(summaryItems.map((item) => normalizeText(item.sectionTitle || item.section_title)).filter(Boolean))];
+  const comments = summaryItems.map((item) => normalizeText(item.comment)).filter(Boolean);
+  const examples = summaryItems
     .slice(0, 5)
     .map((item) => normalizeText(item.question))
     .filter(Boolean);
 
   const sectionText = sections.length
-    ? `The negative findings are concentrated around ${sections.join(", ")}.`
-    : "The negative findings are spread across the completed checklist.";
+    ? `The reviewed findings and comments are concentrated around ${sections.join(", ")}.`
+    : "The reviewed findings and comments are spread across the completed checklist.";
   const commentText = comments.length
     ? `Inspector comments indicate: ${comments.slice(0, 4).join("; ")}.`
-    : "No detailed inspector comments were provided for these negative findings.";
+    : "No detailed inspector comments were provided for these reviewed items.";
   const exampleText = examples.length
     ? `Key examples include ${examples.join("; ")}.`
-    : "The failed items should be reviewed with the responsible operational owners.";
+    : "The reviewed items should be discussed with the responsible operational owners.";
 
   return {
     summaryTitle: `Manager Summary - ${checklistTitle}`,
     summaryText: [
-      `${checklistTitle} includes ${failedItems.length} negative checklist item${failedItems.length === 1 ? "" : "s"} requiring management attention.`,
+      `${checklistTitle} includes ${negativeItems.length} negative checklist item${negativeItems.length === 1 ? "" : "s"} and ${commentOnlyItems.length} additional commented item${commentOnlyItems.length === 1 ? "" : "s"} requiring management review.`,
       `${sectionText} ${exampleText}`,
-      `${commentText} These items suggest that the expected operating standard was not fully met and should be reviewed for immediate correction, ownership, and follow-up evidence.`,
+      `${commentText} These observations should be reviewed for immediate correction where needed, ownership, and follow-up evidence.`,
       `This summary was generated with local fallback logic for the ${profile.industry || "configured"} profile. Add Azure OpenAI or OpenAI credentials on the backend for AI-written narrative analysis.`,
     ].join("\n\n"),
   };
 }
 
-function normalizeManagerSummary(report, failedItems, summary, profile) {
-  const fallback = fallbackManagerSummary(report, failedItems, profile);
+function normalizeManagerSummary(report, summaryItems, summary, profile) {
+  const fallback = fallbackManagerSummary(report, summaryItems, profile);
   const summaryTitle = normalizeText(summary?.summaryTitle) || fallback.summaryTitle;
   const summaryText = normalizeText(summary?.summaryText) || fallback.summaryText;
 
@@ -1122,7 +1130,7 @@ router.post("/manager-summary", authRequired, async (req, res) => {
     return res.json({
       provider: "none",
       summaryTitle: "Manager Summary",
-      summaryText: "No negative YES/NO checklist items were found in this report.",
+      summaryText: "No negative YES/NO checklist items or comments were found in this report.",
     });
   }
 

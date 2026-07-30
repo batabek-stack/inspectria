@@ -1,6 +1,9 @@
 import jsPDF from "jspdf";
 import { ManagerSummaryResponse, Report } from "../types";
-import { getReportFailedItems } from "../services/aiActionPlanService";
+import {
+  getReportFailedItems,
+  getReportManagerSummaryItems,
+} from "../services/aiActionPlanService";
 
 const PAGE = {
   width: 210,
@@ -151,6 +154,7 @@ export function generateManagerSummaryPdf(
   };
 
   const noItems = getReportFailedItems(report);
+  const summaryItems = getReportManagerSummaryItems(report);
 
   drawHeader();
   doc.setFont("helvetica", "bold");
@@ -165,16 +169,19 @@ export function generateManagerSummaryPdf(
   drawMeta("Assigned To", report.assignedToName);
   drawMeta("Completed At", formatDate(report.completed_at));
   drawMeta("Negative Items", String(noItems.length));
+  drawMeta("Commented Items", String(summaryItems.length - noItems.length));
   drawMeta("AI Provider", summary.provider === "fallback" ? "Local fallback" : summary.provider);
 
   cursorY += 6;
   drawSectionTitle("Summary");
   drawParagraphs(summary.summaryText);
 
-  if (noItems.length > 0) {
-    drawSectionTitle("Negative Items Reviewed");
-    noItems.forEach((item, index) => {
-      const text = `${index + 1}. ${sanitizeText(item.question)}${item.comment ? ` | Comment: ${sanitizeText(item.comment)}` : ""}`;
+  if (summaryItems.length > 0) {
+    drawSectionTitle("Items Reviewed");
+    summaryItems.forEach((item, index) => {
+      const answer = item.answer ? ` | Answer: ${sanitizeText(item.answer)}` : "";
+      const comment = item.comment ? ` | Comment: ${sanitizeText(item.comment)}` : "";
+      const text = `${index + 1}. ${sanitizeText(item.question)}${answer}${comment}`;
       const lines = doc.splitTextToSize(text, contentWidth);
       const height = lines.length * 5 + 3;
       ensureSpace(height);
