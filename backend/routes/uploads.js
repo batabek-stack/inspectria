@@ -4,8 +4,9 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
+const db = require("../db");
 const { authRequired } = require("../middleware/auth");
-const { saveCompressedImageFromFile } = require("../imageProcessing");
+const { saveCompressedImageFromFileWithDataUrl } = require("../imageProcessing");
 
 const router = express.Router();
 
@@ -175,22 +176,38 @@ router.post(
       }
 
       const files = [];
+      const dataUrls = [];
 
       // Fotoğrafları RAM'de tutmadan, temp dosyadan sırayla işle.
       for (const file of uploadedFiles) {
         try {
-          const fileName = await saveCompressedImageFromFile(
+          const savedImage = await saveCompressedImageFromFileWithDataUrl(
             file.path,
             uploadDir,
             file.originalname
           );
-          files.push(`/uploads/${orgSegment}/${fileName}`);
+          const fileName = savedImage.fileName;
+          const filePath = `/uploads/${orgSegment}/${fileName}`;
+          files.push(filePath);
+          dataUrls.push(savedImage.dataUrl);
+          await db.query(
+            `
+            INSERT INTO upload_file_blobs (file_path, organization_id, user_id, data_url)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (file_path)
+            DO UPDATE SET
+              organization_id = EXCLUDED.organization_id,
+              user_id = EXCLUDED.user_id,
+              data_url = EXCLUDED.data_url
+          `,
+            [filePath, req.user?.organizationId || null, req.user?.id || null, savedImage.dataUrl]
+          );
         } finally {
           await removeTempFile(file);
         }
       }
 
-      return res.json({ files });
+      return res.json({ files, dataUrls });
     } catch (error) {
       await cleanupTempFiles(req.files || []);
       return next(error);

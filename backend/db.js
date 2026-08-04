@@ -318,6 +318,14 @@ async function initDb() {
       UNIQUE (file_path, reason)
     );
 
+    CREATE TABLE IF NOT EXISTS upload_file_blobs (
+      file_path TEXT PRIMARY KEY,
+      organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      data_url TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS walkthroughs (
       id SERIAL PRIMARY KEY,
       organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -635,6 +643,9 @@ async function initDb() {
   await ensureColumn("assignments", "organization_id", "organization_id INTEGER");
   await ensureColumn("reports", "organization_id", "organization_id INTEGER");
   await ensureColumn("report_photos", "data_url", "data_url TEXT");
+  await ensureColumn("walkthrough_photos", "data_url", "data_url TEXT");
+  await ensureColumn("upload_file_blobs", "organization_id", "organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE");
+  await ensureColumn("upload_file_blobs", "user_id", "user_id INTEGER REFERENCES users(id) ON DELETE SET NULL");
   await ensureColumn("draft_reports", "organization_id", "organization_id INTEGER");
   await ensureColumn(
     "action_plan_responsible_parties",

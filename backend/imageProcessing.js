@@ -46,7 +46,21 @@ async function saveCompressedImageFromFile(filePath, uploadDir, originalName) {
   return fileName;
 }
 
+async function saveCompressedImageFromFileWithDataUrl(filePath, uploadDir, originalName) {
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+  const fileName = compressedImageName(originalName || path.basename(filePath));
+  const outputPath = path.join(uploadDir, fileName);
+  await compressImage(filePath).toFile(outputPath);
+  const data = await fs.promises.readFile(outputPath);
+
+  return {
+    fileName,
+    dataUrl: `data:image/webp;base64,${data.toString("base64")}`,
+  };
+}
+
 module.exports = {
   saveCompressedImageFromBuffer,
   saveCompressedImageFromFile,
+  saveCompressedImageFromFileWithDataUrl,
 };

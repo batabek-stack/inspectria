@@ -77,6 +77,27 @@ async function getPhotoDataUrl(filePath) {
   return `data:${getImageMimeType(absolutePath)};base64,${data.toString("base64")}`;
 }
 
+async function getStoredUploadDataUrl(filePath) {
+  const row = await db.one("SELECT data_url FROM upload_file_blobs WHERE file_path = $1", [
+    filePath,
+  ]);
+  return row?.data_url || null;
+}
+
+async function getPhotoDataUrlOrNull(filePath) {
+  if (String(filePath || "").startsWith("data:image/")) return filePath;
+
+  const storedDataUrl = await getStoredUploadDataUrl(filePath);
+  if (storedDataUrl) return storedDataUrl;
+
+  try {
+    return (await getPhotoDataUrl(filePath)) || null;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 router.get("/photo-data", authRequired, async (req, res, next) => {
   try {
     const filePath = String(req.query.path || "");
@@ -104,7 +125,7 @@ router.get("/photo-data", authRequired, async (req, res, next) => {
 
     if (photo.data_url) return res.json({ dataUrl: photo.data_url });
 
-    const dataUrl = await getPhotoDataUrl(photo.file_path);
+    const dataUrl = await getPhotoDataUrlOrNull(photo.file_path);
     if (!dataUrl) return res.status(400).json({ message: "Invalid photo path" });
 
     res.json({ dataUrl });
@@ -293,12 +314,14 @@ router.post("/", authRequired, async (req, res, next) => {
         );
 
         for (const photo of item.photos || []) {
+          const dataUrl = await getPhotoDataUrlOrNull(photo);
+
           await client.query(
             `
             INSERT INTO report_photos (report_item_id, file_path, data_url)
             VALUES ($1, $2, $3)
           `,
-            [itemResult.rows[0].id, photo, null]
+            [itemResult.rows[0].id, photo, dataUrl]
           );
         }
       }

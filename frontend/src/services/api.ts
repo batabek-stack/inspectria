@@ -207,7 +207,8 @@ export async function uploadPhotos(files: FileList | null): Promise<string[]> {
     throw new Error((data as { message?: string }).message || "Photo upload failed");
   }
 
-  return ((data as { files?: string[] }).files || []);
+  const uploadResponse = data as { files?: string[]; dataUrls?: string[] };
+  return uploadResponse.files?.length ? uploadResponse.files : uploadResponse.dataUrls || [];
 }
 
 export type LocalFileKind = "image" | "spreadsheet";

@@ -1,8 +1,11 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 const db = require("../db");
 const { authRequired } = require("../middleware/auth");
 
 const router = express.Router();
+const uploadRoot = path.join(__dirname, "..", "uploads");
 
 function userCanSeeWalkthrough(user, row) {
   if (db.isPlatformAdmin(user)) return true;
@@ -31,6 +34,57 @@ function normalizeSections(sections) {
         }))
         .filter((item) => item.comment || item.photos.length > 0),
     }));
+}
+
+function getUploadPath(filePath) {
+  const normalized = String(filePath || "").replace(/^\/+/, "");
+  if (!normalized.startsWith("uploads/")) return null;
+
+  const absolutePath = path.resolve(__dirname, "..", normalized);
+  const resolvedUploadRoot = path.resolve(uploadRoot);
+  if (!absolutePath.startsWith(`${resolvedUploadRoot}${path.sep}`)) return null;
+
+  return absolutePath;
+}
+
+function getImageMimeType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".webp") return "image/webp";
+  return "application/octet-stream";
+}
+
+async function getPhotoDataUrl(filePath) {
+  if (String(filePath || "").startsWith("data:image/")) return filePath;
+
+  const absolutePath = getUploadPath(filePath);
+  if (!absolutePath) return "";
+
+  const data = await fs.promises.readFile(absolutePath);
+  return `data:${getImageMimeType(absolutePath)};base64,${data.toString("base64")}`;
+}
+
+async function getStoredUploadDataUrl(filePath) {
+  const row = await db.one("SELECT data_url FROM upload_file_blobs WHERE file_path = $1", [
+    filePath,
+  ]);
+  return row?.data_url || null;
+}
+
+async function getPhotoDataUrlOrNull(filePath) {
+  if (String(filePath || "").startsWith("data:image/")) return filePath;
+
+  const storedDataUrl = await getStoredUploadDataUrl(filePath);
+  if (storedDataUrl) return storedDataUrl;
+
+  try {
+    return (await getPhotoDataUrl(filePath)) || null;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 async function getWalkthroughRow(id) {
@@ -97,7 +151,25 @@ async function hydrateWalkthrough(row) {
   };
 }
 
+async function getExistingWalkthroughPhotoDataUrls(client, walkthroughId) {
+  const result = await client.query(
+    `
+    SELECT wp.file_path, wp.data_url
+    FROM walkthrough_photos wp
+    JOIN walkthrough_items wi ON wp.item_id = wi.id
+    JOIN walkthrough_sections ws ON wi.section_id = ws.id
+    WHERE ws.walkthrough_id = $1
+      AND COALESCE(wp.data_url, '') <> ''
+  `,
+    [walkthroughId]
+  );
+
+  return new Map(result.rows.map((row) => [row.file_path, row.data_url]));
+}
+
 async function replaceSections(client, walkthroughId, sections) {
+  const existingPhotoDataUrls = await getExistingWalkthroughPhotoDataUrls(client, walkthroughId);
+
   await client.query("DELETE FROM walkthrough_sections WHERE walkthrough_id = $1", [walkthroughId]);
 
   for (const [sectionIndex, section] of sections.entries()) {
@@ -123,14 +195,59 @@ async function replaceSections(client, walkthroughId, sections) {
       );
 
       for (const photo of item.photos || []) {
+        const dataUrl = existingPhotoDataUrls.get(photo) || (await getPhotoDataUrlOrNull(photo));
+
         await client.query(
-          `INSERT INTO walkthrough_photos (item_id, file_path) VALUES ($1, $2)`,
-          [itemResult.rows[0].id, photo]
+          `INSERT INTO walkthrough_photos (item_id, file_path, data_url) VALUES ($1, $2, $3)`,
+          [itemResult.rows[0].id, photo, dataUrl]
         );
       }
     }
   }
 }
+
+router.get("/photo-data", authRequired, async (req, res, next) => {
+  try {
+    const filePath = String(req.query.path || "");
+    if (!filePath) return res.status(400).json({ message: "Photo path is required" });
+
+    const params = [filePath];
+    const where = ["wp.file_path = $1"];
+
+    if (!db.isPlatformAdmin(req.user)) {
+      params.push(req.user.organizationId);
+      where.push(`w.organization_id = $${params.length}`);
+    }
+
+    if (req.user.role === "user") {
+      params.push(req.user.id);
+      where.push(`w.created_by_user_id = $${params.length}`);
+    }
+
+    const photo = await db.one(
+      `
+      SELECT wp.file_path, wp.data_url
+      FROM walkthrough_photos wp
+      JOIN walkthrough_items wi ON wp.item_id = wi.id
+      JOIN walkthrough_sections ws ON wi.section_id = ws.id
+      JOIN walkthroughs w ON ws.walkthrough_id = w.id
+      WHERE ${where.join(" AND ")}
+      LIMIT 1
+    `,
+      params
+    );
+
+    if (!photo) return res.status(404).json({ message: "Photo not found" });
+    if (photo.data_url) return res.json({ dataUrl: photo.data_url });
+
+    const dataUrl = await getPhotoDataUrlOrNull(photo.file_path);
+    if (!dataUrl) return res.status(400).json({ message: "Invalid photo path" });
+
+    res.json({ dataUrl });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get("/", authRequired, async (req, res, next) => {
   try {

@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Walkthrough } from "../types";
 import { styles } from "../styles/appStyles";
-import { resolveFileUrl } from "../services/api";
+import { API_BASE, FILE_BASE } from "../services/api";
 
 type Props = {
   walkthrough: Walkthrough;
@@ -9,6 +9,78 @@ type Props = {
   onEmailReport?: (walkthrough: Walkthrough) => void;
   onDeleteReport?: (walkthrough: Walkthrough) => void;
 };
+
+function getPhotoSources(photo: string) {
+  if (photo.startsWith("data:image/") || photo.startsWith("http")) return [photo];
+
+  const serverPath = photo.startsWith("/") ? photo : `/${photo}`;
+  const apiHostBase = API_BASE.replace(/\/api\/?$/, "");
+  const browserBase = typeof window !== "undefined" ? window.location.origin : "";
+
+  return Array.from(
+    new Set(
+      [
+        `${FILE_BASE}${serverPath}`,
+        `${apiHostBase}${serverPath}`,
+        `${browserBase}${serverPath}`,
+        serverPath,
+      ].filter(Boolean)
+    )
+  );
+}
+
+function WalkthroughPhoto({ photo, alt }: { photo: string; alt: string }) {
+  const sources = useMemo(() => getPhotoSources(photo), [photo]);
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [dataUrl, setDataUrl] = useState("");
+  const [failed, setFailed] = useState(false);
+  const src = dataUrl || sources[sourceIndex] || "";
+
+  const loadPhotoData = async () => {
+    if (!photo || photo.startsWith("data:image/") || photo.startsWith("http")) {
+      setFailed(true);
+      return;
+    }
+
+    try {
+      const serverPath = photo.startsWith("/") ? photo : `/${photo}`;
+      const response = await fetch(
+        `${API_BASE}/walkthroughs/photo-data?path=${encodeURIComponent(serverPath)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("mod_token") || ""}`,
+          },
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && typeof data.dataUrl === "string" && data.dataUrl.startsWith("data:image/")) {
+        setDataUrl(data.dataUrl);
+      } else {
+        setFailed(true);
+      }
+    } catch {
+      setFailed(true);
+    }
+  };
+
+  if (!src || failed) return null;
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => {
+        if (sourceIndex < sources.length - 1) {
+          setSourceIndex((current) => current + 1);
+          return;
+        }
+
+        void loadPhotoData();
+      }}
+      style={styles.photoPreview}
+    />
+  );
+}
 
 export default function WalkthroughDetail({
   walkthrough,
@@ -67,19 +139,14 @@ export default function WalkthroughDetail({
 
                 {item.photos?.length ? (
                   <div style={styles.photoGrid}>
-                    {item.photos.map((photo, photoIndex) => {
-                      const src = resolveFileUrl(photo);
-
-                      return (
-                        <div key={photoIndex} style={styles.photoCard}>
-                          <img
-                            src={src}
-                            alt={`walkthrough-${sectionIndex}-${itemIndex}-${photoIndex}`}
-                            style={styles.photoPreview}
-                          />
-                        </div>
-                      );
-                    })}
+                    {item.photos.map((photo, photoIndex) => (
+                      <div key={photoIndex} style={styles.photoCard}>
+                        <WalkthroughPhoto
+                          photo={photo}
+                          alt={`walkthrough-${sectionIndex}-${itemIndex}-${photoIndex}`}
+                        />
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </div>
