@@ -398,6 +398,53 @@ async function sendActionPlanEmail({ to, organizationName, items }) {
   });
 }
 
+async function sendActionPlanCreatedEmail({ to, organizationName, items }) {
+  const actionPlanUrl = getPublicAppUrl();
+  const safeActionPlanUrl = escapeHtml(actionPlanUrl);
+
+  return sendReportEmail({
+    to,
+    subject: `Inspectria Action Plan created - ${organizationName || "Organization"}`,
+    text: [
+      "Hello,",
+      "",
+      `The following action plan item(s) were created in ${organizationName || "Inspectria"}.`,
+      "",
+      actionPlanRowsText(items),
+      "",
+      "You can review and edit them from the Action Plan section in Inspectria.",
+      actionPlanUrl,
+    ].join("\n"),
+    html: `
+      <p>Hello,</p>
+      <p>The following action plan item(s) were created in <strong>${escapeHtml(organizationName || "Inspectria")}</strong>.</p>
+      <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">
+        <thead>
+          <tr>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Item</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Action</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Remarks</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Due Date</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Status</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Photos</th>
+          </tr>
+        </thead>
+        <tbody>${actionPlanRowsHtml(items)}</tbody>
+      </table>
+      <p>You can review and edit them from the <strong>Action Plan</strong> section in Inspectria.</p>
+      <p>
+        <a
+          href="${safeActionPlanUrl}"
+          style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;"
+        >
+          Open Inspectria Action Plan
+        </a>
+      </p>
+      <p>${safeActionPlanUrl}</p>
+    `,
+  });
+}
+
 async function sendActionPlanReminderEmail({ to, organizationName, items }) {
   const actionPlanUrl = getPublicAppUrl();
   const safeActionPlanUrl = escapeHtml(actionPlanUrl);
@@ -501,6 +548,7 @@ async function verifyEmailConnection() {
 module.exports = {
   getMailFrom,
   isEmailConfigured,
+  sendActionPlanCreatedEmail,
   sendActionPlanEmail,
   sendActionPlanOverdueAdminEmail,
   sendActionPlanOverdueResponsibleEmail,

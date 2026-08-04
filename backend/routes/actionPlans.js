@@ -3,6 +3,7 @@ const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
 const {
   isEmailConfigured,
+  sendActionPlanCreatedEmail,
   sendActionPlanEmail,
   sendActionPlanOverdueAdminEmail,
   sendActionPlanOverdueResponsibleEmail,
@@ -229,8 +230,7 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 
     let emailError = "";
     if (isEmailConfigured()) {
-      await Promise.all(
-        Array.from(byEmail.entries()).map(([to, assignedItems]) =>
+      const emailJobs = Array.from(byEmail.entries()).map(([to, assignedItems]) =>
           sendActionPlanEmail({
             to,
             organizationName: organization.name,
@@ -238,8 +238,22 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
           }).catch((error) => {
             emailError = error instanceof Error ? error.message : "Action plan email failed";
           })
-        )
       );
+
+      const creatorEmail = cleanEmail(req.user.email);
+      if (creatorEmail && isValidEmail(creatorEmail)) {
+        emailJobs.push(
+          sendActionPlanCreatedEmail({
+            to: creatorEmail,
+            organizationName: organization.name,
+            items: createdItems,
+          }).catch((error) => {
+            emailError = error instanceof Error ? error.message : "Action plan email failed";
+          })
+        );
+      }
+
+      await Promise.all(emailJobs);
     }
 
     res.json({ success: true, items: createdItems, emailError: emailError || undefined });
