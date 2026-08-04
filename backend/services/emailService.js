@@ -4,6 +4,10 @@ function getMailFrom() {
   return process.env.MAIL_FROM || '"Inspectria Reports" <reports@inspectria.com>';
 }
 
+function getPublicAppUrl() {
+  return (process.env.PUBLIC_APP_URL || "https://inspectria.com").replace(/\/+$/, "");
+}
+
 function isEmailConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
@@ -331,6 +335,8 @@ function actionPlanRowsText(items) {
 
 async function sendActionPlanEmail({ to, organizationName, items }) {
   const safeOrganizationName = escapeHtml(organizationName || "your organization");
+  const actionPlanUrl = getPublicAppUrl();
+  const safeActionPlanUrl = escapeHtml(actionPlanUrl);
 
   return sendReportEmail({
     to,
@@ -342,7 +348,8 @@ async function sendActionPlanEmail({ to, organizationName, items }) {
       "",
       actionPlanRowsText(items),
       "",
-      "Please open Inspectria and update Remarks and Status as work progresses.",
+      "Please sign in to Inspectria, open the Action Plan section, and complete your assigned action plan item(s).",
+      actionPlanUrl,
     ].join("\n"),
     html: `
       <p>Hello,</p>
@@ -359,12 +366,24 @@ async function sendActionPlanEmail({ to, organizationName, items }) {
         </thead>
         <tbody>${actionPlanRowsHtml(items)}</tbody>
       </table>
-      <p>Please open Inspectria and update Remarks and Status as work progresses.</p>
+      <p>Please sign in to Inspectria, open the <strong>Action Plan</strong> section, and complete your assigned action plan item(s).</p>
+      <p>
+        <a
+          href="${safeActionPlanUrl}"
+          style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;"
+        >
+          Open Inspectria Action Plan
+        </a>
+      </p>
+      <p>${safeActionPlanUrl}</p>
     `,
   });
 }
 
 async function sendActionPlanReminderEmail({ to, organizationName, items }) {
+  const actionPlanUrl = getPublicAppUrl();
+  const safeActionPlanUrl = escapeHtml(actionPlanUrl);
+
   return sendReportEmail({
     to,
     subject: "Inspectria Action Plan reminder",
@@ -374,6 +393,9 @@ async function sendActionPlanReminderEmail({ to, organizationName, items }) {
       `The following action plan item(s) are due tomorrow in ${organizationName || "Inspectria"}.`,
       "",
       actionPlanRowsText(items),
+      "",
+      "Please sign in to Inspectria, open the Action Plan section, and complete your assigned action plan item(s).",
+      actionPlanUrl,
     ].join("\n"),
     html: `
       <p>Hello,</p>
@@ -381,11 +403,24 @@ async function sendActionPlanReminderEmail({ to, organizationName, items }) {
       <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">
         <tbody>${actionPlanRowsHtml(items)}</tbody>
       </table>
+      <p>Please sign in to Inspectria, open the <strong>Action Plan</strong> section, and complete your assigned action plan item(s).</p>
+      <p>
+        <a
+          href="${safeActionPlanUrl}"
+          style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;"
+        >
+          Open Inspectria Action Plan
+        </a>
+      </p>
+      <p>${safeActionPlanUrl}</p>
     `,
   });
 }
 
 async function sendActionPlanOverdueResponsibleEmail({ to, organizationName, items }) {
+  const actionPlanUrl = getPublicAppUrl();
+  const safeActionPlanUrl = escapeHtml(actionPlanUrl);
+
   return sendReportEmail({
     to,
     subject: "Overdue Inspectria Action Plan item(s)",
@@ -396,7 +431,8 @@ async function sendActionPlanOverdueResponsibleEmail({ to, organizationName, ite
       "",
       actionPlanRowsText(items),
       "",
-      "Please open Inspectria, update Remarks if needed, and mark the item Done when completed.",
+      "Please sign in to Inspectria, open the Action Plan section, and complete your assigned action plan item(s). Update Remarks if needed and mark the item Done when completed.",
+      actionPlanUrl,
     ].join("\n"),
     html: `
       <p>Hello,</p>
@@ -404,7 +440,16 @@ async function sendActionPlanOverdueResponsibleEmail({ to, organizationName, ite
       <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">
         <tbody>${actionPlanRowsHtml(items)}</tbody>
       </table>
-      <p>Please open Inspectria, update Remarks if needed, and mark the item <strong>Done</strong> when completed.</p>
+      <p>Please sign in to Inspectria, open the <strong>Action Plan</strong> section, and complete your assigned action plan item(s). Update Remarks if needed and mark the item <strong>Done</strong> when completed.</p>
+      <p>
+        <a
+          href="${safeActionPlanUrl}"
+          style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;"
+        >
+          Open Inspectria Action Plan
+        </a>
+      </p>
+      <p>${safeActionPlanUrl}</p>
     `,
   });
 }
