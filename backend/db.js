@@ -372,6 +372,7 @@ async function initDb() {
       action_plan_item_id INTEGER NOT NULL REFERENCES action_plan_items(id) ON DELETE CASCADE,
       user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       email TEXT NOT NULL,
+      overdue_sent_at TIMESTAMPTZ,
       UNIQUE (action_plan_item_id, email)
     );
 
@@ -627,6 +628,11 @@ async function initDb() {
   await ensureColumn("reports", "organization_id", "organization_id INTEGER");
   await ensureColumn("report_photos", "data_url", "data_url TEXT");
   await ensureColumn("draft_reports", "organization_id", "organization_id INTEGER");
+  await ensureColumn(
+    "action_plan_responsible_parties",
+    "overdue_sent_at",
+    "overdue_sent_at TIMESTAMPTZ"
+  );
 
   const defaultOrgName = process.env.DEFAULT_ORGANIZATION_NAME || "Inspectria Demo";
   const org = await one(

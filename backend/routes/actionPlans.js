@@ -5,6 +5,7 @@ const {
   isEmailConfigured,
   sendActionPlanEmail,
   sendActionPlanOverdueAdminEmail,
+  sendActionPlanOverdueResponsibleEmail,
   sendActionPlanReminderEmail,
 } = require("../services/emailService");
 
@@ -348,6 +349,46 @@ async function runActionPlanNotifications() {
     await db.query(
       "UPDATE action_plan_items SET reminder_sent_at = NOW() WHERE id = ANY($1::int[])",
       [items.map((item) => Number(item.id))]
+    );
+  }
+
+  const overdueResponsibleRows = await db.many(`
+    SELECT
+      rp.id AS "responsiblePartyId",
+      api.id,
+      api.organization_id AS "organizationId",
+      o.name AS "organizationName",
+      api.item,
+      api.action,
+      api.remarks,
+      api.due_date::text AS "dueDate",
+      api.status,
+      rp.email
+    FROM action_plan_items api
+    JOIN organizations o ON o.id = api.organization_id
+    JOIN action_plan_responsible_parties rp ON rp.action_plan_item_id = api.id
+    WHERE api.status != 'Done'
+      AND api.due_date < CURRENT_DATE
+      AND (
+        rp.overdue_sent_at IS NULL
+        OR rp.overdue_sent_at::date < CURRENT_DATE
+      )
+  `);
+
+  const overdueResponsibleGroups = new Map();
+  overdueResponsibleRows.forEach((row) => {
+    const key = `${row.email}|${row.organizationName}`;
+    overdueResponsibleGroups.set(key, [
+      ...(overdueResponsibleGroups.get(key) || []),
+      row,
+    ]);
+  });
+  for (const [key, items] of overdueResponsibleGroups.entries()) {
+    const [to, organizationName] = key.split("|");
+    await sendActionPlanOverdueResponsibleEmail({ to, organizationName, items });
+    await db.query(
+      "UPDATE action_plan_responsible_parties SET overdue_sent_at = NOW() WHERE id = ANY($1::int[])",
+      [items.map((item) => Number(item.responsiblePartyId))]
     );
   }
 

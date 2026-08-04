@@ -385,6 +385,30 @@ async function sendActionPlanReminderEmail({ to, organizationName, items }) {
   });
 }
 
+async function sendActionPlanOverdueResponsibleEmail({ to, organizationName, items }) {
+  return sendReportEmail({
+    to,
+    subject: "Overdue Inspectria Action Plan item(s)",
+    text: [
+      "Hello,",
+      "",
+      `The following action plan item(s) are past due in ${organizationName || "Inspectria"} and are not marked Done yet.`,
+      "",
+      actionPlanRowsText(items),
+      "",
+      "Please open Inspectria, update Remarks if needed, and mark the item Done when completed.",
+    ].join("\n"),
+    html: `
+      <p>Hello,</p>
+      <p>The following action plan item(s) are past due in <strong>${escapeHtml(organizationName || "Inspectria")}</strong> and are not marked <strong>Done</strong> yet.</p>
+      <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">
+        <tbody>${actionPlanRowsHtml(items)}</tbody>
+      </table>
+      <p>Please open Inspectria, update Remarks if needed, and mark the item <strong>Done</strong> when completed.</p>
+    `,
+  });
+}
+
 async function sendActionPlanOverdueAdminEmail({ to, organizationName, items }) {
   return sendReportEmail({
     to,
@@ -416,6 +440,7 @@ module.exports = {
   isEmailConfigured,
   sendActionPlanEmail,
   sendActionPlanOverdueAdminEmail,
+  sendActionPlanOverdueResponsibleEmail,
   sendActionPlanReminderEmail,
   sendAppMessageEmail,
   sendPasswordResetCode,
