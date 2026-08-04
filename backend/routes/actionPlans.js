@@ -251,8 +251,6 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 router.put("/:id", authRequired, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const remarks = String(req.body?.remarks || "").trim();
-    const status = cleanStatus(req.body?.status);
 
     const existing = await db.one(
       `
@@ -287,14 +285,103 @@ router.put("/:id", authRequired, async (req, res, next) => {
       return res.status(403).json({ message: "You cannot update this action plan item" });
     }
 
-    await db.query(
-      `
-      UPDATE action_plan_items
-      SET remarks = $1, status = $2, updated_at = NOW()
-      WHERE id = $3
-    `,
-      [remarks, status, id]
-    );
+    const hasAdminEditPayload =
+      req.body &&
+      (Object.prototype.hasOwnProperty.call(req.body, "item") ||
+        Object.prototype.hasOwnProperty.call(req.body, "action") ||
+        Object.prototype.hasOwnProperty.call(req.body, "dueDate") ||
+        Object.prototype.hasOwnProperty.call(req.body, "responsibleEmails") ||
+        Object.prototype.hasOwnProperty.call(req.body, "photos"));
+
+    if (canAdminEdit && hasAdminEditPayload) {
+      const item = String(req.body?.item || "").trim();
+      const action = String(req.body?.action || "").trim();
+      const remarks = String(req.body?.remarks || "").trim();
+      const dueDate = String(req.body?.dueDate || "").trim();
+      const status = cleanStatus(req.body?.status);
+      const emails = Array.from(
+        new Set((req.body?.responsibleEmails || []).map(cleanEmail).filter(Boolean))
+      );
+      const photos = Array.from(
+        new Set((req.body?.photos || []).map(cleanPhotoPath).filter(Boolean))
+      );
+
+      if (!item || !action || !dueDate || emails.length === 0) {
+        return res.status(400).json({
+          message: "Item, action, due date and at least one responsible email are required",
+        });
+      }
+
+      const invalidEmail = emails.find((email) => !isValidEmail(email));
+      if (invalidEmail) {
+        return res.status(400).json({ message: `Invalid email: ${invalidEmail}` });
+      }
+
+      await db.transaction(async (client) => {
+        await client.query(
+          `
+          UPDATE action_plan_items
+          SET item = $1, action = $2, remarks = $3, due_date = $4::date, status = $5, updated_at = NOW()
+          WHERE id = $6
+        `,
+          [item, action, remarks, dueDate, status, id]
+        );
+
+        await client.query(
+          "DELETE FROM action_plan_responsible_parties WHERE action_plan_item_id = $1",
+          [id]
+        );
+
+        for (const email of emails) {
+          const user = await client.query(
+            `
+            SELECT id
+            FROM users
+            WHERE organization_id = $1
+              AND LOWER(email) = $2
+              AND active = TRUE
+            LIMIT 1
+          `,
+            [existing.organization_id, email]
+          );
+
+          await client.query(
+            `
+            INSERT INTO action_plan_responsible_parties
+              (action_plan_item_id, user_id, email)
+            VALUES ($1, $2, $3)
+          `,
+            [id, user.rows[0]?.id || null, email]
+          );
+        }
+
+        await client.query("DELETE FROM action_plan_photos WHERE action_plan_item_id = $1", [
+          id,
+        ]);
+
+        for (const photo of photos) {
+          await client.query(
+            `
+            INSERT INTO action_plan_photos (action_plan_item_id, file_path)
+            VALUES ($1, $2)
+          `,
+            [id, photo]
+          );
+        }
+      });
+    } else {
+      const remarks = String(req.body?.remarks || "").trim();
+      const status = cleanStatus(req.body?.status);
+
+      await db.query(
+        `
+        UPDATE action_plan_items
+        SET remarks = $1, status = $2, updated_at = NOW()
+        WHERE id = $3
+      `,
+        [remarks, status, id]
+      );
+    }
 
     res.json({ success: true });
   } catch (error) {

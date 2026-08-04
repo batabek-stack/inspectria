@@ -182,6 +182,16 @@ type FillItem = {
   touchedAt?: string;
 };
 
+type ActionPlanEditForm = {
+  item: string;
+  action: string;
+  remarks: string;
+  responsibleEmails: string;
+  dueDate: string;
+  status: ActionPlanStatus;
+  photos: string[];
+};
+
 type TemplateDraft = {
   editingId: number | null;
   title: string;
@@ -956,6 +966,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [actionPlanPhotoUploading, setActionPlanPhotoUploading] = useState(false);
   const [actionPlanDraftItems, setActionPlanDraftItems] = useState<ActionPlanDraftItem[]>([]);
   const [actionPlanSaving, setActionPlanSaving] = useState(false);
+  const [editingActionPlanId, setEditingActionPlanId] = useState<number | null>(null);
+  const [actionPlanEditForm, setActionPlanEditForm] = useState<ActionPlanEditForm | null>(null);
+  const [actionPlanEditPhotoUploading, setActionPlanEditPhotoUploading] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [unreadReportCount, setUnreadReportCount] = useState(0);
   const [reportEmailRecipients, setReportEmailRecipients] = useState<ReportEmailRecipient[]>([]);
@@ -1391,6 +1404,81 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     try {
       await updateActionPlan(plan.id, { remarks, status });
       setActionPlans(await getActionPlans());
+      setMessage("Action Plan item updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action Plan item could not be updated");
+    }
+  };
+
+  const startEditActionPlan = (plan: ActionPlanItem) => {
+    setEditingActionPlanId(plan.id);
+    setActionPlanEditForm({
+      item: plan.item,
+      action: plan.action,
+      remarks: plan.remarks || "",
+      responsibleEmails: plan.responsibleParties.map((party) => party.email).join(", "),
+      dueDate: plan.dueDate,
+      status: plan.status,
+      photos: plan.photos || [],
+    });
+  };
+
+  const updateActionPlanEditForm = (patch: Partial<ActionPlanEditForm>) => {
+    setActionPlanEditForm((current) => (current ? { ...current, ...patch } : current));
+  };
+
+  const cancelEditActionPlan = () => {
+    setEditingActionPlanId(null);
+    setActionPlanEditForm(null);
+  };
+
+  const uploadActionPlanEditPhotos = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    try {
+      setActionPlanEditPhotoUploading(true);
+      setError("");
+      const uploaded = await uploadPhotos(files);
+      setActionPlanEditForm((current) =>
+        current ? { ...current, photos: [...current.photos, ...uploaded] } : current
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action Plan photo upload failed");
+    } finally {
+      setActionPlanEditPhotoUploading(false);
+    }
+  };
+
+  const removeActionPlanEditPhoto = (photoIndex: number) => {
+    setActionPlanEditForm((current) =>
+      current
+        ? {
+            ...current,
+            photos: current.photos.filter((_, index) => index !== photoIndex),
+          }
+        : current
+    );
+  };
+
+  const saveActionPlanEdit = async () => {
+    if (!editingActionPlanId || !actionPlanEditForm) return;
+
+    try {
+      setError("");
+      await updateActionPlan(editingActionPlanId, {
+        item: actionPlanEditForm.item,
+        action: actionPlanEditForm.action,
+        remarks: actionPlanEditForm.remarks,
+        responsibleEmails: actionPlanEditForm.responsibleEmails
+          .split(/[\s,;]+/)
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean),
+        dueDate: actionPlanEditForm.dueDate,
+        status: actionPlanEditForm.status,
+        photos: actionPlanEditForm.photos,
+      });
+      setActionPlans(await getActionPlans());
+      cancelEditActionPlan();
       setMessage("Action Plan item updated.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action Plan item could not be updated");
@@ -7198,7 +7286,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     <div style={styles.small}>No Action Plan items yet.</div>
                   ) : (
                     <div className="compact-list">
-                      {actionPlans.map((plan) => (
+                      {actionPlans.map((plan) => {
+                        const isEditingActionPlan = editingActionPlanId === plan.id && actionPlanEditForm;
+
+                        return (
                         <div key={plan.id} className="compact-row compact-row-open">
                           <div className="compact-row-title">
                             <strong>{plan.item}</strong>
@@ -7211,9 +7302,63 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               {plan.responsibleParties.map((party) => party.email).join(", ")}
                             </span>
                           </div>
-                          {(plan.photos || []).length > 0 ? (
+                          {isEditingActionPlan ? (
+                            <div className="compact-row-form">
+                              <input
+                                style={styles.input}
+                                value={actionPlanEditForm.item}
+                                onChange={(event) => updateActionPlanEditForm({ item: event.target.value })}
+                              />
+                              <input
+                                style={styles.input}
+                                value={actionPlanEditForm.action}
+                                onChange={(event) => updateActionPlanEditForm({ action: event.target.value })}
+                              />
+                              <input
+                                style={styles.input}
+                                type="date"
+                                value={actionPlanEditForm.dueDate}
+                                onChange={(event) => updateActionPlanEditForm({ dueDate: event.target.value })}
+                              />
+                              <select
+                                style={styles.input}
+                                value={actionPlanEditForm.status}
+                                onChange={(event) =>
+                                  updateActionPlanEditForm({
+                                    status: event.target.value as ActionPlanStatus,
+                                  })
+                                }
+                              >
+                                {ACTION_PLAN_STATUSES.map((status) => (
+                                  <option key={status} value={status}>
+                                    {status}
+                                  </option>
+                                ))}
+                              </select>
+                              <textarea
+                                style={{ ...styles.input, minHeight: 70 }}
+                                value={actionPlanEditForm.remarks}
+                                onChange={(event) => updateActionPlanEditForm({ remarks: event.target.value })}
+                              />
+                              <textarea
+                                style={{ ...styles.input, minHeight: 70 }}
+                                value={actionPlanEditForm.responsibleEmails}
+                                placeholder="Responsible emails separated by comma, semicolon or space"
+                                onChange={(event) =>
+                                  updateActionPlanEditForm({ responsibleEmails: event.target.value })
+                                }
+                              />
+                            </div>
+                          ) : null}
+                          {(isEditingActionPlan
+                            ? actionPlanEditForm.photos
+                            : plan.photos || []
+                          ).length > 0 ? (
                             <div style={{ ...styles.photoGrid, gridColumn: "1 / -1" }}>
-                              {(plan.photos || []).map((photo, photoIndex) => {
+                              {(isEditingActionPlan
+                                ? actionPlanEditForm.photos
+                                : plan.photos || []
+                              ).map((photo, photoIndex) => {
                                 const src = resolveFileUrl(photo);
 
                                 return (
@@ -7223,12 +7368,57 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                                       alt={`action-plan-${plan.id}-${photoIndex}`}
                                       style={styles.photoPreview}
                                     />
+                                    {isEditingActionPlan ? (
+                                      <button
+                                        type="button"
+                                        style={{ ...styles.secondaryButton, marginTop: 8 }}
+                                        onClick={() => removeActionPlanEditPhoto(photoIndex)}
+                                      >
+                                        Remove
+                                      </button>
+                                    ) : null}
                                   </div>
                                 );
                               })}
                             </div>
                           ) : null}
-                          <div className="compact-row-form">
+                          {isEditingActionPlan ? (
+                            <div
+                              className="photo-upload-actions"
+                              style={{ gridColumn: "1 / -1" }}
+                            >
+                              <label className="file-upload-button">
+                                Add Photo
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  onChange={(event) => {
+                                    uploadActionPlanEditPhotos(event.target.files);
+                                    event.currentTarget.value = "";
+                                  }}
+                                  disabled={actionPlanEditPhotoUploading}
+                                />
+                              </label>
+                              <label className="file-upload-button">
+                                Take Photo
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  onChange={(event) => {
+                                    uploadActionPlanEditPhotos(event.target.files);
+                                    event.currentTarget.value = "";
+                                  }}
+                                  disabled={actionPlanEditPhotoUploading}
+                                />
+                              </label>
+                              {actionPlanEditPhotoUploading ? (
+                                <span style={styles.small}>Uploading photos...</span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="compact-row-form">
                             <textarea
                               style={{ ...styles.input, minHeight: 70 }}
                               defaultValue={plan.remarks}
@@ -7257,13 +7447,29 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               ))}
                             </select>
                           </div>
+                          )}
                           <div className="compact-row-actions">
+                            {isEditingActionPlan ? (
+                              <>
+                                <button type="button" onClick={saveActionPlanEdit}>
+                                  Save
+                                </button>
+                                <button type="button" onClick={cancelEditActionPlan}>
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button type="button" onClick={() => startEditActionPlan(plan)}>
+                                Edit
+                              </button>
+                            )}
                             <button type="button" onClick={() => removeActionPlan(plan)}>
                               Delete
                             </button>
                           </div>
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
                   )}
                 </div>

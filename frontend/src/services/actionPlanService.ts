@@ -24,7 +24,15 @@ export function createActionPlans(organizationId: number, items: ActionPlanDraft
 
 export function updateActionPlan(
   id: number,
-  payload: { remarks: string; status: ActionPlanStatus }
+  payload: {
+    item?: string;
+    action?: string;
+    remarks: string;
+    responsibleEmails?: string[];
+    dueDate?: string;
+    status: ActionPlanStatus;
+    photos?: string[];
+  }
 ) {
   return apiPut<{ success: boolean }>(`/action-plans/${id}`, payload);
 }
