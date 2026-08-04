@@ -8,6 +8,7 @@ export type ActionPlanDraftItem = {
   responsibleEmails: string[];
   dueDate: string;
   status: ActionPlanStatus;
+  photos: string[];
 };
 
 export function getActionPlans() {

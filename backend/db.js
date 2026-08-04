@@ -376,6 +376,12 @@ async function initDb() {
       UNIQUE (action_plan_item_id, email)
     );
 
+    CREATE TABLE IF NOT EXISTS action_plan_photos (
+      id SERIAL PRIMARY KEY,
+      action_plan_item_id INTEGER NOT NULL REFERENCES action_plan_items(id) ON DELETE CASCADE,
+      file_path TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS email_logs (
       id SERIAL PRIMARY KEY,
       organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
@@ -486,6 +492,8 @@ async function initDb() {
       WHERE status != 'Done';
     CREATE INDEX IF NOT EXISTS idx_action_plan_responsible_email
       ON action_plan_responsible_parties(LOWER(email));
+    CREATE INDEX IF NOT EXISTS idx_action_plan_photos_item_id
+      ON action_plan_photos(action_plan_item_id);
     CREATE INDEX IF NOT EXISTS idx_email_logs_organization_id
       ON email_logs(organization_id);
     CREATE INDEX IF NOT EXISTS idx_email_logs_report

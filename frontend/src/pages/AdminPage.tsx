@@ -952,6 +952,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [actionPlanResponsibleEmails, setActionPlanResponsibleEmails] = useState<string[]>([]);
   const [actionPlanResponsibleOpen, setActionPlanResponsibleOpen] = useState(false);
   const [actionPlanManualEmails, setActionPlanManualEmails] = useState("");
+  const [actionPlanPhotos, setActionPlanPhotos] = useState<string[]>([]);
+  const [actionPlanPhotoUploading, setActionPlanPhotoUploading] = useState(false);
   const [actionPlanDraftItems, setActionPlanDraftItems] = useState<ActionPlanDraftItem[]>([]);
   const [actionPlanSaving, setActionPlanSaving] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
@@ -1283,6 +1285,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     setActionPlanResponsibleEmails([]);
     setActionPlanResponsibleOpen(false);
     setActionPlanManualEmails("");
+    setActionPlanPhotos([]);
   };
 
   const getActionPlanEmails = () =>
@@ -1314,6 +1317,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         responsibleEmails: emails,
         dueDate: actionPlanDueDate,
         status: "Open",
+        photos: actionPlanPhotos,
       },
     ]);
     setError("");
@@ -1338,6 +1342,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       responsibleEmails: emails,
       dueDate: actionPlanDueDate,
       status: "Open",
+      photos: actionPlanPhotos,
     };
   };
 
@@ -1346,7 +1351,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       actionPlanAction.trim() ||
       actionPlanDueDate ||
       actionPlanResponsibleEmails.length > 0 ||
-      actionPlanManualEmails.trim()
+      actionPlanManualEmails.trim() ||
+      actionPlanPhotos.length > 0
   );
 
   const submitActionPlanDraft = async () => {
@@ -1422,6 +1428,25 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action Plan items could not be deleted");
     }
+  };
+
+  const uploadActionPlanPhotos = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    try {
+      setActionPlanPhotoUploading(true);
+      setError("");
+      const uploaded = await uploadPhotos(files);
+      setActionPlanPhotos((current) => [...current, ...uploaded]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action Plan photo upload failed");
+    } finally {
+      setActionPlanPhotoUploading(false);
+    }
+  };
+
+  const removeActionPlanPhoto = (photoIndex: number) => {
+    setActionPlanPhotos((current) => current.filter((_, index) => index !== photoIndex));
   };
 
   useEffect(() => {
@@ -7066,6 +7091,65 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     Assigned users see these items in their own Action Plan menu and can update only Remarks and Status.
                   </div>
 
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ ...styles.label, marginBottom: 6 }}>Photos</div>
+                    <div className="photo-upload-actions">
+                      <label className="file-upload-button">
+                        Add Photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(event) => {
+                            uploadActionPlanPhotos(event.target.files);
+                            event.currentTarget.value = "";
+                          }}
+                          disabled={actionPlanPhotoUploading}
+                        />
+                      </label>
+                      <label className="file-upload-button">
+                        Take Photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(event) => {
+                            uploadActionPlanPhotos(event.target.files);
+                            event.currentTarget.value = "";
+                          }}
+                          disabled={actionPlanPhotoUploading}
+                        />
+                      </label>
+                      {actionPlanPhotoUploading ? (
+                        <span style={styles.small}>Uploading photos...</span>
+                      ) : null}
+                    </div>
+                    {actionPlanPhotos.length > 0 ? (
+                      <div style={styles.photoGrid}>
+                        {actionPlanPhotos.map((photo, photoIndex) => {
+                          const src = resolveFileUrl(photo);
+
+                          return (
+                            <div key={`${photo}-${photoIndex}`} style={styles.photoCard}>
+                              <img
+                                src={src}
+                                alt={`action-plan-${photoIndex}`}
+                                style={styles.photoPreview}
+                              />
+                              <button
+                                type="button"
+                                style={{ ...styles.secondaryButton, marginTop: 8 }}
+                                onClick={() => removeActionPlanPhoto(photoIndex)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+
                   {actionPlanDraftItems.length > 0 ? (
                     <div className="action-plan-drafts">
                       <strong>Draft Items</strong>
@@ -7076,6 +7160,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               <strong>{draft.item}</strong>
                               <span>
                                 {draft.action} | {draft.dueDate} | {draft.responsibleEmails.join(", ")}
+                                {draft.photos.length > 0 ? ` | ${draft.photos.length} photo(s)` : ""}
                               </span>
                             </div>
                             <div className="compact-row-actions">
@@ -7126,6 +7211,23 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               {plan.responsibleParties.map((party) => party.email).join(", ")}
                             </span>
                           </div>
+                          {(plan.photos || []).length > 0 ? (
+                            <div style={{ ...styles.photoGrid, gridColumn: "1 / -1" }}>
+                              {(plan.photos || []).map((photo, photoIndex) => {
+                                const src = resolveFileUrl(photo);
+
+                                return (
+                                  <div key={`${plan.id}-${photoIndex}`} style={styles.photoCard}>
+                                    <img
+                                      src={src}
+                                      alt={`action-plan-${plan.id}-${photoIndex}`}
+                                      style={styles.photoPreview}
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
                           <div className="compact-row-form">
                             <textarea
                               style={{ ...styles.input, minHeight: 70 }}

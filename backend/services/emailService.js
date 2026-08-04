@@ -309,27 +309,44 @@ async function sendAppMessageEmail({ to, recipientName, senderName, title, body 
 }
 
 function actionPlanRowsHtml(items) {
+  const appUrl = getPublicAppUrl();
   return items
-    .map(
-      (item) => `
+    .map((item) => {
+      const photoLinks = (item.photos || [])
+        .map((photo, index) => {
+          const photoUrl = `${appUrl}${String(photo || "").startsWith("/") ? "" : "/"}${photo}`;
+          const safePhotoUrl = escapeHtml(photoUrl);
+          return `<a href="${safePhotoUrl}">Photo ${index + 1}</a>`;
+        })
+        .join("<br />");
+
+      return `
         <tr>
           <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.item)}</td>
           <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.action)}</td>
           <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.remarks || "")}</td>
           <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.dueDate || item.due_date || "")}</td>
           <td style="padding:8px;border:1px solid #dbe4ea;">${escapeHtml(item.status || "Open")}</td>
+          <td style="padding:8px;border:1px solid #dbe4ea;">${photoLinks || "-"}</td>
         </tr>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
 function actionPlanRowsText(items) {
+  const appUrl = getPublicAppUrl();
   return items
-    .map(
-      (item, index) =>
-        `${index + 1}. Item: ${item.item}\nAction: ${item.action}\nRemarks: ${item.remarks || "-"}\nDue Date: ${item.dueDate || item.due_date || "-"}\nStatus: ${item.status || "Open"}`
-    )
+    .map((item, index) => {
+      const photos = (item.photos || [])
+        .map((photo, photoIndex) => {
+          const photoUrl = `${appUrl}${String(photo || "").startsWith("/") ? "" : "/"}${photo}`;
+          return `Photo ${photoIndex + 1}: ${photoUrl}`;
+        })
+        .join("\n");
+
+      return `${index + 1}. Item: ${item.item}\nAction: ${item.action}\nRemarks: ${item.remarks || "-"}\nDue Date: ${item.dueDate || item.due_date || "-"}\nStatus: ${item.status || "Open"}${photos ? `\nPhotos:\n${photos}` : ""}`;
+    })
     .join("\n\n");
 }
 
@@ -362,6 +379,7 @@ async function sendActionPlanEmail({ to, organizationName, items }) {
             <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Remarks</th>
             <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Due Date</th>
             <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Status</th>
+            <th style="padding:8px;border:1px solid #dbe4ea;text-align:left;">Photos</th>
           </tr>
         </thead>
         <tbody>${actionPlanRowsHtml(items)}</tbody>

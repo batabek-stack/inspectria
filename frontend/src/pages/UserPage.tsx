@@ -1709,6 +1709,23 @@ export default function UserPage({ user, onLogout }: Props) {
                           {plan.action} | Due: {plan.dueDate} | Status: {plan.status}
                         </span>
                       </div>
+                      {(plan.photos || []).length > 0 ? (
+                        <div style={{ ...styles.photoGrid, gridColumn: "1 / -1" }}>
+                          {(plan.photos || []).map((photo, photoIndex) => {
+                            const src = resolveFileUrl(photo);
+
+                            return (
+                              <div key={`${plan.id}-${photoIndex}`} style={styles.photoCard}>
+                                <img
+                                  src={src}
+                                  alt={`action-plan-${plan.id}-${photoIndex}`}
+                                  style={styles.photoPreview}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                       <div className="compact-row-form">
                         <label>
                           <span style={styles.label}>Remarks</span>

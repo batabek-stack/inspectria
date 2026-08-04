@@ -25,6 +25,12 @@ function cleanStatus(status) {
   return STATUSES.has(value) ? value : "Open";
 }
 
+function cleanPhotoPath(photo) {
+  const value = String(photo || "").trim();
+  if (!value || !value.startsWith("/uploads/")) return "";
+  return value;
+}
+
 function toActionPlan(row) {
   return {
     id: Number(row.id),
@@ -36,6 +42,7 @@ function toActionPlan(row) {
     dueDate: row.dueDate,
     status: row.status,
     responsibleParties: row.responsibleParties || [],
+    photos: row.photos || [],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -88,11 +95,16 @@ async function listActionPlans(req) {
           )
         ) FILTER (WHERE rp.id IS NOT NULL),
         '[]'
-      ) AS "responsibleParties"
+      ) AS "responsibleParties",
+      COALESCE(
+        array_agg(DISTINCT app.file_path) FILTER (WHERE app.file_path IS NOT NULL),
+        ARRAY[]::text[]
+      ) AS photos
     FROM action_plan_items api
     JOIN organizations o ON o.id = api.organization_id
     LEFT JOIN action_plan_responsible_parties rp ON rp.action_plan_item_id = api.id
     LEFT JOIN users u ON u.id = rp.user_id
+    LEFT JOIN action_plan_photos app ON app.action_plan_item_id = api.id
     WHERE ${where.join(" AND ")}
     GROUP BY api.id, o.name
     ORDER BY api.due_date ASC, api.id DESC
@@ -141,6 +153,9 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
         const emails = Array.from(
           new Set((rawItem?.responsibleEmails || []).map(cleanEmail).filter(Boolean))
         );
+        const photos = Array.from(
+          new Set((rawItem?.photos || []).map(cleanPhotoPath).filter(Boolean))
+        );
 
         if (!item || !action || !dueDate || emails.length === 0) {
           throw Object.assign(
@@ -186,6 +201,16 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
             ON CONFLICT (action_plan_item_id, email) DO NOTHING
           `,
             [actionPlanItemId, user.rows[0]?.id || null, email]
+          );
+        }
+
+        for (const photo of photos) {
+          await client.query(
+            `
+            INSERT INTO action_plan_photos (action_plan_item_id, file_path)
+            VALUES ($1, $2)
+          `,
+            [actionPlanItemId, photo]
           );
         }
       }

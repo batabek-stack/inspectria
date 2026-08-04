@@ -236,6 +236,7 @@ export type ActionPlanItem = {
   dueDate: string;
   status: ActionPlanStatus;
   responsibleParties: ActionPlanResponsibleParty[];
+  photos: string[];
   createdAt: string;
   updatedAt: string;
 };
