@@ -38,6 +38,10 @@ const productFeatures = [
     body: "Convert failed inspection items into a structured action plan with priority, department, owner, due date, root cause, and corrective action.",
   },
   {
+    title: "Assigned Action Plan follow-up",
+    body: "Create action items, assign one or more responsible users, attach photos, set due dates, and track open work until it is marked Done.",
+  },
+  {
     title: "Photo evidence for every finding",
     body: "Attach inspection photos directly to checklist answers so every report carries clear visual proof.",
   },
@@ -52,6 +56,10 @@ const productFeatures = [
   {
     title: "Excel exports for reports and action plans",
     body: "Export completed reports or AI-generated action plans to Excel for meetings, follow-up, and record keeping.",
+  },
+  {
+    title: "Action Plan email reminders",
+    body: "Notify assigned people when an action plan is created, remind them before the due date, and continue overdue reminders until completion.",
   },
   {
     title: "Role-based access",
@@ -316,7 +324,7 @@ export default function LandingPage({ onSignIn, onRegister }: Props) {
           <div>
             <span>03</span>
             <h3>Improve</h3>
-            <p>Review reports, export evidence, and follow the action plan.</p>
+            <p>Review reports, assign action plan owners, and follow each item through to completion.</p>
           </div>
         </div>
       </section>

@@ -37,7 +37,7 @@ const ROLE_GUIDES: RoleGuide[] = [
       "Create, edit, and share checklist templates in Templates.",
       "Assign control tasks by choosing a template and a user in Assignments.",
       "Create, edit, approve, and assign roles to users in User Management.",
-      "Review completed reports, export PDF or Excel files, and create action plans.",
+      "Review completed reports, export PDF or Excel files, and create Action Plan items with responsible parties, photos, due dates, and email reminders.",
       "Manage flexible on-site inspection lists in Walkthrough.",
     ],
   },
@@ -114,6 +114,55 @@ export default function SupportPage({ user, onLogout }: Props) {
                 </article>
               );
             })}
+          </div>
+        </section>
+
+        <section className="support-section" aria-labelledby="support-action-plan-title">
+          <div className="support-section-heading">
+            <span>ACTION PLAN</span>
+            <h2 id="support-action-plan-title">How to use Action Plan</h2>
+          </div>
+          <div className="support-role-grid">
+            <article className="support-role-card">
+              <h3>For organization admins</h3>
+              <p>
+                Use Action Plan to turn follow-up work into assigned, trackable items.
+              </p>
+              <ul>
+                <li>Open the Action Plan menu from the admin dashboard.</li>
+                <li>Select the organization and due date, then enter the item, action, and remarks.</li>
+                <li>Choose responsible parties from the user dropdown or enter manual email addresses.</li>
+                <li>Attach photos when visual evidence or repair context is needed.</li>
+                <li>Use Add Item to prepare multiple items, then Create &amp; Send to save and email them.</li>
+                <li>Edit existing Action Plan items, update owners, change due dates, add photos, or delete items when needed.</li>
+              </ul>
+            </article>
+            <article className="support-role-card">
+              <h3>For assigned users</h3>
+              <p>
+                Assigned users only see Action Plan items connected to their email address.
+              </p>
+              <ul>
+                <li>Open the Action Plan menu after signing in to Inspectria.</li>
+                <li>Review the item, required action, remarks, due date, responsible parties, and photos.</li>
+                <li>Update Remarks if you need to leave a progress note or explanation.</li>
+                <li>Change Status to In Progress, Blocked, or Done as the work moves forward.</li>
+                <li>Mark the item Done once the action is completed.</li>
+              </ul>
+            </article>
+            <article className="support-role-card">
+              <h3>Email notifications</h3>
+              <p>
+                Inspectria sends Action Plan emails automatically when email delivery is configured.
+              </p>
+              <ul>
+                <li>Responsible people receive one email containing their assigned items when the plan is created.</li>
+                <li>The creator also receives an email summary of the created Action Plan items.</li>
+                <li>Assigned users receive a reminder one day before the due date.</li>
+                <li>If an item passes its due date and is not marked Done, overdue reminders continue daily.</li>
+                <li>Organization admins are alerted when overdue items remain incomplete.</li>
+              </ul>
+            </article>
           </div>
         </section>
 
