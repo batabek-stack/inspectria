@@ -771,9 +771,21 @@ textarea {
 
 .action-plan-fields {
   display: grid;
-  grid-template-columns: minmax(180px, 0.8fr) minmax(180px, 1fr) minmax(220px, 1.3fr) minmax(150px, 0.7fr) minmax(260px, 1.2fr);
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 240px);
   gap: 12px;
   align-items: stretch;
+}
+
+.action-plan-full-field {
+  grid-column: 1 / -1;
+}
+
+.action-plan-due-date-field {
+  grid-column: 2;
+}
+
+.action-plan-due-date-field:first-child {
+  grid-column: 1 / -1;
 }
 
 .action-plan-responsible-row {
@@ -2542,7 +2554,6 @@ textarea {
 }
 
 @media (max-width: 1180px) {
-  .action-plan-fields,
   .action-plan-responsible-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2652,6 +2663,10 @@ textarea {
   .action-plan-fields,
   .action-plan-responsible-row {
     grid-template-columns: 1fr;
+  }
+
+  .action-plan-due-date-field {
+    grid-column: 1;
   }
 
   .action-plan-builder-actions button,

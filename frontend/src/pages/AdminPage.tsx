@@ -7085,6 +7085,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   <div className="action-plan-fields">
                     {organizations.length > 0 ? (
                       <select
+                        className="action-plan-organization-field"
                         style={styles.input}
                         value={actionPlanOrganizationId}
                         onChange={(event) => {
@@ -7102,25 +7103,29 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       </select>
                     ) : null}
                     <input
+                      className="action-plan-due-date-field"
+                      style={styles.input}
+                      type="date"
+                      value={actionPlanDueDate}
+                      onChange={(event) => setActionPlanDueDate(event.target.value)}
+                    />
+                    <input
+                      className="action-plan-full-field"
                       style={styles.input}
                       placeholder="Item"
                       value={actionPlanItem}
                       onChange={(event) => setActionPlanItem(event.target.value)}
                     />
                     <input
+                      className="action-plan-full-field"
                       style={styles.input}
                       placeholder="Action"
                       value={actionPlanAction}
                       onChange={(event) => setActionPlanAction(event.target.value)}
                     />
-                    <input
-                      style={styles.input}
-                      type="date"
-                      value={actionPlanDueDate}
-                      onChange={(event) => setActionPlanDueDate(event.target.value)}
-                    />
 
                     <textarea
+                      className="action-plan-full-field"
                       style={{ ...styles.input, minHeight: 76 }}
                       placeholder="Remarks"
                       value={actionPlanRemarks}
