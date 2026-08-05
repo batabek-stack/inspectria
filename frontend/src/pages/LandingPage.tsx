@@ -202,7 +202,7 @@ export default function LandingPage({ onSignIn, onRegister }: Props) {
               Open workspace
             </button>
             <button className="secondary-action" type="button" onClick={onRegister}>
-              Create user request
+              Start free trial
             </button>
           </div>
         </div>
@@ -349,7 +349,7 @@ export default function LandingPage({ onSignIn, onRegister }: Props) {
               <div className="promotion-pill">{plan.yearlyPrice}</div>
               <p>{plan.detail}</p>
               <p>{plan.limits}</p>
-              <button className="primary-action" type="button" onClick={onSignIn}>
+              <button className="primary-action" type="button" onClick={onRegister}>
                 Start free trial
               </button>
             </article>

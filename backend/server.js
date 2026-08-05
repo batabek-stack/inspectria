@@ -89,10 +89,17 @@ initDb()
         console.error("Action plan notification check failed", error);
       });
     };
+    const runBillingTrialReminders = () => {
+      billingRoutes.runBillingTrialReminders().catch((error) => {
+        console.error("Billing trial reminder check failed", error);
+      });
+    };
     const server = app.listen(PORT, "0.0.0.0", () => {
       console.log(`Inspectria running on http://localhost:${PORT}`);
       runActionPlanNotifications();
+      runBillingTrialReminders();
       setInterval(runActionPlanNotifications, 60 * 60 * 1000);
+      setInterval(runBillingTrialReminders, 60 * 60 * 1000);
     });
 
     server.on("error", (error) => {

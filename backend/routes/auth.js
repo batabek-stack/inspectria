@@ -6,6 +6,7 @@ const { authRequired } = require("../middleware/auth");
 const {
   sendPasswordResetCode,
   sendUserRegistrationRequestEmail,
+  sendWelcomeEmail,
 } = require("../services/emailService");
 
 const router = express.Router();
@@ -14,6 +15,12 @@ function createExpiry(days = 7) {
   const expires = new Date();
   expires.setDate(expires.getDate() + days);
   return expires.toISOString();
+}
+
+function addTrial(date) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 7);
+  return next.toISOString();
 }
 
 function hashResetToken(token) {
@@ -85,6 +92,112 @@ function publicUser(user) {
   };
 }
 
+async function activatePendingTrialAdmin(user) {
+  if (
+    user.approval_status !== "pending" ||
+    user.active ||
+    !user.organization_id
+  ) {
+    return false;
+  }
+
+  return db.transaction(async (client) => {
+    const approvedAdminResult = await client.query(
+      `
+      SELECT 1
+      FROM users
+      WHERE organization_id = $1
+        AND role = 'admin'
+        AND active = TRUE
+        AND approval_status = 'approved'
+      LIMIT 1
+    `,
+      [user.organization_id]
+    );
+
+    if (approvedAdminResult.rows[0]) return false;
+
+    const userCountResult = await client.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM users
+      WHERE organization_id = $1
+    `,
+      [user.organization_id]
+    );
+    const isFirstOrganizationUser = Number(userCountResult.rows[0]?.count || 0) <= 1;
+    if (user.role !== "admin" && !isFirstOrganizationUser) return false;
+
+    const planCode = (process.env.DEFAULT_TRIAL_PLAN_CODE || "starter").trim().toLowerCase();
+    const planResult = await client.query(
+      `
+      SELECT id, code, monthly_price_cents
+      FROM billing_plans
+      WHERE LOWER(code) = $1
+        AND active = TRUE
+      LIMIT 1
+    `,
+      [planCode]
+    );
+    const trialPlan = planResult.rows[0];
+    if (!trialPlan) {
+      throw Object.assign(new Error(`Default trial plan not found: ${planCode}`), {
+        statusCode: 500,
+      });
+    }
+
+    const activeSubscriptionResult = await client.query(
+      `
+      SELECT 1
+      FROM subscriptions
+      WHERE organization_id = $1
+        AND status IN ('trialing', 'active', 'past_due')
+      LIMIT 1
+    `,
+      [user.organization_id]
+    );
+
+    if (!activeSubscriptionResult.rows[0]) {
+      await client.query(
+        `
+        INSERT INTO subscriptions
+          (
+            organization_id,
+            billing_plan_id,
+            status,
+            billing_cycle,
+            amount_cents,
+            currency,
+            payment_method,
+            started_at,
+            renews_at
+          )
+        VALUES ($1, $2, 'trialing', 'monthly', $3, 'USD', 'Free trial', NOW(), $4)
+      `,
+        [user.organization_id, trialPlan.id, trialPlan.monthly_price_cents, addTrial(new Date())]
+      );
+    }
+
+    await client.query("UPDATE organizations SET plan = $1 WHERE id = $2", [
+      trialPlan.code,
+      user.organization_id,
+    ]);
+
+    await client.query(
+      `
+      UPDATE users
+      SET active = TRUE,
+          approval_status = 'approved',
+          role = 'admin'
+      WHERE id = $1
+    `,
+      [user.id]
+    );
+
+    return true;
+  });
+}
+
 router.post("/login", async (req, res, next) => {
   try {
     const { username, password, organizationName } = req.body || {};
@@ -128,6 +241,15 @@ router.post("/login", async (req, res, next) => {
 
     if (!user || !(await bcrypt.compare(String(password), user.password_hash))) {
       return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    if (!user.active) {
+      const activatedTrialAdmin = await activatePendingTrialAdmin(user);
+      if (activatedTrialAdmin) {
+        user.active = true;
+        user.approval_status = "approved";
+        user.role = "admin";
+      }
     }
 
     if (!user.active) {
@@ -223,6 +345,7 @@ router.post("/register", async (req, res, next) => {
       let organizationNameForEmail = cleanOrganizationName;
       let role = "user";
       let approvalTarget = "organization";
+      let trialPlanName = "";
 
       const existingOrganization = await client.query(
         `
@@ -268,7 +391,50 @@ router.post("/register", async (req, res, next) => {
 
         organizationId = orgResult.rows[0].id;
         role = "admin";
-        approvalTarget = "platform";
+        approvalTarget = "trial";
+
+        const planCode = (process.env.DEFAULT_TRIAL_PLAN_CODE || "starter").trim().toLowerCase();
+        const planResult = await client.query(
+          `
+          SELECT id, code, name, monthly_price_cents
+          FROM billing_plans
+          WHERE LOWER(code) = $1
+            AND active = TRUE
+          LIMIT 1
+        `,
+          [planCode]
+        );
+        const trialPlan = planResult.rows[0];
+        if (!trialPlan) {
+          throw Object.assign(new Error(`Default trial plan not found: ${planCode}`), {
+            statusCode: 500,
+          });
+        }
+
+        trialPlanName = trialPlan.name;
+        await client.query(
+          `
+          INSERT INTO subscriptions
+            (
+              organization_id,
+              billing_plan_id,
+              status,
+              billing_cycle,
+              amount_cents,
+              currency,
+              payment_method,
+              started_at,
+              renews_at
+            )
+          VALUES ($1, $2, 'trialing', 'monthly', $3, 'USD', 'Free trial', NOW(), $4)
+        `,
+          [organizationId, trialPlan.id, trialPlan.monthly_price_cents, addTrial(new Date())]
+        );
+
+        await client.query("UPDATE organizations SET plan = $1 WHERE id = $2", [
+          trialPlan.code,
+          organizationId,
+        ]);
       }
 
       const existingUser = await client.query(
@@ -299,15 +465,26 @@ router.post("/register", async (req, res, next) => {
         `
         INSERT INTO users
           (organization_id, email, username, password_hash, name, role, active, approval_status, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, FALSE, 'pending', NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
       `,
-        [organizationId, cleanEmail, cleanUsername, passwordHash, cleanName, role]
+        [
+          organizationId,
+          cleanEmail,
+          cleanUsername,
+          passwordHash,
+          cleanName,
+          role,
+          approvalTarget === "trial",
+          approvalTarget === "trial" ? "approved" : "pending",
+        ]
       );
 
       return {
         approvalTarget,
         organizationId,
         organizationName: organizationNameForEmail,
+        role,
+        trialPlanName,
       };
     });
 
@@ -340,11 +517,21 @@ router.post("/register", async (req, res, next) => {
       }
     }
 
+    if (registration.approvalTarget === "trial") {
+      sendWelcomeEmail({
+        to: cleanEmail,
+        role: registration.role,
+        isEnterprise: false,
+      }).catch((emailError) => {
+        console.error("Trial welcome email failed.", emailError);
+      });
+    }
+
     res.json({
       success: true,
       message:
-        registration.approvalTarget === "platform"
-          ? "Registration submitted. Please wait for platform approval."
+        registration.approvalTarget === "trial"
+          ? `Your 7-day ${registration.trialPlanName || "trial"} has started. You can log in now and activate billing before the trial ends.`
           : "Registration submitted. Please wait for your organization admin to approve it.",
     });
   } catch (error) {

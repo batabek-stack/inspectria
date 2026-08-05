@@ -218,6 +218,152 @@ type AdminSectionKey =
   | "support"
   | "account";
 
+function AdminSectionIcon({ sectionKey }: { sectionKey: AdminSectionKey }) {
+  const commonProps = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  switch (sectionKey) {
+    case "dashboard":
+      return (
+        <svg {...commonProps}>
+          <rect x="3" y="3" width="7" height="8" rx="1.5" />
+          <rect x="14" y="3" width="7" height="5" rx="1.5" />
+          <rect x="14" y="12" width="7" height="9" rx="1.5" />
+          <rect x="3" y="15" width="7" height="6" rx="1.5" />
+        </svg>
+      );
+    case "organizations":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" />
+          <path d="M16 8h2a2 2 0 0 1 2 2v11" />
+          <path d="M8 7h4" />
+          <path d="M8 11h4" />
+          <path d="M8 15h4" />
+          <path d="M3 21h18" />
+        </svg>
+      );
+    case "organizationUsers":
+    case "users":
+      return (
+        <svg {...commonProps}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      );
+    case "billing":
+      return (
+        <svg {...commonProps}>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="M3 10h18" />
+          <path d="M7 15h2" />
+          <path d="M12 15h5" />
+        </svg>
+      );
+    case "messages":
+      return (
+        <svg {...commonProps}>
+          <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+        </svg>
+      );
+    case "templates":
+      return (
+        <svg {...commonProps}>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+          <path d="M8 13h8" />
+          <path d="M8 17h5" />
+        </svg>
+      );
+    case "communityTemplates":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 21s-7-4.35-7-11a7 7 0 0 1 14 0c0 6.65-7 11-7 11z" />
+          <circle cx="12" cy="10" r="3" />
+        </svg>
+      );
+    case "myWork":
+      return (
+        <svg {...commonProps}>
+          <path d="M9 11l3 3L22 4" />
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        </svg>
+      );
+    case "assignments":
+      return (
+        <svg {...commonProps}>
+          <rect x="8" y="2" width="8" height="4" rx="1" />
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <path d="M9 14l2 2 4-4" />
+        </svg>
+      );
+    case "actionPlans":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 19h16" />
+          <path d="M4 15h16" />
+          <path d="M4 11h10" />
+          <path d="M4 7h7" />
+          <path d="M17 4v6" />
+          <path d="M14 7h6" />
+        </svg>
+      );
+    case "walkthroughs":
+      return (
+        <svg {...commonProps}>
+          <path d="M9 18l6-12" />
+          <path d="M6 6h12" />
+          <path d="M5 18h14" />
+          <path d="M12 6v12" />
+        </svg>
+      );
+    case "reports":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 19.5V4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5" />
+          <path d="M8 7h8" />
+          <path d="M8 11h8" />
+          <path d="M8 15h5" />
+        </svg>
+      );
+    case "maintenance":
+      return (
+        <svg {...commonProps}>
+          <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4" />
+          <path d="M16 5l3 3" />
+        </svg>
+      );
+    case "support":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.1 9a3 3 0 1 1 5.8 1c-.6 1.2-1.8 1.6-2.5 2.4-.4.4-.4.8-.4 1.6" />
+          <path d="M12 17h.01" />
+        </svg>
+      );
+    case "account":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4 21a8 8 0 0 1 16 0" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
 const ANSWER_TYPE_LABELS: Record<AnswerType, string> = {
   FORMAT1: "Yes / No / N/A",
   DATE: "Date",
@@ -3269,9 +3415,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         planId: billingPlanId,
         billingCycle,
       });
+
+      if (checkout.paymentPageUrl) {
+        window.location.assign(checkout.paymentPageUrl);
+        return;
+      }
+
       setIyzicoCheckoutContent(checkout.checkoutFormContent);
       setIyzicoCheckoutToken(checkout.token);
-      setMessage("iyzico checkout form is ready. Complete the payment form below.");
+      setMessage("Card payment form is ready. Complete the iyzico checkout below.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "iyzico checkout could not be started");
     }
@@ -4531,7 +4683,12 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       }}
                     >
                       <div className="admin-module-nav-label">
-                        <span>{sectionLabel}</span>
+                        <span className="admin-module-nav-title">
+                          <span className="admin-module-nav-icon">
+                            <AdminSectionIcon sectionKey={section.key} />
+                          </span>
+                          <span>{sectionLabel}</span>
+                        </span>
                         {navBadge > 0 ? (
                           <span
                             className="admin-module-nav-badge"
@@ -5704,7 +5861,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     aria-label="Current tenant status"
                   />
                   <div style={styles.small}>
-                    Plan and tenant status changes are managed by the platform admin.
+                    You can activate your selected plan by card before the trial ends.
                   </div>
                 </>
               ) : null}
@@ -5807,7 +5964,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       {formatLimit(plan.checklistLimit, "checklists")} |{" "}
                       {plan.reportRetentionDays} days retention
                     </div>
-                    {isPlatformAdmin ? (
+                    {isPlatformAdmin || !currentSubscription || currentSubscription.status === "trialing" ? (
                       <button
                         type="button"
                         style={{ ...styles.secondaryButton, marginTop: 10 }}
@@ -5819,6 +5976,63 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   </div>
                 ))}
               </div>
+
+              {isPlatformAdmin || currentSubscription?.status === "trialing" ? (
+                <div style={{ ...styles.section, background: "#fff" }}>
+                  <div
+                    style={{
+                      ...styles.row,
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <div>
+                      <h4 style={{ ...styles.title, marginBottom: 8 }}>Credit Card Payment</h4>
+                      <div style={styles.small}>
+                        Start an iyzico hosted checkout for the selected plan and billing cycle.
+                      </div>
+                      <select
+                        style={{ ...styles.input, marginTop: 10, maxWidth: 220 }}
+                        value={billingCycle}
+                        onChange={(e) => setBillingCycle(e.target.value as BillingCycle)}
+                        aria-label="Billing cycle"
+                      >
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                      </select>
+                      {selectedBillingPlan ? (
+                        <div style={{ ...styles.small, marginTop: 6 }}>
+                          Selected: {selectedBillingPlan.name} / {billingCycle} (
+                          {formatMoney(
+                            billingCycle === "yearly"
+                              ? selectedBillingPlan.yearlyPriceCents
+                              : selectedBillingPlan.monthlyPriceCents
+                          )}
+                          )
+                        </div>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      style={styles.button}
+                      onClick={handleRenewCurrentSubscription}
+                      disabled={!billingPlanId}
+                    >
+                      Pay by Card
+                    </button>
+                  </div>
+                  {iyzicoCheckoutToken ? (
+                    <div style={{ ...styles.small, marginTop: 10 }}>
+                      Checkout token: {iyzicoCheckoutToken}
+                    </div>
+                  ) : null}
+                  {iyzicoCheckoutContent ? (
+                    <div className="iyzico-checkout-panel">
+                      <IyzicoCheckout content={iyzicoCheckoutContent} />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {isPlatformAdmin ? (
               <div style={{ marginTop: 14 }}>

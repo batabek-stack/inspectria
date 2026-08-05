@@ -10,15 +10,21 @@ type Props = {
     organizationName: string
   ) => Promise<void>;
   initialMode?: "login" | "register";
+  initialRegistrationMode?: "existing" | "newOrganization";
 };
 
-export default function LoginPage({ onLogin, initialMode = "login" }: Props) {
+export default function LoginPage({
+  onLogin,
+  initialMode = "login",
+  initialRegistrationMode = "existing",
+}: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [organizationName, setOrganizationName] = useState("");
-  const [registrationMode, setRegistrationMode] = useState<"existing" | "newOrganization">("existing");
+  const [registrationMode, setRegistrationMode] =
+    useState<"existing" | "newOrganization">(initialRegistrationMode);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<"login" | "register">(initialMode);
@@ -187,7 +193,11 @@ export default function LoginPage({ onLogin, initialMode = "login" }: Props) {
           </div>
 
           <button type="submit" style={styles.button}>
-            {mode === "login" ? "Login" : "Send Approval Request"}
+            {mode === "login"
+              ? "Login"
+              : registrationMode === "newOrganization"
+                ? "Start Free Trial"
+                : "Send Approval Request"}
           </button>
         </form>
 

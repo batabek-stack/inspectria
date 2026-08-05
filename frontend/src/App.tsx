@@ -26,14 +26,61 @@ function isLoginRoute(routeHash: string) {
   return routeHash.startsWith("#login") || window.location.pathname === "/login";
 }
 
+function isTrialRegistrationRoute(routeHash: string) {
+  return routeHash.startsWith("#register") && routeHash.includes("trial=1");
+}
+
 function requestedAdminSection() {
   const hashQuery = window.location.hash.split("?")[1] || "";
   const hashParams = new URLSearchParams(hashQuery);
   const searchParams = new URLSearchParams(window.location.search);
   const requested = hashParams.get("admin") || searchParams.get("admin");
 
-  if (requested === "users" || requested === "templates") return requested;
+  if (requested === "users" || requested === "templates" || requested === "billing") {
+    return requested;
+  }
   return undefined;
+}
+
+function isPaymentResultPath() {
+  return window.location.pathname === "/payment/success" || window.location.pathname === "/payment/failed";
+}
+
+function PaymentResultPage() {
+  const isSuccess = window.location.pathname === "/payment/success";
+  const params = new URLSearchParams(window.location.search);
+  const payment = params.get("payment");
+  const reason = params.get("reason");
+
+  return (
+    <div className="payment-result-page">
+      <div className="payment-result-panel">
+        <div className={`payment-result-mark ${isSuccess ? "payment-result-mark-success" : "payment-result-mark-failed"}`}>
+          {isSuccess ? "OK" : "!"}
+        </div>
+        <h1>{isSuccess ? "Payment completed" : "Payment could not be completed"}</h1>
+        <p>
+          {isSuccess
+            ? "Your card payment was verified and the subscription is being updated."
+            : "The payment was not verified. Please return to billing and try again."}
+        </p>
+        {payment || reason ? (
+          <div className="payment-result-meta">
+            {payment ? <span>Payment #{payment}</span> : null}
+            {reason ? <span>Reason: {reason}</span> : null}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            window.location.href = "/#login?admin=billing";
+          }}
+        >
+          Back to Billing
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function getTemplateShareToken() {
@@ -214,13 +261,20 @@ export default function App() {
   }, [handleLogout, session]);
 
   if (loading || templateImporting) return <div style={{ padding: 24 }}>Loading...</div>;
+  if (isPaymentResultPath()) return <PaymentResultPage />;
   if (!session && isLegalPageHash(routeHash)) {
     return <LegalPage page={getLegalPageFromHash(routeHash)} />;
   }
   if (!session && routeHash.startsWith("#reset-password")) return <ResetPasswordPage />;
   if (!session && isLoginRoute(routeHash)) return <LoginPage onLogin={handleLogin} />;
-  if (!session && routeHash === "#register") {
-    return <LoginPage onLogin={handleLogin} initialMode="register" />;
+  if (!session && routeHash.startsWith("#register")) {
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        initialMode="register"
+        initialRegistrationMode={isTrialRegistrationRoute(routeHash) ? "newOrganization" : "existing"}
+      />
+    );
   }
   if (!session) {
     return (
@@ -230,8 +284,8 @@ export default function App() {
           setRouteHash("#login");
         }}
         onRegister={() => {
-          window.location.hash = "register";
-          setRouteHash("#register");
+          window.location.hash = "register?trial=1";
+          setRouteHash("#register?trial=1");
         }}
       />
     );

@@ -48,6 +48,8 @@ export function initializeIyzicoCheckout(payload: {
     token: string;
     tokenExpireTime?: number;
     checkoutFormContent: string;
+    paymentPageUrl?: string;
     conversationId: string;
+    paymentId?: number;
   }>("/billing/iyzico/checkout", payload);
 }

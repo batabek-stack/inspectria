@@ -540,6 +540,54 @@ async function sendActionPlanOverdueAdminEmail({ to, organizationName, items }) 
   });
 }
 
+async function sendBillingTrialReminderEmail({
+  to,
+  organizationName,
+  planName,
+  renewsAt,
+  daysBefore,
+}) {
+  const billingUrl = `${getPublicAppUrl()}/#login?admin=billing`;
+  const safeBillingUrl = escapeHtml(billingUrl);
+  const safeOrganizationName = escapeHtml(organizationName || "your organization");
+  const safePlanName = escapeHtml(planName || "your plan");
+  const safeRenewsAt = escapeHtml(renewsAt ? new Date(renewsAt).toLocaleDateString("en-US") : "");
+  const dayText = `${daysBefore} day${Number(daysBefore) === 1 ? "" : "s"}`;
+
+  return sendReportEmail({
+    to,
+    subject: `Inspectria trial ends in ${dayText}`,
+    text: [
+      "Hello,",
+      "",
+      `${organizationName || "Your organization"} is currently using the ${planName || "selected"} trial plan.`,
+      `Your 7-day trial ends in ${dayText}${renewsAt ? `, on ${new Date(renewsAt).toLocaleDateString("en-US")}` : ""}.`,
+      "",
+      "Please complete payment from the Billing page to activate your plan before the trial ends.",
+      billingUrl,
+      "",
+      "Best regards,",
+      "Inspectria Team",
+    ].join("\n"),
+    html: `
+      <p>Hello,</p>
+      <p><strong>${safeOrganizationName}</strong> is currently using the <strong>${safePlanName}</strong> trial plan.</p>
+      <p>Your 7-day trial ends in <strong>${escapeHtml(dayText)}</strong>${safeRenewsAt ? `, on <strong>${safeRenewsAt}</strong>` : ""}.</p>
+      <p>Please complete payment from the Billing page to activate your plan before the trial ends.</p>
+      <p>
+        <a
+          href="${safeBillingUrl}"
+          style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;"
+        >
+          Open Billing and Pay
+        </a>
+      </p>
+      <p>${safeBillingUrl}</p>
+      <p>Best regards,<br />Inspectria Team</p>
+    `,
+  });
+}
+
 async function verifyEmailConnection() {
   const transporter = createTransporter();
   return transporter.verify();
@@ -554,6 +602,7 @@ module.exports = {
   sendActionPlanOverdueResponsibleEmail,
   sendActionPlanReminderEmail,
   sendAppMessageEmail,
+  sendBillingTrialReminderEmail,
   sendPasswordResetCode,
   sendTemplateShareEmail,
   sendUserRegistrationRequestEmail,

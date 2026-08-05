@@ -6,6 +6,7 @@ const {
   initializeSubscriptionCheckout,
   retrieveSubscriptionCheckout,
 } = require("../services/iyzicoService");
+const { sendBillingTrialReminderEmail } = require("../services/emailService");
 
 const router = express.Router();
 
@@ -16,10 +17,28 @@ function platformAdminOnly(req, res, next) {
   next();
 }
 
+function orgAdminOnly(req, res, next) {
+  if (!db.isOrgAdmin(req.user)) {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+}
+
 function addTrial(date) {
   const next = new Date(date);
   next.setDate(next.getDate() + 7);
   return next.toISOString();
+}
+
+function addBillingPeriod(date, billingCycle) {
+  const next = new Date(date);
+  if (billingCycle === "yearly") next.setFullYear(next.getFullYear() + 1);
+  else next.setMonth(next.getMonth() + 1);
+  return next.toISOString();
+}
+
+function amountFromCents(cents) {
+  return (Number(cents || 0) / 100).toFixed(2);
 }
 
 async function billingUsageForOrganization(organizationId) {
@@ -112,15 +131,27 @@ function iyzicoReferenceForPlan(plan, billingCycle) {
 }
 
 function publicBaseUrl(req) {
-  const configured = (process.env.PUBLIC_APP_URL || process.env.IYZICO_PUBLIC_APP_URL || "").trim();
+  const configured = (
+    process.env.BACKEND_PUBLIC_URL ||
+    process.env.PUBLIC_APP_URL ||
+    process.env.IYZICO_PUBLIC_APP_URL ||
+    ""
+  ).trim();
   if (configured) return configured.replace(/\/$/, "");
   return `${req.protocol}://${req.get("host")}`;
+}
+
+function frontendBaseUrl(req) {
+  const configured = (process.env.FRONTEND_URL || process.env.PUBLIC_APP_URL || "").trim();
+  if (configured) return configured.replace(/\/$/, "");
+  return publicBaseUrl(req);
 }
 
 async function createSubscriptionForOrganization({
   organizationId,
   planId,
   billingCycle,
+  status = "trialing",
   paymentMethod,
   externalCustomerId = "",
   externalSubscriptionId = "",
@@ -136,6 +167,12 @@ async function createSubscriptionForOrganization({
 
   if (!["monthly", "yearly"].includes(billingCycle)) {
     const error = new Error("Invalid billing cycle");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!["trialing", "active", "past_due"].includes(status)) {
+    const error = new Error("Invalid subscription status");
     error.statusCode = 400;
     throw error;
   }
@@ -161,7 +198,7 @@ async function createSubscriptionForOrganization({
   const now = new Date();
   const amountCents =
     billingCycle === "yearly" ? plan.yearly_price_cents : plan.monthly_price_cents;
-  const trialEndsAt = addTrial(now);
+  const renewsAt = status === "trialing" ? addTrial(now) : addBillingPeriod(now, billingCycle);
 
   const subscriptionId = await db.transaction(async (client) => {
     await client.query(
@@ -196,14 +233,14 @@ async function createSubscriptionForOrganization({
       [
         cleanOrganizationId,
         cleanPlanId,
-        "trialing",
+        status,
         billingCycle,
         amountCents,
         String(paymentMethod || "Manual invoice").trim() || "Manual invoice",
         String(externalCustomerId || "").trim() || null,
         String(externalSubscriptionId || "").trim() || null,
         now.toISOString(),
-        trialEndsAt,
+        renewsAt,
       ]
     );
 
@@ -309,6 +346,7 @@ router.post("/subscriptions", authRequired, platformAdminOnly, async (req, res, 
       organizationId,
       planId,
       billingCycle,
+      status,
       paymentMethod,
       externalCustomerId,
       externalSubscriptionId,
@@ -325,7 +363,7 @@ router.post("/subscriptions", authRequired, platformAdminOnly, async (req, res, 
   }
 });
 
-router.post("/current/renew", authRequired, platformAdminOnly, async (req, res, next) => {
+router.post("/current/renew", authRequired, orgAdminOnly, async (req, res, next) => {
   try {
     if (!req.user.organizationId) {
       return res.status(400).json({ message: "Organization is required" });
@@ -351,7 +389,7 @@ router.post("/current/renew", authRequired, platformAdminOnly, async (req, res, 
   }
 });
 
-router.post("/iyzico/checkout", authRequired, platformAdminOnly, async (req, res, next) => {
+router.post("/iyzico/checkout", authRequired, orgAdminOnly, async (req, res, next) => {
   try {
     if (!req.user.organizationId) {
       return res.status(400).json({ message: "Organization is required" });
@@ -384,7 +422,38 @@ router.post("/iyzico/checkout", authRequired, platformAdminOnly, async (req, res
     const conversationId = `inspectria-${req.user.organizationId}-${Date.now()}-${crypto
       .randomBytes(4)
       .toString("hex")}`;
+    const basketId = `SUB-${req.user.organizationId}-${cleanPlanId}-${Date.now()}`;
     const callbackUrl = `${publicBaseUrl(req)}/api/billing/iyzico/callback`;
+    const amountCents =
+      billingCycle === "yearly" ? plan.yearly_price_cents : plan.monthly_price_cents;
+    const currency = (process.env.IYZICO_CURRENCY || "USD").trim().toUpperCase();
+
+    const payment = await db.one(
+      `
+      INSERT INTO payments
+        (
+          user_id,
+          organization_id,
+          billing_plan_id,
+          conversation_id,
+          basket_id,
+          amount,
+          currency,
+          status
+        )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
+      RETURNING id
+    `,
+      [
+        req.user.id,
+        req.user.organizationId,
+        cleanPlanId,
+        conversationId,
+        basketId,
+        amountFromCents(amountCents),
+        currency,
+      ]
+    );
 
     const iyzico = await initializeSubscriptionCheckout({
       callbackUrl,
@@ -394,41 +463,85 @@ router.post("/iyzico/checkout", authRequired, platformAdminOnly, async (req, res
       organizationName: organization.name,
     });
 
-    if (!iyzico.token || !iyzico.checkoutFormContent) {
+    if (iyzico.status !== "success") {
+      await db.query(
+        `
+        UPDATE payments
+        SET status = 'FAILED',
+            raw_response = $2::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+        [payment.id, JSON.stringify(iyzico)]
+      );
+
+      return res.status(400).json({
+        message: iyzico.errorMessage || "iyzico checkout form could not be initialized",
+        errorCode: iyzico.errorCode,
+      });
+    }
+
+    if (!iyzico.token || (!iyzico.checkoutFormContent && !iyzico.paymentPageUrl)) {
+      await db.query(
+        `
+        UPDATE payments
+        SET status = 'FAILED',
+            raw_response = $2::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+        [payment.id, JSON.stringify(iyzico)]
+      );
+
       return res.status(400).json({ message: "iyzico checkout form could not be initialized" });
     }
 
-    await db.query(
-      `
-      INSERT INTO iyzico_checkout_sessions
-        (
-          organization_id,
-          billing_plan_id,
-          billing_cycle,
-          token,
-          conversation_id,
-          pricing_plan_reference_code,
-          created_by_user_id
-        )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `,
-      [
-        req.user.organizationId,
-        cleanPlanId,
-        billingCycle,
-        iyzico.token,
-        conversationId,
-        pricingPlanReferenceCode,
-        req.user.id,
-      ]
-    );
+    await db.transaction(async (client) => {
+      await client.query(
+        `
+        UPDATE payments
+        SET iyzico_token = $2,
+            raw_response = $3::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+        [payment.id, iyzico.token, JSON.stringify(iyzico)]
+      );
+
+      await client.query(
+        `
+        INSERT INTO iyzico_checkout_sessions
+          (
+            organization_id,
+            billing_plan_id,
+            billing_cycle,
+            token,
+            conversation_id,
+            pricing_plan_reference_code,
+            created_by_user_id
+          )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `,
+        [
+          req.user.organizationId,
+          cleanPlanId,
+          billingCycle,
+          iyzico.token,
+          conversationId,
+          pricingPlanReferenceCode,
+          req.user.id,
+        ]
+      );
+    });
 
     res.json({
       success: true,
       token: iyzico.token,
       tokenExpireTime: iyzico.tokenExpireTime,
       checkoutFormContent: iyzico.checkoutFormContent,
+      paymentPageUrl: iyzico.paymentPageUrl || "",
       conversationId,
+      paymentId: payment.id,
     });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
@@ -439,46 +552,109 @@ router.post("/iyzico/checkout", authRequired, platformAdminOnly, async (req, res
 router.post("/iyzico/callback", async (req, res, next) => {
   try {
     const token = String(req.body?.token || req.query?.token || "").trim();
-    if (!token) return res.status(400).send("Missing iyzico token");
-
-    const checkoutSession = await db.one(
-      "SELECT * FROM iyzico_checkout_sessions WHERE token = $1",
-      [token]
-    );
-    if (!checkoutSession) return res.status(404).send("Checkout session not found");
-
-    if (checkoutSession.status === "success") {
-      return res.redirect("/#login");
-    }
+    const redirectBase = frontendBaseUrl(req);
+    if (!token) return res.redirect(`${redirectBase}/payment/failed?reason=missing-token`);
 
     const result = await retrieveSubscriptionCheckout(token);
-    const isSuccess = result.status === "success" && result.data?.referenceCode;
 
-    await db.query(
-      `
-      UPDATE iyzico_checkout_sessions
-      SET status = $1, result_json = $2, completed_at = NOW()
-      WHERE id = $3
-    `,
-      [isSuccess ? "success" : "failure", JSON.stringify(result), checkoutSession.id]
-    );
+    const callbackResult = await db.transaction(async (client) => {
+      const sessionResult = await client.query(
+        "SELECT * FROM iyzico_checkout_sessions WHERE token = $1 FOR UPDATE",
+        [token]
+      );
+      const checkoutSession = sessionResult.rows[0];
+      if (!checkoutSession) {
+        return { ok: false, redirect: `${redirectBase}/payment/failed?reason=unknown-payment` };
+      }
 
-    if (!isSuccess) {
-      return res.status(400).send(result.errorMessage || "iyzico payment failed");
-    }
+      const paymentResult = await client.query(
+        "SELECT * FROM payments WHERE iyzico_token = $1 FOR UPDATE",
+        [token]
+      );
+      const payment = paymentResult.rows[0];
+      if (!payment) {
+        return { ok: false, redirect: `${redirectBase}/payment/failed?reason=unknown-payment` };
+      }
 
-    await createSubscriptionForOrganization({
-      organizationId: checkoutSession.organization_id,
-      planId: checkoutSession.billing_plan_id,
-      billingCycle: checkoutSession.billing_cycle,
-      paymentMethod: "iyzico",
-      externalCustomerId: result.data.customerReferenceCode || "",
-      externalSubscriptionId: result.data.referenceCode || "",
+      if (checkoutSession.status === "success" && payment.status === "PAID") {
+        return { ok: true, alreadyPaid: true, paymentId: payment.id, checkoutSession };
+      }
+
+      const isSuccess = result.status === "success" && result.data?.referenceCode;
+      const returnedPricingPlanReferenceCode = result.data?.pricingPlanReferenceCode || "";
+      const hasPricingPlanMismatch =
+        returnedPricingPlanReferenceCode &&
+        returnedPricingPlanReferenceCode !== checkoutSession.pricing_plan_reference_code;
+      const nextSessionStatus = isSuccess && !hasPricingPlanMismatch ? "success" : "failure";
+      const nextPaymentStatus = nextSessionStatus === "success" ? "PAID" : "FAILED";
+
+      await client.query(
+        `
+        UPDATE iyzico_checkout_sessions
+        SET status = $1, result_json = $2, completed_at = NOW()
+        WHERE id = $3
+      `,
+        [nextSessionStatus, JSON.stringify(result), checkoutSession.id]
+      );
+
+      await client.query(
+        `
+        UPDATE payments
+        SET status = CASE WHEN $1 = 'FAILED' THEN 'FAILED' ELSE status END,
+            iyzico_payment_id = $2,
+            raw_response = $3::jsonb,
+            updated_at = NOW()
+        WHERE id = $4
+          AND status <> 'PAID'
+      `,
+        [
+          nextPaymentStatus,
+          result.data?.referenceCode || result.paymentId || null,
+          JSON.stringify(result),
+          payment.id,
+        ]
+      );
+
+      if (nextSessionStatus !== "success") {
+        const reason = hasPricingPlanMismatch ? "plan-mismatch" : "payment-failed";
+        return {
+          ok: false,
+          redirect: `${redirectBase}/payment/failed?payment=${payment.id}&reason=${reason}`,
+        };
+      }
+
+      return { ok: true, paymentId: payment.id, checkoutSession };
     });
 
-    return res.redirect("/#login");
+    if (!callbackResult.ok) return res.redirect(callbackResult.redirect);
+
+    if (!callbackResult.alreadyPaid) {
+      await createSubscriptionForOrganization({
+        organizationId: callbackResult.checkoutSession.organization_id,
+        planId: callbackResult.checkoutSession.billing_plan_id,
+        billingCycle: callbackResult.checkoutSession.billing_cycle,
+        status: "active",
+        paymentMethod: "iyzico",
+        externalCustomerId: result.data?.customerReferenceCode || "",
+        externalSubscriptionId: result.data?.referenceCode || "",
+      });
+
+      await db.query(
+        `
+        UPDATE payments
+        SET status = 'PAID',
+            updated_at = NOW()
+        WHERE id = $1
+          AND status <> 'PAID'
+      `,
+        [callbackResult.paymentId]
+      );
+    }
+
+    return res.redirect(`${redirectBase}/payment/success?payment=${callbackResult.paymentId}`);
   } catch (error) {
-    next(error);
+    console.error("iyzico callback error:", error);
+    return res.redirect(`${frontendBaseUrl(req)}/payment/failed?reason=server-error`);
   }
 });
 
@@ -531,4 +707,55 @@ router.post("/subscriptions/:id/cancel", authRequired, platformAdminOnly, async 
   }
 });
 
+async function runBillingTrialReminders() {
+  const reminders = await db.many(`
+    SELECT
+      s.id AS "subscriptionId",
+      s.renews_at AS "renewsAt",
+      p.name AS "planName",
+      o.name AS "organizationName",
+      u.email,
+      CEIL(EXTRACT(EPOCH FROM (s.renews_at - NOW())) / 86400)::int AS "daysBefore"
+    FROM subscriptions s
+    JOIN billing_plans p ON p.id = s.billing_plan_id
+    JOIN organizations o ON o.id = s.organization_id
+    JOIN users u ON u.organization_id = s.organization_id
+    LEFT JOIN billing_trial_reminders btr
+      ON btr.subscription_id = s.id
+      AND btr.days_before = CEIL(EXTRACT(EPOCH FROM (s.renews_at - NOW())) / 86400)::int
+    WHERE s.status = 'trialing'
+      AND s.renews_at > NOW()
+      AND CEIL(EXTRACT(EPOCH FROM (s.renews_at - NOW())) / 86400)::int IN (1, 2, 4)
+      AND btr.id IS NULL
+      AND u.role = 'admin'
+      AND u.active = TRUE
+      AND u.approval_status = 'approved'
+      AND u.email <> ''
+  `);
+
+  for (const reminder of reminders) {
+    try {
+      await sendBillingTrialReminderEmail({
+        to: reminder.email,
+        organizationName: reminder.organizationName,
+        planName: reminder.planName,
+        renewsAt: reminder.renewsAt,
+        daysBefore: reminder.daysBefore,
+      });
+
+      await db.query(
+        `
+        INSERT INTO billing_trial_reminders (subscription_id, days_before)
+        VALUES ($1, $2)
+        ON CONFLICT (subscription_id, days_before) DO NOTHING
+      `,
+        [reminder.subscriptionId, reminder.daysBefore]
+      );
+    } catch (error) {
+      console.error("Billing trial reminder email failed", error);
+    }
+  }
+}
+
 module.exports = router;
+module.exports.runBillingTrialReminders = runBillingTrialReminders;

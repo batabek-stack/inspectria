@@ -453,6 +453,32 @@ async function initDb() {
       completed_at TIMESTAMPTZ
     );
 
+    CREATE TABLE IF NOT EXISTS payments (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+      billing_plan_id INTEGER REFERENCES billing_plans(id),
+      conversation_id VARCHAR(100) UNIQUE NOT NULL,
+      basket_id VARCHAR(100) UNIQUE NOT NULL,
+      iyzico_payment_id VARCHAR(100),
+      iyzico_token TEXT UNIQUE,
+      amount NUMERIC(12, 2) NOT NULL,
+      currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+      status VARCHAR(30) NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING', 'PAID', 'FAILED', 'CANCELLED', 'REFUNDED')),
+      raw_response JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS billing_trial_reminders (
+      id SERIAL PRIMARY KEY,
+      subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+      days_before INTEGER NOT NULL CHECK (days_before IN (1, 2, 4)),
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (subscription_id, days_before)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_users_organization_id ON users(organization_id);
     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id
       ON password_reset_tokens(user_id);
@@ -515,6 +541,14 @@ async function initDb() {
       ON iyzico_checkout_sessions(token);
     CREATE INDEX IF NOT EXISTS idx_iyzico_checkout_sessions_organization_id
       ON iyzico_checkout_sessions(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_organization_id
+      ON payments(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_iyzico_token
+      ON payments(iyzico_token);
+    CREATE INDEX IF NOT EXISTS idx_payments_status
+      ON payments(status);
+    CREATE INDEX IF NOT EXISTS idx_billing_trial_reminders_subscription_id
+      ON billing_trial_reminders(subscription_id);
   `);
 
   await ensureForeignKeyCascade(

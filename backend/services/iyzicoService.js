@@ -1,53 +1,15 @@
-const crypto = require("crypto");
-
-const DEFAULT_BASE_URL = "https://sandbox-api.iyzipay.com";
+const Iyzipay = require("iyzipay");
+const getIyzicoClient = require("./iyzico");
 
 function getConfig() {
   const apiKey = (process.env.IYZICO_API_KEY || "").trim();
   const secretKey = (process.env.IYZICO_SECRET_KEY || "").trim();
-  const baseUrl = (process.env.IYZICO_BASE_URL || DEFAULT_BASE_URL).trim().replace(/\/$/, "");
 
   if (!apiKey || !secretKey) {
     const error = new Error("iyzico API credentials are missing");
     error.statusCode = 503;
     throw error;
   }
-
-  return { apiKey, secretKey, baseUrl };
-}
-
-function authHeaders(pathname, body = "") {
-  const { apiKey, secretKey } = getConfig();
-  const randomKey = `${Date.now()}${crypto.randomBytes(8).toString("hex")}`;
-  const payload = `${randomKey}${pathname}${body}`;
-  const signature = crypto.createHmac("sha256", secretKey).update(payload).digest("hex");
-  const authorizationString = `apiKey:${apiKey}&randomKey:${randomKey}&signature:${signature}`;
-
-  return {
-    Authorization: `IYZWSv2 ${Buffer.from(authorizationString, "utf8").toString("base64")}`,
-    "Content-Type": "application/json",
-    "x-iyzi-rnd": randomKey,
-  };
-}
-
-async function iyzicoRequest(method, pathname, payload) {
-  const { baseUrl } = getConfig();
-  const body = payload ? JSON.stringify(payload) : "";
-  const response = await fetch(`${baseUrl}${pathname}`, {
-    method,
-    headers: authHeaders(pathname, body),
-    body: method === "GET" ? undefined : body,
-  });
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok || data.status === "failure") {
-    const error = new Error(data.errorMessage || data.message || "iyzico request failed");
-    error.statusCode = response.ok ? 400 : response.status;
-    error.iyzico = data;
-    throw error;
-  }
-
-  return data;
 }
 
 function splitName(fullName = "") {
@@ -98,18 +60,40 @@ async function initializeSubscriptionCheckout({
   user,
   organizationName,
 }) {
-  return iyzicoRequest("POST", "/v2/subscription/checkoutform/initialize", {
-    locale: process.env.IYZICO_LOCALE || "en",
-    callbackUrl,
-    pricingPlanReferenceCode,
-    subscriptionInitialStatus: "ACTIVE",
-    conversationId,
-    customer: customerFromUser(user, organizationName),
+  getConfig();
+
+  return new Promise((resolve, reject) => {
+    getIyzicoClient().subscriptionCheckoutForm.initialize(
+      {
+        locale: process.env.IYZICO_LOCALE || Iyzipay.LOCALE.EN,
+        callbackUrl,
+        pricingPlanReferenceCode,
+        subscriptionInitialStatus: "ACTIVE",
+        conversationId,
+        customer: customerFromUser(user, organizationName),
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        return resolve(result);
+      }
+    );
   });
 }
 
 async function retrieveSubscriptionCheckout(token) {
-  return iyzicoRequest("GET", `/v2/subscription/checkoutform/${encodeURIComponent(token)}`);
+  getConfig();
+
+  return new Promise((resolve, reject) => {
+    getIyzicoClient().subscriptionCheckoutForm.retrieve(
+      {
+        checkoutFormToken: token,
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        return resolve(result);
+      }
+    );
+  });
 }
 
 module.exports = {

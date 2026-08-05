@@ -23,6 +23,74 @@ body {
     linear-gradient(180deg, #062631 0, #0b3540 170px, #eef6f5 170px);
 }
 
+.payment-result-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f4f8f7;
+}
+
+.payment-result-panel {
+  width: min(100%, 460px);
+  padding: 28px;
+  border: 1px solid #dbe7e5;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(3, 32, 42, 0.1);
+  text-align: center;
+}
+
+.payment-result-mark {
+  width: 48px;
+  height: 48px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.payment-result-mark-success {
+  background: #0f766e;
+}
+
+.payment-result-mark-failed {
+  background: #b91c1c;
+}
+
+.payment-result-panel h1 {
+  margin: 18px 0 10px;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.payment-result-panel p {
+  margin: 0;
+  color: #52676b;
+  line-height: 1.5;
+}
+
+.payment-result-meta {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  color: #6b7f83;
+  font-size: 13px;
+}
+
+.payment-result-panel button {
+  margin-top: 20px;
+  border: 0;
+  border-radius: 8px;
+  padding: 12px 18px;
+  background: #0f766e;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .login-page {
   display: flex;
   align-items: flex-start;
@@ -369,6 +437,38 @@ textarea {
   margin-bottom: 3px;
   font-weight: 800;
   line-height: 1.2;
+}
+
+.admin-module-nav-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 9px;
+}
+
+.admin-module-nav-title > span:last-child {
+  min-width: 0;
+}
+
+.admin-module-nav-icon {
+  display: inline-flex;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #ecf7f5;
+  color: #0f766e;
+}
+
+.admin-module-nav-item:hover .admin-module-nav-icon {
+  background: #dff0ed;
+}
+
+.admin-module-nav-item-active .admin-module-nav-icon {
+  background: #0f766e;
+  color: #ffffff;
 }
 
 .admin-module-nav-badge {
@@ -758,6 +858,11 @@ textarea {
 
 .billing-layout {
   grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+}
+
+.iyzico-checkout-panel {
+  margin-top: 14px;
+  overflow-x: auto;
 }
 
 .action-plan-layout {
