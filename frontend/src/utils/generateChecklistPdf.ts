@@ -35,6 +35,12 @@ type ChecklistPdfOutput = {
 
 type ChecklistPdfOptions = {
   output?: "save" | "dataUri";
+  managerSummary?: {
+    summaryTitle: string;
+    summaryText: string;
+    provider?: string;
+    targetLanguage?: string;
+  };
 };
 
 type PdfPhotoData = {
@@ -111,6 +117,31 @@ function formatDate(value?: string | Date) {
 function normalizeAnswer(answer?: string) {
   if (!answer) return "-";
   return answer;
+}
+
+function normalizeForMatch(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\u0131/g, "i")
+    .replace(/\u015f/g, "s")
+    .replace(/\u011f/g, "g")
+    .replace(/\u00fc/g, "u")
+    .replace(/\u00f6/g, "o")
+    .replace(/\u00e7/g, "c");
+}
+
+function isNegativeChecklistAnswer(answer?: string | null) {
+  return ["no", "fail", "failed", "false"].includes(normalizeForMatch(answer));
+}
+
+function getManagerSummaryItems(items: ChecklistPdfItem[]) {
+  return items.filter((item) => {
+    const answerType = item.answerType || item.answer_type || "FORMAT1";
+    const hasYesNoAnswer = answerType === "FORMAT1" && Boolean(String(item.answer || "").trim());
+    const hasComment = Boolean(String(item.comment || "").trim());
+    return hasYesNoAnswer || hasComment;
+  });
 }
 
 function answerColor(answer?: string): [number, number, number] {
@@ -519,6 +550,79 @@ export async function generateChecklistPdf(
     cursorY += blockHeight;
   };
 
+  const drawParagraphs = (text: string) => {
+    text
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.trim())
+      .filter(Boolean)
+      .forEach((paragraph) => {
+        const lines = doc.splitTextToSize(sanitizeText(paragraph), contentWidth);
+        const blockHeight = lines.length * 5 + 4;
+
+        ensureSpace(blockHeight);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(...COLORS.text);
+        doc.text(lines, PAGE.marginX, cursorY);
+        cursorY += blockHeight;
+      });
+  };
+
+  const drawManagerSummary = () => {
+    if (!options.managerSummary) return;
+
+    const isTurkishSummary =
+      normalizeForMatch(options.managerSummary.targetLanguage).includes("turkish") ||
+      /[\u00e7\u011f\u0131\u00f6\u015f\u00fc\u00c7\u011e\u0130\u00d6\u015e\u00dc]/.test(
+        `${options.managerSummary.summaryTitle} ${options.managerSummary.summaryText}`
+      );
+    const labels = isTurkishSummary
+      ? {
+          managerSummary: "Yonetici Ozeti",
+          checklist: "Checklist",
+          completedBy: "Tamamlayan",
+          assignedTo: "Atanan",
+          completedAt: "Tamamlanma Tarihi",
+          negativeItems: "Negatif Maddeler",
+          otherObservations: "Diger Gozlemler",
+        }
+      : {
+          managerSummary: "Manager Summary",
+          checklist: "Checklist",
+          completedBy: "Completed By",
+          assignedTo: "Assigned To",
+          completedAt: "Completed At",
+          negativeItems: "Negative Items",
+          otherObservations: "Other Observations",
+        };
+    const summaryItems = getManagerSummaryItems(report.items);
+    const negativeItems = summaryItems.filter((item) => {
+      const answerType = item.answerType || item.answer_type || "FORMAT1";
+      return answerType === "FORMAT1" && isNegativeChecklistAnswer(item.answer);
+    });
+
+    drawSectionTitle(labels.managerSummary);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(...COLORS.text);
+    const titleLines = doc.splitTextToSize(sanitizeText(options.managerSummary.summaryTitle), contentWidth);
+    ensureSpace(titleLines.length * 7 + 8);
+    doc.text(titleLines, PAGE.marginX, cursorY);
+    cursorY += titleLines.length * 7 + 4;
+
+    drawLabelValue(labels.checklist, report.checklistTitle || "-");
+    drawLabelValue(labels.completedBy, report.completedByName || "-");
+    drawLabelValue(labels.assignedTo, report.assignedToName || "-");
+    drawLabelValue(labels.completedAt, formatDate(report.completedAt));
+    drawLabelValue(labels.negativeItems, String(negativeItems.length));
+    drawLabelValue(labels.otherObservations, String(Math.max(summaryItems.length - negativeItems.length, 0)));
+
+    cursorY += 4;
+    drawParagraphs(options.managerSummary.summaryText);
+  };
+
   const drawPhotos = async (photos: string[] = []) => {
     if (!photos.length) return;
 
@@ -633,6 +737,11 @@ export async function generateChecklistPdf(
   };
 
   drawPageHeader(true);
+
+  if (options.managerSummary) {
+    drawManagerSummary();
+    addNewPage();
+  }
 
   doc.setFillColor(255, 255, 255);
   doc.roundedRect(PAGE.marginX, cursorY - 2, contentWidth, 44, 2, 2, "S");

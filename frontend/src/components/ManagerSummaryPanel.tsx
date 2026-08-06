@@ -1,8 +1,5 @@
+import { useEffect, useRef } from "react";
 import { ManagerSummaryResponse, Report } from "../types";
-import {
-  getReportFailedItems,
-  getReportManagerSummaryItems,
-} from "../services/aiActionPlanService";
 import { styles } from "../styles/appStyles";
 
 type Props = {
@@ -12,18 +9,23 @@ type Props = {
 };
 
 export default function ManagerSummaryPanel({ report, summary, onClose }: Props) {
-  const noItems = getReportFailedItems(report);
-  const summaryItems = getReportManagerSummaryItems(report);
-  const observationCount = Math.max(summaryItems.length - noItems.length, 0);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const paragraphs = summary.summaryText
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
 
+  useEffect(() => {
+    window.requestAnimationFrame(() => {
+      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [report.id, summary.summaryTitle, summary.summaryText]);
+
   return (
     <div
+      ref={panelRef}
       className="manager-summary-print-area"
-      style={{ ...styles.section, background: "#ffffff", borderColor: "#0f766e" }}
+      style={{ ...styles.section, background: "#ffffff", borderColor: "#0f766e", scrollMarginTop: 16 }}
     >
       <div
         className="manager-summary-actions"
@@ -40,28 +42,11 @@ export default function ManagerSummaryPanel({ report, summary, onClose }: Props)
         </div>
       </div>
       <h4 style={{ margin: "0 0 8px" }}>{summary.summaryTitle}</h4>
-      <div style={{ ...styles.small, marginBottom: 12 }}>
-        {noItems.length} negative item{noItems.length === 1 ? "" : "s"} and {observationCount} other observation{observationCount === 1 ? "" : "s"} reviewed
-      </div>
       {paragraphs.map((paragraph) => (
         <p key={paragraph} style={{ marginTop: 0 }}>
           {paragraph}
         </p>
       ))}
-      {summaryItems.length > 0 ? (
-        <>
-          <h4>Items Reviewed</h4>
-          {summaryItems.map((item, index) => (
-            <div key={`${item.id || item.question}-${index}`} style={{ borderTop: "1px solid #d7e6e4", padding: "10px 0" }}>
-              <strong>
-                {index + 1}. {item.question}
-              </strong>
-              {item.answer ? <div>Answer: {item.answer}</div> : null}
-              {item.comment ? <div>Comment: {item.comment}</div> : null}
-            </div>
-          ))}
-        </>
-      ) : null}
     </div>
   );
 }

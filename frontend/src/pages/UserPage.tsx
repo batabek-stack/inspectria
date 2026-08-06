@@ -1048,9 +1048,17 @@ export default function UserPage({ user, onLogout }: Props) {
     openDownload(download);
   };
 
+  const getChecklistPdfOptions = async (report: Report) => {
+    const summaryItems = getReportManagerSummaryItems(report);
+    if (summaryItems.length === 0) return {};
+
+    const managerSummary = await generateManagerSummary(report);
+    return { managerSummary };
+  };
+
   const handleDownloadPdf = async (report: Report) => {
     const pdfPayload = mapReportToPdfPayload(report);
-    await generateChecklistPdf(pdfPayload as any);
+    await generateChecklistPdf(pdfPayload as any, await getChecklistPdfOptions(report));
   };
 
   const handleDownloadManagerSummary = async (report: Report) => {
@@ -1088,7 +1096,10 @@ export default function UserPage({ user, onLogout }: Props) {
       setReportEmailSending(true);
       setMessage("Preparing report email...");
       const pdfPayload = mapReportToPdfPayload(report);
-      const pdf = await generateChecklistPdf(pdfPayload as any, { output: "dataUri" });
+      const pdf = await generateChecklistPdf(pdfPayload as any, {
+        ...(await getChecklistPdfOptions(report)),
+        output: "dataUri",
+      });
 
       await emailReport({
         reportType: "checklist",

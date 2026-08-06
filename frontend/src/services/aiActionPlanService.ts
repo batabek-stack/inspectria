@@ -30,11 +30,9 @@ export function getReportFailedItems(report: Report) {
 export function getReportManagerSummaryItems(report: Report) {
   return (report.items || []).filter((item) => {
     const answerType = item.answerType || item.answer_type || "FORMAT1";
-    const hasAnswer = Boolean(String(item.answer || "").trim());
-    const hasNegativeAnswer = answerType === "FORMAT1" && isNegativeChecklistAnswer(item.answer);
-    const hasOperationalAnswer = answerType !== "FORMAT1" && hasAnswer;
+    const hasYesNoAnswer = answerType === "FORMAT1" && Boolean(String(item.answer || "").trim());
     const hasComment = Boolean(String(item.comment || "").trim());
-    return hasNegativeAnswer || hasOperationalAnswer || hasComment;
+    return hasYesNoAnswer || hasComment;
   });
 }
 
@@ -149,6 +147,7 @@ function fallbackManagerSummary(
   if (targetLanguage === "Turkish") {
     return {
       provider: "fallback",
+      targetLanguage,
       summaryTitle: `Y\u00f6netici \u00d6zeti - ${report.checklistTitle}`,
       summaryText: [
         `${report.checklistTitle} raporunda y\u00f6netim incelemesi gerektiren ${negativeItems.length} negatif checklist maddesi ve ${commentOnlyItems.length} ek yorumlu madde bulunuyor.`,
@@ -168,6 +167,7 @@ function fallbackManagerSummary(
 
   return {
     provider: "fallback",
+    targetLanguage,
     summaryTitle: `Manager Summary - ${report.checklistTitle}`,
     summaryText: [
       `${report.checklistTitle} includes ${negativeItems.length} negative checklist item${negativeItems.length === 1 ? "" : "s"} and ${commentOnlyItems.length} additional commented item${commentOnlyItems.length === 1 ? "" : "s"} requiring management review.`,

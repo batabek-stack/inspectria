@@ -421,10 +421,11 @@ function buildManagerSummaryPayload(report, summaryItems, profile, targetLanguag
         role: "system",
         content: [
           "You are an executive operations reporting assistant.",
-          "Write a concise manager summary from negative checklist items, inspector comments, and completed text/date/choice responses.",
-          "Interpret NO answers as negative findings and interpret any additional comments or completed non-YES/NO answers as operational observations.",
+          "Write a concise manager summary only from YES/NO checklist answers and inspector comments.",
+          "Interpret NO answers as negative findings and comments as inspector observations.",
           "Explain operational risk and group related issues when useful.",
           "Do not create an action-plan table.",
+          "Do not append an item-by-item list. The summaryText must be plain narrative paragraphs only.",
           `Write the entire output in ${summaryLanguage}.`,
           "Use one language consistently for summaryTitle and summaryText. Do not mix languages unless a proper noun or original checklist item must remain unchanged.",
           "Return only valid JSON with summaryTitle and summaryText strings.",
@@ -433,13 +434,13 @@ function buildManagerSummaryPayload(report, summaryItems, profile, targetLanguag
       {
         role: "user",
         content: JSON.stringify({
-          task: "Create a manager-facing narrative summary of negative checklist items, comments, and completed operational observations.",
+          task: "Create a manager-facing narrative paragraph summary from YES/NO answers and comments.",
           constraints: [
             "summaryText should be plain paragraphs, not markdown",
             "mention the most important risk patterns",
-            "include practical interpretation of what the negative items, comments, and completed observations may mean for operations",
+            "include practical interpretation of what the YES/NO answers and comments may mean for operations",
             "avoid inventing facts that are not implied by the report",
-            "do not list every item mechanically unless the report is very short",
+            "do not list items mechanically",
           ],
           expectedShape: {
             summaryTitle: "string",
@@ -611,10 +612,6 @@ function fallbackManagerSummary(report, summaryItems, profile, targetLanguage) {
   const checklistTitle = normalizeText(report.checklistTitle) || "Selected checklist";
   const negativeItems = summaryItems.filter(isNegativeManagerSummaryItem);
   const commentOnlyItems = summaryItems.filter((item) => !isNegativeManagerSummaryItem(item) && normalizeText(item.comment));
-  const answeredObservationItems = summaryItems.filter((item) => {
-    const answerType = item.answerType || item.answer_type || "FORMAT1";
-    return answerType !== "FORMAT1" && normalizeText(item.answer);
-  });
   const sections = [...new Set(summaryItems.map((item) => normalizeText(item.sectionTitle || item.section_title)).filter(Boolean))];
   const comments = summaryItems.map((item) => normalizeText(item.comment)).filter(Boolean);
   const examples = summaryItems
@@ -637,9 +634,6 @@ function fallbackManagerSummary(report, summaryItems, profile, targetLanguage) {
       summaryTitle: `Y\u00f6netici \u00d6zeti - ${checklistTitle}`,
       summaryText: [
         `${checklistTitle} raporunda y\u00f6netim incelemesi gerektiren ${negativeItems.length} negatif checklist maddesi ve ${commentOnlyItems.length} ek yorumlu madde bulunuyor.`,
-        answeredObservationItems.length
-          ? `${answeredObservationItems.length} adet tamamlanm\u0131\u015f metin, tarih veya se\u00e7im cevab\u0131 operasyonel ba\u011flam i\u00e7in ayr\u0131ca incelendi.`
-          : "",
         sections.length
           ? `G\u00f6zlemler a\u011f\u0131rl\u0131kl\u0131 olarak ${sections.join(", ")} alanlar\u0131nda toplan\u0131yor. \u00d6ne \u00e7\u0131kan \u00f6rnekler: ${examples.join("; ")}.`
           : `G\u00f6zlemler tamamlanan checklist geneline yay\u0131lm\u0131\u015f durumda. \u00d6ne \u00e7\u0131kan \u00f6rnekler: ${examples.join("; ")}.`,
@@ -655,9 +649,6 @@ function fallbackManagerSummary(report, summaryItems, profile, targetLanguage) {
     summaryTitle: `Manager Summary - ${checklistTitle}`,
     summaryText: [
       `${checklistTitle} includes ${negativeItems.length} negative checklist item${negativeItems.length === 1 ? "" : "s"} and ${commentOnlyItems.length} additional commented item${commentOnlyItems.length === 1 ? "" : "s"} requiring management review.`,
-      answeredObservationItems.length
-        ? `${answeredObservationItems.length} completed text, date, or choice response${answeredObservationItems.length === 1 ? "" : "s"} were also reviewed for operational context.`
-        : "",
       `${sectionText} ${exampleText}`,
       `${commentText} These observations should be reviewed for immediate correction where needed, ownership, and follow-up evidence.`,
       `This summary was generated with local fallback logic for the ${profile.industry || "configured"} profile. Add Azure OpenAI or OpenAI credentials on the backend for AI-written narrative analysis.`,
