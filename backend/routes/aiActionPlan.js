@@ -360,7 +360,60 @@ function buildAiPayload(report, failedItems, profile) {
   };
 }
 
-function buildManagerSummaryPayload(report, summaryItems, profile) {
+function normalizeTargetLanguage(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (normalized === "turkish" || normalized === "tr" || normalized === "turkce") return "Turkish";
+  if (normalized === "english" || normalized === "en") return "English";
+  return "the dominant language used in the user's comments and answers";
+}
+
+function languageScore(text, language) {
+  const normalized = ` ${String(text || "").toLowerCase()} `;
+
+  if (language === "Turkish") {
+    const charMatches = String(text || "").match(/[\u00e7\u011f\u0131\u00f6\u015f\u00fc\u00c7\u011e\u0130\u00d6\u015e\u00dc]/g)?.length || 0;
+    const wordMatches =
+      normalized.match(/\b(ve|bir|bu|da|de|ile|icin|gibi|var|yok|kontrol|oda|misafir|temiz|eksik|tamam|uygun)\b/g)?.length || 0;
+    return charMatches * 3 + wordMatches;
+  }
+
+  return normalized.match(/\b(and|the|with|for|not|room|guest|clean|check|completed|missing|ok|yes|no)\b/g)?.length || 0;
+}
+
+function detectReportSummaryLanguage(report, summaryItems) {
+  const userEnteredText = (summaryItems || [])
+    .flatMap((item) => {
+      const answerType = item.answerType || item.answer_type || "FORMAT1";
+      return [item.comment, answerType !== "FORMAT1" ? item.answer : ""];
+    })
+    .filter(Boolean)
+    .join(" ");
+
+  const fallbackText = [
+    report?.checklistTitle,
+    ...(summaryItems || []).flatMap((item) => [
+      item.sectionTitle || item.section_title,
+      item.question,
+      item.answer,
+      item.comment,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const textToScore = normalizeText(userEnteredText) ? userEnteredText : fallbackText;
+  const turkishScore = languageScore(textToScore, "Turkish");
+  const englishScore = languageScore(textToScore, "English");
+
+  if (turkishScore > englishScore) return "Turkish";
+  if (englishScore > turkishScore) return "English";
+
+  return "the dominant language used in the user's comments and answers";
+}
+
+function buildManagerSummaryPayload(report, summaryItems, profile, targetLanguage) {
+  const summaryLanguage = targetLanguage || detectReportSummaryLanguage(report, summaryItems);
+
   return {
     response_format: { type: "json_object" },
     messages: [
@@ -368,22 +421,23 @@ function buildManagerSummaryPayload(report, summaryItems, profile) {
         role: "system",
         content: [
           "You are an executive operations reporting assistant.",
-          "Write a concise manager summary from negative checklist items and inspector comments.",
-          "Interpret NO answers as negative findings and interpret any additional commented items as inspector observations.",
+          "Write a concise manager summary from negative checklist items, inspector comments, and completed text/date/choice responses.",
+          "Interpret NO answers as negative findings and interpret any additional comments or completed non-YES/NO answers as operational observations.",
           "Explain operational risk and group related issues when useful.",
           "Do not create an action-plan table.",
-          "Use clear management language and the same language as the checklist content when practical.",
+          `Write the entire output in ${summaryLanguage}.`,
+          "Use one language consistently for summaryTitle and summaryText. Do not mix languages unless a proper noun or original checklist item must remain unchanged.",
           "Return only valid JSON with summaryTitle and summaryText strings.",
         ].join(" "),
       },
       {
         role: "user",
         content: JSON.stringify({
-          task: "Create a manager-facing narrative summary of negative checklist items and commented observations.",
+          task: "Create a manager-facing narrative summary of negative checklist items, comments, and completed operational observations.",
           constraints: [
             "summaryText should be plain paragraphs, not markdown",
             "mention the most important risk patterns",
-            "include practical interpretation of what the negative items and comments may mean for operations",
+            "include practical interpretation of what the negative items, comments, and completed observations may mean for operations",
             "avoid inventing facts that are not implied by the report",
             "do not list every item mechanically unless the report is very short",
           ],
@@ -391,6 +445,9 @@ function buildManagerSummaryPayload(report, summaryItems, profile) {
             summaryTitle: "string",
             summaryText: "string",
           },
+          targetLanguage: summaryLanguage,
+          languageRule:
+            "Use the targetLanguage for the complete manager summary. Prioritize the language used in user-entered comments and answers over checklist template wording.",
           industryProfile: profile,
           report: {
             id: report.id,
@@ -549,10 +606,15 @@ function isNegativeManagerSummaryItem(item) {
   return answerType === "FORMAT1" && ["no", "fail", "failed", "false"].includes(normalizeText(item.answer).toLowerCase());
 }
 
-function fallbackManagerSummary(report, summaryItems, profile) {
+function fallbackManagerSummary(report, summaryItems, profile, targetLanguage) {
+  const summaryLanguage = targetLanguage || detectReportSummaryLanguage(report, summaryItems);
   const checklistTitle = normalizeText(report.checklistTitle) || "Selected checklist";
   const negativeItems = summaryItems.filter(isNegativeManagerSummaryItem);
   const commentOnlyItems = summaryItems.filter((item) => !isNegativeManagerSummaryItem(item) && normalizeText(item.comment));
+  const answeredObservationItems = summaryItems.filter((item) => {
+    const answerType = item.answerType || item.answer_type || "FORMAT1";
+    return answerType !== "FORMAT1" && normalizeText(item.answer);
+  });
   const sections = [...new Set(summaryItems.map((item) => normalizeText(item.sectionTitle || item.section_title)).filter(Boolean))];
   const comments = summaryItems.map((item) => normalizeText(item.comment)).filter(Boolean);
   const examples = summaryItems
@@ -570,19 +632,41 @@ function fallbackManagerSummary(report, summaryItems, profile) {
     ? `Key examples include ${examples.join("; ")}.`
     : "The reviewed items should be discussed with the responsible operational owners.";
 
+  if (summaryLanguage === "Turkish") {
+    return {
+      summaryTitle: `Y\u00f6netici \u00d6zeti - ${checklistTitle}`,
+      summaryText: [
+        `${checklistTitle} raporunda y\u00f6netim incelemesi gerektiren ${negativeItems.length} negatif checklist maddesi ve ${commentOnlyItems.length} ek yorumlu madde bulunuyor.`,
+        answeredObservationItems.length
+          ? `${answeredObservationItems.length} adet tamamlanm\u0131\u015f metin, tarih veya se\u00e7im cevab\u0131 operasyonel ba\u011flam i\u00e7in ayr\u0131ca incelendi.`
+          : "",
+        sections.length
+          ? `G\u00f6zlemler a\u011f\u0131rl\u0131kl\u0131 olarak ${sections.join(", ")} alanlar\u0131nda toplan\u0131yor. \u00d6ne \u00e7\u0131kan \u00f6rnekler: ${examples.join("; ")}.`
+          : `G\u00f6zlemler tamamlanan checklist geneline yay\u0131lm\u0131\u015f durumda. \u00d6ne \u00e7\u0131kan \u00f6rnekler: ${examples.join("; ")}.`,
+        comments.length
+          ? `Denet\u00e7i yorumlar\u0131 \u015funlar\u0131 g\u00f6steriyor: ${comments.slice(0, 4).join("; ")}.`
+          : "Bu maddeler i\u00e7in ayr\u0131nt\u0131l\u0131 denet\u00e7i yorumu girilmemi\u015f.",
+        `Bu noktalar operasyonel anlam, gerekli d\u00fczeltme, sorumluluk ve takip kan\u0131t\u0131 a\u00e7\u0131s\u0131ndan de\u011ferlendirilmelidir. Bu \u00f6zet ${profile.industry || "tan\u0131ml\u0131"} profili i\u00e7in yerel fallback mant\u0131\u011f\u0131yla olu\u015fturuldu.`,
+      ].filter(Boolean).join("\n\n"),
+    };
+  }
+
   return {
     summaryTitle: `Manager Summary - ${checklistTitle}`,
     summaryText: [
       `${checklistTitle} includes ${negativeItems.length} negative checklist item${negativeItems.length === 1 ? "" : "s"} and ${commentOnlyItems.length} additional commented item${commentOnlyItems.length === 1 ? "" : "s"} requiring management review.`,
+      answeredObservationItems.length
+        ? `${answeredObservationItems.length} completed text, date, or choice response${answeredObservationItems.length === 1 ? "" : "s"} were also reviewed for operational context.`
+        : "",
       `${sectionText} ${exampleText}`,
       `${commentText} These observations should be reviewed for immediate correction where needed, ownership, and follow-up evidence.`,
       `This summary was generated with local fallback logic for the ${profile.industry || "configured"} profile. Add Azure OpenAI or OpenAI credentials on the backend for AI-written narrative analysis.`,
-    ].join("\n\n"),
+    ].filter(Boolean).join("\n\n"),
   };
 }
 
-function normalizeManagerSummary(report, summaryItems, summary, profile) {
-  const fallback = fallbackManagerSummary(report, summaryItems, profile);
+function normalizeManagerSummary(report, summaryItems, summary, profile, targetLanguage) {
+  const fallback = fallbackManagerSummary(report, summaryItems, profile, targetLanguage);
   const summaryTitle = normalizeText(summary?.summaryTitle) || fallback.summaryTitle;
   const summaryText = normalizeText(summary?.summaryText) || fallback.summaryText;
 
@@ -1120,29 +1204,38 @@ router.get("/reports/:id/action-plan-excel", async (req, res) => {
 });
 
 router.post("/manager-summary", authRequired, async (req, res) => {
-  const { report, failedItems } = req.body || {};
+  const { report, failedItems, targetLanguage } = req.body || {};
 
   if (!report || !Array.isArray(failedItems)) {
     return res.status(400).json({ message: "report and failedItems are required" });
   }
 
+  const summaryLanguage = targetLanguage
+    ? normalizeTargetLanguage(targetLanguage)
+    : detectReportSummaryLanguage(report, failedItems);
+
   if (failedItems.length === 0) {
     return res.json({
       provider: "none",
-      summaryTitle: "Manager Summary",
-      summaryText: "No negative YES/NO checklist items or comments were found in this report.",
+      targetLanguage: summaryLanguage,
+      summaryTitle: summaryLanguage === "Turkish" ? "Y\u00f6netici \u00d6zeti" : "Manager Summary",
+      summaryText:
+        summaryLanguage === "Turkish"
+          ? "Bu raporda \u00f6zetlenecek tamamlanm\u0131\u015f cevap veya yorum bulunamad\u0131."
+          : "No completed answers or comments were found in this report.",
     });
   }
 
   try {
     const profile = getIndustryProfile();
-    const payload = buildManagerSummaryPayload(report, failedItems, profile);
+    const payload = buildManagerSummaryPayload(report, failedItems, profile, summaryLanguage);
     const ai = await callAiProviderWithPayload(payload);
-    const summary = normalizeManagerSummary(report, failedItems, ai.result, profile);
+    const summary = normalizeManagerSummary(report, failedItems, ai.result, profile, summaryLanguage);
 
     return res.json({
       provider: ai.provider,
       industry: profile.industry,
+      targetLanguage: summaryLanguage,
       ...summary,
     });
   } catch (err) {

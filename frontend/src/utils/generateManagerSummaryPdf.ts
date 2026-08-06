@@ -169,7 +169,7 @@ export function generateManagerSummaryPdf(
   drawMeta("Assigned To", report.assignedToName);
   drawMeta("Completed At", formatDate(report.completed_at));
   drawMeta("Negative Items", String(noItems.length));
-  drawMeta("Commented Items", String(summaryItems.length - noItems.length));
+  drawMeta("Other Observations", String(Math.max(summaryItems.length - noItems.length, 0)));
   drawMeta("AI Provider", summary.provider === "fallback" ? "Local fallback" : summary.provider);
 
   cursorY += 6;

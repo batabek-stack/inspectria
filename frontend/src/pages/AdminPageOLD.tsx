@@ -262,30 +262,6 @@ export default function AdminPage({ user, onLogout }: Props) {
     <DashboardShell user={user} onLogout={onLogout}>
       {selectedReport ? (
         <div>
-          <div style={{ ...styles.row, justifyContent: "space-between", marginBottom: 14 }}>
-            <button
-              style={styles.secondaryButton}
-              onClick={() => setSelectedReport(null)}
-            >
-              Back
-            </button>
-
-            <div style={styles.row}>
-              <button
-                style={styles.button}
-                onClick={() => handleDownloadPdf(selectedReport)}
-              >
-                Download PDF
-              </button>
-              <button
-                style={styles.button}
-                onClick={() => handleDeleteReport(selectedReport.id)}
-              >
-                Delete Report
-              </button>
-            </div>
-          </div>
-
           <ReportDetail
             report={selectedReport}
             onBack={() => setSelectedReport(null)}

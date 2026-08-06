@@ -273,6 +273,7 @@ export type AiActionPlanResponse = {
 export type ManagerSummaryResponse = {
   provider: "azure-openai" | "openai" | "fallback" | "none";
   industry?: string;
+  targetLanguage?: string;
   summaryTitle: string;
   summaryText: string;
 };

@@ -1057,7 +1057,7 @@ export default function UserPage({ user, onLogout }: Props) {
     const summaryItems = getReportManagerSummaryItems(report);
 
     if (summaryItems.length === 0) {
-      alert("This report has no negative YES/NO items or comments to summarize.");
+      alert("This report has no completed answers or comments to summarize.");
       return;
     }
 

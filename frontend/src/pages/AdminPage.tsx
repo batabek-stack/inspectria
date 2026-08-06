@@ -3230,7 +3230,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     const summaryItems = getReportManagerSummaryItems(report);
 
     if (summaryItems.length === 0) {
-      setError("This report has no negative YES/NO items or comments to summarize.");
+      setError("This report has no completed answers or comments to summarize.");
       return;
     }
 
@@ -4561,54 +4561,6 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
               onClose={() => setManagerSummaryPreview(null)}
             />
           ) : null}
-
-          <div
-            className="responsive-report-top"
-            style={{ ...styles.row, justifyContent: "space-between", marginBottom: 14 }}
-          >
-            <button
-              style={styles.secondaryButton}
-                      onClick={() => setSelectedReport(null)}
-            >
-              Back
-            </button>
-
-            <div className="responsive-report-actions" style={styles.row}>
-              <button
-                style={styles.button}
-                      onClick={() => handleDownloadPdf(selectedReport)}
-              >
-                Download PDF
-              </button>
-              <button
-                style={styles.secondaryButton}
-                      onClick={() => handleEmailReport(selectedReport)}
-              >
-                Email Report
-              </button>
-              <a
-                style={{ ...styles.button, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
-                href={getActionPlanExcelDownloadUrl(selectedReport.id)}
-              >
-                AI Action Plan Excel
-              </a>
-              <button
-                style={styles.button}
-                      onClick={() => handleDownloadManagerSummary(selectedReport)}
-                disabled={managerSummaryReportId === selectedReport.id}
-              >
-                {managerSummaryReportId === selectedReport.id
-                  ? "Preparing Summary..."
-                  : "Manager Summary"}
-              </button>
-              <button
-                style={styles.button}
-                      onClick={() => handleDeleteReport(selectedReport.id)}
-              >
-                Delete Report
-              </button>
-            </div>
-          </div>
 
           <ReportDetail
             report={selectedReport}

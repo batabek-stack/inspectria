@@ -14,7 +14,7 @@ type Props = {
 export default function ManagerSummaryPanel({ report, summary, onClose }: Props) {
   const noItems = getReportFailedItems(report);
   const summaryItems = getReportManagerSummaryItems(report);
-  const commentedOnlyCount = summaryItems.length - noItems.length;
+  const observationCount = Math.max(summaryItems.length - noItems.length, 0);
   const paragraphs = summary.summaryText
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -41,7 +41,7 @@ export default function ManagerSummaryPanel({ report, summary, onClose }: Props)
       </div>
       <h4 style={{ margin: "0 0 8px" }}>{summary.summaryTitle}</h4>
       <div style={{ ...styles.small, marginBottom: 12 }}>
-        {noItems.length} negative item{noItems.length === 1 ? "" : "s"} and {commentedOnlyCount} commented item{commentedOnlyCount === 1 ? "" : "s"} reviewed
+        {noItems.length} negative item{noItems.length === 1 ? "" : "s"} and {observationCount} other observation{observationCount === 1 ? "" : "s"} reviewed
       </div>
       {paragraphs.map((paragraph) => (
         <p key={paragraph} style={{ marginTop: 0 }}>
