@@ -7919,7 +7919,9 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     return (
                 <div
                   key={u.id}
-                  className={`compact-row compact-row-editable ${isOpen || editingUserId === u.id ? "compact-row-open" : ""}`}
+                  className={`compact-row compact-row-editable click-open-row ${
+                    isOpen || editingUserId === u.id ? "compact-row-open" : ""
+                  }`}
                 >
                   {editingUserId === u.id ? (
                     <>
@@ -8360,7 +8362,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       return (
                         <div
                           key={walkthrough.id}
-                          className={`compact-row ${isOpen ? "compact-row-open" : ""}`}
+                          className={`compact-row click-open-row ${isOpen ? "compact-row-open" : ""}`}
                         >
                           <div className="compact-row-main">
                             <button
@@ -8431,7 +8433,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                   return (
                     <div
                       key={r.id}
-                      className={`compact-row ${isOpen ? "compact-row-open" : ""}`}
+                      className={`compact-row click-open-row ${isOpen ? "compact-row-open" : ""}`}
                     >
                       <div className="compact-row-main">
                         <button

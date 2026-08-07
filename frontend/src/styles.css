@@ -1582,6 +1582,13 @@ textarea {
   box-shadow: 0 8px 20px rgba(3, 32, 42, 0.07);
 }
 
+.compact-row.click-open-row:hover:not(.compact-row-open),
+.compact-row.click-open-row:focus-within:not(.compact-row-open) {
+  border-color: #d7e6e4;
+  background: #ffffff;
+  box-shadow: none;
+}
+
 .compact-row-main {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -1670,6 +1677,14 @@ textarea {
   opacity: 1;
   padding-top: 2px;
   pointer-events: auto;
+}
+
+.compact-row.click-open-row:hover:not(.compact-row-open) .compact-row-actions,
+.compact-row.click-open-row:focus-within:not(.compact-row-open) .compact-row-actions {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  pointer-events: none;
 }
 
 .compact-row-actions button,
