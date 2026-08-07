@@ -7642,19 +7642,27 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                           <div className="compact-row-actions">
                             {isEditingActionPlan ? (
                               <>
-                                <button type="button" onClick={saveActionPlanEdit}>
+                                <button type="button" style={styles.button} onClick={saveActionPlanEdit}>
                                   Save
                                 </button>
-                                <button type="button" onClick={cancelEditActionPlan}>
+                                <button type="button" style={styles.secondaryButton} onClick={cancelEditActionPlan}>
                                   Cancel
                                 </button>
                               </>
                             ) : (
-                              <button type="button" onClick={() => startEditActionPlan(plan)}>
+                              <button
+                                type="button"
+                                style={styles.secondaryButton}
+                                onClick={() => startEditActionPlan(plan)}
+                              >
                                 Edit
                               </button>
                             )}
-                            <button type="button" onClick={() => removeActionPlan(plan)}>
+                            <button
+                              type="button"
+                              style={styles.secondaryButton}
+                              onClick={() => removeActionPlan(plan)}
+                            >
                               Delete
                             </button>
                           </div>
