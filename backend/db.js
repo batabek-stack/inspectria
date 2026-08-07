@@ -479,6 +479,14 @@ async function initDb() {
       UNIQUE (subscription_id, days_before)
     );
 
+    CREATE TABLE IF NOT EXISTS billing_trial_email_claims (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_users_organization_id ON users(organization_id);
     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id
       ON password_reset_tokens(user_id);
@@ -549,6 +557,8 @@ async function initDb() {
       ON payments(status);
     CREATE INDEX IF NOT EXISTS idx_billing_trial_reminders_subscription_id
       ON billing_trial_reminders(subscription_id);
+    CREATE INDEX IF NOT EXISTS idx_billing_trial_email_claims_organization_id
+      ON billing_trial_email_claims(organization_id);
   `);
 
   await ensureForeignKeyCascade(

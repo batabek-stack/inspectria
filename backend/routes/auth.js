@@ -92,6 +92,56 @@ function publicUser(user) {
   };
 }
 
+async function assertTrialEmailAvailable(client, email, { excludeUserId = null } = {}) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  if (!cleanEmail) {
+    throw Object.assign(new Error("A valid email address is required"), { statusCode: 400 });
+  }
+
+  const claimResult = await client.query(
+    `
+    SELECT 1
+    FROM billing_trial_email_claims
+    WHERE LOWER(email) = LOWER($1)
+    LIMIT 1
+  `,
+    [cleanEmail]
+  );
+  if (claimResult.rows[0]) {
+    throw Object.assign(
+      new Error("This email address has already used a free trial. Please sign in or contact support."),
+      { statusCode: 400 }
+    );
+  }
+
+  const userResult = await client.query(
+    `
+    SELECT 1
+    FROM users
+    WHERE LOWER(email) = LOWER($1)
+      AND ($2::int IS NULL OR id <> $2::int)
+    LIMIT 1
+  `,
+    [cleanEmail, excludeUserId]
+  );
+  if (userResult.rows[0]) {
+    throw Object.assign(
+      new Error("This email address has already been used. Please sign in or contact support."),
+      { statusCode: 400 }
+    );
+  }
+}
+
+async function claimTrialEmail(client, { email, organizationId, userId }) {
+  await client.query(
+    `
+    INSERT INTO billing_trial_email_claims (email, organization_id, user_id)
+    VALUES (LOWER($1), $2, $3)
+  `,
+    [String(email || "").trim().toLowerCase(), organizationId, userId]
+  );
+}
+
 async function activatePendingTrialAdmin(user) {
   if (
     user.approval_status !== "pending" ||
@@ -127,6 +177,8 @@ async function activatePendingTrialAdmin(user) {
     );
     const isFirstOrganizationUser = Number(userCountResult.rows[0]?.count || 0) <= 1;
     if (user.role !== "admin" && !isFirstOrganizationUser) return false;
+
+    await assertTrialEmailAvailable(client, user.email, { excludeUserId: user.id });
 
     const planCode = (process.env.DEFAULT_TRIAL_PLAN_CODE || "starter").trim().toLowerCase();
     const planResult = await client.query(
@@ -193,6 +245,12 @@ async function activatePendingTrialAdmin(user) {
     `,
       [user.id]
     );
+
+    await claimTrialEmail(client, {
+      email: user.email,
+      organizationId: user.organization_id,
+      userId: user.id,
+    });
 
     return true;
   });
@@ -380,6 +438,8 @@ router.post("/register", async (req, res, next) => {
           );
         }
 
+        await assertTrialEmailAvailable(client, cleanEmail);
+
         const orgResult = await client.query(
           `
           INSERT INTO organizations (name, active)
@@ -461,11 +521,12 @@ router.post("/register", async (req, res, next) => {
         );
       }
 
-      await client.query(
+      const userInsertResult = await client.query(
         `
         INSERT INTO users
           (organization_id, email, username, password_hash, name, role, active, approval_status, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        RETURNING id
       `,
         [
           organizationId,
@@ -478,6 +539,14 @@ router.post("/register", async (req, res, next) => {
           approvalTarget === "trial" ? "approved" : "pending",
         ]
       );
+
+      if (approvalTarget === "trial") {
+        await claimTrialEmail(client, {
+          email: cleanEmail,
+          organizationId,
+          userId: userInsertResult.rows[0].id,
+        });
+      }
 
       return {
         approvalTarget,
