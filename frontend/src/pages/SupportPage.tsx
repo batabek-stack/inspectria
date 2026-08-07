@@ -25,6 +25,7 @@ const ROLE_GUIDES: RoleGuide[] = [
       "Open and complete checklists assigned to you, including answers, notes, and photos.",
       "View organization reports available to you and export them as PDF or Excel files.",
       "Select and use templates shared with you by your administrator.",
+      "Open Community Templates to use templates shared by other Inspectria users, and share your own templates with the community.",
       "Create walkthrough lists for on-site checks, save drafts, and complete them later.",
       "Follow announcements and shared templates from your organization in Messages.",
     ],
@@ -35,6 +36,7 @@ const ROLE_GUIDES: RoleGuide[] = [
     description: "Manage control processes and users in your organization.",
     items: [
       "Create, edit, and share checklist templates in Templates.",
+      "Use Community Templates to find templates shared by other Inspectria users, copy them into your organization, and share your own templates with the community.",
       "Assign control tasks by choosing a template and a user in Assignments.",
       "Create, edit, approve, and assign roles to users in User Management.",
       "Review completed reports, export PDF or Excel files, and create Action Plan items with responsible parties, photos, due dates, and email reminders.",
@@ -50,6 +52,7 @@ const ROLE_GUIDES: RoleGuide[] = [
       "Enter administrator details in the form to create the first admin for that sub-organization in the same flow.",
       "Choose the relevant organization in User Management to create new users and assign admin access when needed.",
       "Assign templates you create to the correct users and organizations through Assignments.",
+      "Review Community Templates shared by Inspectria users and copy useful templates into the relevant organization before editing.",
       "Track reports and users for each sub-organization within their own access boundaries.",
     ],
   },
