@@ -7336,6 +7336,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     </div>
 
                     <textarea
+                      className="action-plan-manual-email-field"
                       style={{ ...styles.input, minHeight: 76 }}
                       placeholder="Manual emails separated by comma, semicolon or space"
                       value={actionPlanManualEmails}
@@ -7470,9 +7471,15 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                     <div className="compact-list">
                       {actionPlans.map((plan) => {
                         const isEditingActionPlan = editingActionPlanId === plan.id && actionPlanEditForm;
+                        const actionPlanStatusClass = `action-plan-status-${plan.status
+                          .toLowerCase()
+                          .replace(/\s+/g, "-")}`;
 
                         return (
-                        <div key={plan.id} className="compact-row compact-row-open">
+                        <div
+                          key={plan.id}
+                          className={`compact-row compact-row-open action-plan-item-card ${actionPlanStatusClass}`}
+                        >
                           <div className="compact-row-title">
                             <strong>{plan.item}</strong>
                             <span>
@@ -7532,38 +7539,6 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               />
                             </div>
                           ) : null}
-                          {(isEditingActionPlan
-                            ? actionPlanEditForm.photos
-                            : plan.photos || []
-                          ).length > 0 ? (
-                            <div style={{ ...styles.photoGrid, gridColumn: "1 / -1" }}>
-                              {(isEditingActionPlan
-                                ? actionPlanEditForm.photos
-                                : plan.photos || []
-                              ).map((photo, photoIndex) => {
-                                const src = resolveFileUrl(photo);
-
-                                return (
-                                  <div key={`${plan.id}-${photoIndex}`} style={styles.photoCard}>
-                                    <img
-                                      src={src}
-                                      alt={`action-plan-${plan.id}-${photoIndex}`}
-                                      style={styles.photoPreview}
-                                    />
-                                    {isEditingActionPlan ? (
-                                      <button
-                                        type="button"
-                                        style={{ ...styles.secondaryButton, marginTop: 8 }}
-                                        onClick={() => removeActionPlanEditPhoto(photoIndex)}
-                                      >
-                                        Remove
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : null}
                           {isEditingActionPlan ? (
                             <div
                               className="photo-upload-actions"
@@ -7600,9 +7575,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               ) : null}
                             </div>
                           ) : (
-                            <div className="compact-row-form">
+                            <div className="compact-row-form action-plan-progress-row">
                             <textarea
-                              style={{ ...styles.input, minHeight: 70 }}
+                              className="action-plan-remarks-field"
+                              style={styles.input}
                               defaultValue={plan.remarks}
                               onBlur={(event) => {
                                 const nextRemarks = event.target.value;
@@ -7612,6 +7588,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                               }}
                             />
                             <select
+                              className="action-plan-status-field"
                               style={styles.input}
                               value={plan.status}
                               onChange={(event) =>
@@ -7630,6 +7607,38 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             </select>
                           </div>
                           )}
+                          {(isEditingActionPlan
+                            ? actionPlanEditForm.photos
+                            : plan.photos || []
+                          ).length > 0 ? (
+                            <div style={{ ...styles.photoGrid, gridColumn: "1 / -1" }}>
+                              {(isEditingActionPlan
+                                ? actionPlanEditForm.photos
+                                : plan.photos || []
+                              ).map((photo, photoIndex) => {
+                                const src = resolveFileUrl(photo);
+
+                                return (
+                                  <div key={`${plan.id}-${photoIndex}`} style={styles.photoCard}>
+                                    <img
+                                      src={src}
+                                      alt={`action-plan-${plan.id}-${photoIndex}`}
+                                      style={styles.photoPreview}
+                                    />
+                                    {isEditingActionPlan ? (
+                                      <button
+                                        type="button"
+                                        style={{ ...styles.secondaryButton, marginTop: 8 }}
+                                        onClick={() => removeActionPlanEditPhoto(photoIndex)}
+                                      >
+                                        Remove
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
                           <div className="compact-row-actions">
                             {isEditingActionPlan ? (
                               <>

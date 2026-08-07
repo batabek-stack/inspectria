@@ -876,9 +876,13 @@ textarea {
 
 .action-plan-fields {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(180px, 240px);
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 320px);
   gap: 12px;
   align-items: stretch;
+}
+
+.action-plan-organization-field {
+  grid-column: 1;
 }
 
 .action-plan-full-field {
@@ -895,7 +899,7 @@ textarea {
 
 .action-plan-responsible-row {
   display: grid;
-  grid-template-columns: minmax(280px, 1.4fr) minmax(260px, 1fr) auto;
+  grid-template-columns: minmax(260px, 1.15fr) minmax(260px, 0.85fr) max-content;
   gap: 12px;
   align-items: end;
   margin-top: 12px;
@@ -909,6 +913,7 @@ textarea {
   display: flex;
   width: 100%;
   min-height: 48px;
+  height: 48px;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -919,6 +924,12 @@ textarea {
   color: #06323f;
   cursor: pointer;
   font-weight: 800;
+}
+
+.action-plan-manual-email-field {
+  height: 48px !important;
+  min-height: 48px !important;
+  resize: vertical;
 }
 
 .action-plan-recipient-menu {
@@ -981,10 +992,15 @@ textarea {
 
 .action-plan-builder-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
   align-items: center;
   justify-content: flex-start;
+}
+
+.action-plan-builder-actions button {
+  min-height: 48px;
+  white-space: nowrap !important;
 }
 
 .action-plan-drafts {
@@ -997,6 +1013,67 @@ textarea {
   gap: 12px;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.action-plan-item-card {
+  grid-template-columns: minmax(0, 1fr);
+  border-left-width: 6px;
+}
+
+.compact-row.action-plan-item-card {
+  background: var(--action-plan-card-bg, #ffffff);
+  border-color: var(--action-plan-card-border, #d7e6e4);
+  border-left-color: var(--action-plan-card-accent, #b9d3d1);
+}
+
+.compact-row.action-plan-item-card:hover,
+.compact-row.action-plan-item-card:focus-within,
+.compact-row.action-plan-item-card.compact-row-open {
+  background: var(--action-plan-card-bg, #fbfefd);
+  border-color: var(--action-plan-card-border, #9ccbc6);
+  border-left-color: var(--action-plan-card-accent, #0f766e);
+}
+
+.action-plan-status-open {
+  --action-plan-card-bg: #fbfefd;
+  --action-plan-card-border: #d7e6e4;
+  --action-plan-card-accent: #b9d3d1;
+}
+
+.action-plan-status-in-progress {
+  --action-plan-card-bg: #edf9f6;
+  --action-plan-card-border: #b9deda;
+  --action-plan-card-accent: #5bbfb4;
+}
+
+.action-plan-status-done {
+  --action-plan-card-bg: #dcfce7;
+  --action-plan-card-border: #86d9aa;
+  --action-plan-card-accent: #16a34a;
+}
+
+.action-plan-status-blocked {
+  --action-plan-card-bg: #f2f8f6;
+  --action-plan-card-border: #aecfcc;
+  --action-plan-card-accent: #4f8f89;
+}
+
+.action-plan-progress-row {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.action-plan-remarks-field,
+.action-plan-status-field {
+  height: 64px;
+  min-height: 64px !important;
+  line-height: 1.35;
+}
+
+.action-plan-remarks-field {
+  resize: vertical;
 }
 
 .templates-layout {
@@ -2658,7 +2735,7 @@ textarea {
   }
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 980px) {
   .action-plan-responsible-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
