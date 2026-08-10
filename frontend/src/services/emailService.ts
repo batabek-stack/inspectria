@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from "./api";
+import { EmailLog } from "../types";
 
 export type EmailReportPayload = {
   reportType: "checklist" | "walkthrough";
@@ -47,4 +48,8 @@ export function sendContactMessage(payload: ContactPayload) {
 
 export function createSupportTicket(payload: SupportTicketPayload) {
   return apiPost<{ success: boolean }>("/emails/support-ticket", payload);
+}
+
+export function getEmailLogs() {
+  return apiGet<{ logs: EmailLog[] }>("/emails/logs");
 }

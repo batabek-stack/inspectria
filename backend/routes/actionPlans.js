@@ -9,6 +9,7 @@ const {
   sendActionPlanOverdueResponsibleEmail,
   sendActionPlanReminderEmail,
 } = require("../services/emailService");
+const { logEmailEvent } = require("../services/emailLogService");
 
 const router = express.Router();
 const STATUSES = new Set(["Open", "In Progress", "Blocked", "Done"]);
@@ -235,8 +236,30 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
             to,
             organizationName: organization.name,
             items: assignedItems,
-          }).catch((error) => {
+          }).then(() =>
+            logEmailEvent({
+              organizationId: organization.id,
+              sentByUserId: req.user.id,
+              senderEmail: req.user.email,
+              senderName: req.user.name || req.user.username,
+              recipientEmail: to,
+              subject: `Inspectria Action Plan - ${organization.name}`,
+              status: "sent",
+              emailType: "action_plan",
+            }).catch(() => {})
+          ).catch((error) => {
             emailError = error instanceof Error ? error.message : "Action plan email failed";
+            return logEmailEvent({
+              organizationId: organization.id,
+              sentByUserId: req.user.id,
+              senderEmail: req.user.email,
+              senderName: req.user.name || req.user.username,
+              recipientEmail: to,
+              subject: `Inspectria Action Plan - ${organization.name}`,
+              status: "failed",
+              errorMessage: emailError,
+              emailType: "action_plan",
+            }).catch(() => {});
           })
       );
 
@@ -247,8 +270,32 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
             to: creatorEmail,
             organizationName: organization.name,
             items: createdItems,
-          }).catch((error) => {
+          }).then(() =>
+            logEmailEvent({
+              organizationId: organization.id,
+              sentByUserId: req.user.id,
+              senderEmail: req.user.email,
+              senderName: req.user.name || req.user.username,
+              recipientEmail: creatorEmail,
+              recipientName: req.user.name || req.user.username,
+              subject: `Inspectria Action Plan created - ${organization.name}`,
+              status: "sent",
+              emailType: "action_plan",
+            }).catch(() => {})
+          ).catch((error) => {
             emailError = error instanceof Error ? error.message : "Action plan email failed";
+            return logEmailEvent({
+              organizationId: organization.id,
+              sentByUserId: req.user.id,
+              senderEmail: req.user.email,
+              senderName: req.user.name || req.user.username,
+              recipientEmail: creatorEmail,
+              recipientName: req.user.name || req.user.username,
+              subject: `Inspectria Action Plan created - ${organization.name}`,
+              status: "failed",
+              errorMessage: emailError,
+              emailType: "action_plan",
+            }).catch(() => {});
           })
         );
       }
@@ -472,6 +519,13 @@ async function runActionPlanNotifications() {
   for (const [key, items] of reminderGroups.entries()) {
     const [to, organizationName] = key.split("|");
     await sendActionPlanReminderEmail({ to, organizationName, items });
+    await logEmailEvent({
+      organizationId: items[0]?.organizationId,
+      recipientEmail: to,
+      subject: "Inspectria Action Plan reminder",
+      status: "sent",
+      emailType: "warning",
+    }).catch(() => {});
     await db.query(
       "UPDATE action_plan_items SET reminder_sent_at = NOW() WHERE id = ANY($1::int[])",
       [items.map((item) => Number(item.id))]
@@ -512,6 +566,13 @@ async function runActionPlanNotifications() {
   for (const [key, items] of overdueResponsibleGroups.entries()) {
     const [to, organizationName] = key.split("|");
     await sendActionPlanOverdueResponsibleEmail({ to, organizationName, items });
+    await logEmailEvent({
+      organizationId: items[0]?.organizationId,
+      recipientEmail: to,
+      subject: "Overdue Inspectria Action Plan item(s)",
+      status: "sent",
+      emailType: "warning",
+    }).catch(() => {});
     await db.query(
       "UPDATE action_plan_responsible_parties SET overdue_sent_at = NOW() WHERE id = ANY($1::int[])",
       [items.map((item) => Number(item.responsiblePartyId))]
@@ -542,7 +603,7 @@ async function runActionPlanNotifications() {
   for (const [organizationId, items] of overdueByOrg.entries()) {
     const admins = await db.many(
       `
-      SELECT email
+      SELECT email, name, username
       FROM users
       WHERE organization_id = $1
         AND role = 'admin'
@@ -557,7 +618,16 @@ async function runActionPlanNotifications() {
           to: admin.email,
           organizationName: items[0]?.organizationName || "Organization",
           items,
-        })
+        }).then(() =>
+          logEmailEvent({
+            organizationId,
+            recipientEmail: admin.email,
+            recipientName: admin.name || admin.username,
+            subject: `Overdue Inspectria Action Plan item(s) - ${items[0]?.organizationName || "Organization"}`,
+            status: "sent",
+            emailType: "warning",
+          }).catch(() => {})
+        )
       )
     );
     await db.query(

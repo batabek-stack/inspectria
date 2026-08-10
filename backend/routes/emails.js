@@ -2,6 +2,7 @@ const express = require("express");
 const db = require("../db");
 const { authRequired } = require("../middleware/auth");
 const { getMailFrom, sendReportEmail } = require("../services/emailService");
+const { logEmailEvent } = require("../services/emailLogService");
 
 const router = express.Router();
 
@@ -165,17 +166,6 @@ async function getWalkthroughForEmail(reportId, user) {
   );
 }
 
-async function logEmail({ organizationId, userId, reportType, reportId, to, cc, subject, status, errorMessage }) {
-  await db.query(
-    `
-    INSERT INTO email_logs
-      (organization_id, sent_by_user_id, report_type, report_id, recipient_email, cc_email, subject, status, error_message)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-  `,
-    [organizationId || null, userId || null, reportType, reportId, to, cc || "", subject, status, errorMessage || ""]
-  );
-}
-
 router.post("/contact", async (req, res, next) => {
   const {
     name = "",
@@ -327,6 +317,60 @@ router.get("/report-recipients", authRequired, async (req, res, next) => {
   }
 });
 
+router.get("/logs", authRequired, async (req, res, next) => {
+  try {
+    if (!db.isPlatformAdmin(req.user)) {
+      return res.status(403).json({ message: "Platform admin access is required." });
+    }
+
+    const scopeIds = await db.getManagedOrganizationIds(req.user);
+    const params = [];
+    const scopeFilter = scopeIds.length
+      ? `WHERE (el.organization_id IS NULL OR el.organization_id = ANY($1::int[]))`
+      : "";
+    if (scopeIds.length) params.push(scopeIds);
+
+    const rows = await db.many(
+      `
+      SELECT
+        el.id,
+        el.email_type AS "emailType",
+        el.report_type AS "reportType",
+        el.report_id AS "reportId",
+        el.sender_email AS "senderEmail",
+        el.sender_name AS "senderName",
+        COALESCE(sender.email, '') AS "sentByEmail",
+        COALESCE(sender.name, sender.username, '') AS "sentByName",
+        el.recipient_email AS "recipientEmail",
+        el.recipient_name AS "recipientName",
+        el.cc_email AS "ccEmail",
+        el.subject,
+        el.status,
+        el.error_message AS "errorMessage",
+        el.sent_at AS "sentAt",
+        o.name AS "organizationName"
+      FROM email_logs el
+      LEFT JOIN users sender ON sender.id = el.sent_by_user_id
+      LEFT JOIN organizations o ON o.id = el.organization_id
+      ${scopeFilter}
+      ORDER BY el.sent_at DESC
+      LIMIT 300
+    `,
+      params
+    );
+
+    res.json({
+      logs: rows.map((row) => ({
+        ...row,
+        senderEmail: row.senderEmail || row.sentByEmail || "",
+        senderName: row.senderName || row.sentByName || "",
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/report", authRequired, async (req, res, next) => {
   const {
     reportType = "checklist",
@@ -397,13 +441,17 @@ router.post("/report", authRequired, async (req, res, next) => {
       attachments,
     });
 
-    await logEmail({
+    await logEmailEvent({
       organizationId,
-      userId: req.user.id,
+      sentByUserId: req.user.id,
+      senderEmail: req.user.email,
+      senderName: req.user.name || req.user.username,
+      recipientEmail: recipients.join(", "),
+      recipientName: "",
+      ccEmail: ccRecipient,
+      emailType: "report",
       reportType: cleanReportType,
       reportId: cleanReportId,
-      to: recipients.join(", "),
-      cc: ccRecipient,
       subject: emailSubject,
       status: "sent",
     });
@@ -411,13 +459,17 @@ router.post("/report", authRequired, async (req, res, next) => {
     res.json({ success: true });
   } catch (error) {
     if (recipients.length > 0 && emailSubject) {
-      await logEmail({
+      await logEmailEvent({
         organizationId,
-        userId: req.user.id,
+        sentByUserId: req.user.id,
+        senderEmail: req.user.email,
+        senderName: req.user.name || req.user.username,
+        recipientEmail: recipients.join(", "),
+        recipientName: "",
+        ccEmail: ccRecipient,
+        emailType: "report",
         reportType: cleanReportType,
         reportId: cleanReportId || 0,
-        to: recipients.join(", "),
-        cc: ccRecipient,
         subject: emailSubject,
         status: "failed",
         errorMessage: error.message,

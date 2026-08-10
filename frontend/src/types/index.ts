@@ -106,6 +106,23 @@ export type AppMessage = {
   expiresAt?: string | null;
 };
 
+export type EmailLog = {
+  id: number;
+  emailType: string;
+  reportType?: "checklist" | "walkthrough" | null;
+  reportId?: number | null;
+  senderEmail: string;
+  senderName: string;
+  recipientEmail: string;
+  recipientName: string;
+  ccEmail?: string | null;
+  subject: string;
+  status: "sent" | "failed";
+  errorMessage?: string | null;
+  sentAt: string;
+  organizationName?: string | null;
+};
+
 export type ChecklistItem = {
   id: number;
   checklist_id: number;

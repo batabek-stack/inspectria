@@ -394,8 +394,13 @@ async function initDb() {
       id SERIAL PRIMARY KEY,
       organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
       sent_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      report_type TEXT NOT NULL CHECK (report_type IN ('checklist', 'walkthrough')),
-      report_id INTEGER NOT NULL,
+      sender_email TEXT NOT NULL DEFAULT '',
+      sender_name TEXT NOT NULL DEFAULT '',
+      recipient_name TEXT NOT NULL DEFAULT '',
+      email_type TEXT NOT NULL DEFAULT 'report'
+        CHECK (email_type IN ('report', 'app_message', 'template_share', 'action_plan', 'warning', 'welcome', 'support', 'contact', 'other')),
+      report_type TEXT CHECK (report_type IS NULL OR report_type IN ('checklist', 'walkthrough')),
+      report_id INTEGER,
       recipient_email TEXT NOT NULL,
       cc_email TEXT,
       subject TEXT NOT NULL,
@@ -696,6 +701,29 @@ async function initDb() {
     "overdue_sent_at",
     "overdue_sent_at TIMESTAMPTZ"
   );
+  await ensureColumn("email_logs", "sender_email", "sender_email TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("email_logs", "sender_name", "sender_name TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("email_logs", "recipient_name", "recipient_name TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(
+    "email_logs",
+    "email_type",
+    "email_type TEXT NOT NULL DEFAULT 'report'"
+  );
+  await dropConstraintIfExists("email_logs", "email_logs_report_type_check");
+  await dropConstraintIfExists("email_logs", "email_logs_email_type_check");
+  await query(`
+    ALTER TABLE email_logs
+      ALTER COLUMN report_type DROP NOT NULL,
+      ALTER COLUMN report_id DROP NOT NULL;
+
+    ALTER TABLE email_logs
+      ADD CONSTRAINT email_logs_report_type_check
+      CHECK (report_type IS NULL OR report_type IN ('checklist', 'walkthrough'));
+
+    ALTER TABLE email_logs
+      ADD CONSTRAINT email_logs_email_type_check
+      CHECK (email_type IN ('report', 'app_message', 'template_share', 'action_plan', 'warning', 'welcome', 'support', 'contact', 'other'));
+  `);
 
   const defaultOrgName = process.env.DEFAULT_ORGANIZATION_NAME || "Inspectria Demo";
   const org = await one(

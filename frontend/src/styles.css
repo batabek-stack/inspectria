@@ -2099,6 +2099,104 @@ textarea {
   white-space: pre-wrap;
 }
 
+.message-subpage-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 4px;
+  border: 1px solid #d7e6e4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.message-subpage-tabs button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: #50666b;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.message-subpage-tabs button:hover,
+.message-subpage-tabs button:focus,
+.message-subpage-tabs .message-subpage-tab-active {
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.email-log-panel {
+  margin-top: 12px;
+}
+
+.email-log-grid {
+  display: grid;
+  overflow-x: auto;
+  border: 1px solid #d7e6e4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.email-log-row {
+  display: grid;
+  grid-template-columns:
+    minmax(132px, 0.9fr)
+    minmax(92px, 0.6fr)
+    minmax(190px, 1.2fr)
+    minmax(190px, 1.2fr)
+    minmax(220px, 1.5fr)
+    minmax(76px, 0.45fr);
+  min-width: 900px;
+  align-items: center;
+  border-bottom: 1px solid #dbe7e5;
+  color: #274950;
+  font-size: 12px;
+}
+
+.email-log-row:nth-child(odd):not(.email-log-header) {
+  background: #f8fcfb;
+}
+
+.email-log-row:nth-child(even):not(.email-log-header) {
+  background: #eef8f6;
+}
+
+.email-log-row:last-child {
+  border-bottom: 0;
+}
+
+.email-log-row span {
+  min-width: 0;
+  overflow: hidden;
+  padding: 6px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-log-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #dcefeb;
+  color: #06323f;
+  font-weight: 900;
+}
+
+.email-log-status {
+  font-weight: 900;
+  text-transform: capitalize;
+}
+
+.email-log-status-sent {
+  color: #0f766e;
+}
+
+.email-log-status-failed {
+  color: #b91c1c;
+}
+
 .message-composer {
   display: grid;
   gap: 12px;

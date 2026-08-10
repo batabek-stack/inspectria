@@ -2,6 +2,7 @@ const express = require("express");
 const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
 const { sendAppMessageEmail } = require("../services/emailService");
+const { logEmailEvent } = require("../services/emailLogService");
 
 const router = express.Router();
 
@@ -201,7 +202,7 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
 
     const recipients = await db.many(
       `
-      SELECT id, email, name, username
+      SELECT id, organization_id, email, name, username
       FROM users
       WHERE id = ANY($1::int[])
         AND organization_id = ANY($2::int[])
@@ -237,7 +238,20 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
     for (const recipient of recipients) {
       if (!recipient.email) {
         emailFailedCount += 1;
-        emailErrors.push(`No email address for user ${recipient.id}`);
+        const emailError = `No email address for user ${recipient.id}`;
+        emailErrors.push(emailError);
+        await logEmailEvent({
+          organizationId: recipient.organization_id || req.user.organizationId,
+          sentByUserId: req.user.id,
+          senderEmail: req.user.email,
+          senderName: req.user.name || req.user.username,
+          recipientEmail: "",
+          recipientName: recipient.name || recipient.username,
+          subject: title,
+          status: "failed",
+          errorMessage: emailError,
+          emailType: "app_message",
+        }).catch(() => {});
         continue;
       }
 
@@ -250,10 +264,33 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
           body,
         });
         emailSentCount += 1;
+        await logEmailEvent({
+          organizationId: recipient.organization_id || req.user.organizationId,
+          sentByUserId: req.user.id,
+          senderEmail: req.user.email,
+          senderName: req.user.name || req.user.username,
+          recipientEmail: recipient.email,
+          recipientName: recipient.name || recipient.username,
+          subject: title,
+          status: "sent",
+          emailType: "app_message",
+        }).catch(() => {});
       } catch (error) {
         emailFailedCount += 1;
         const emailError = error instanceof Error ? error.message : "Email could not be sent";
         emailErrors.push(emailError);
+        await logEmailEvent({
+          organizationId: recipient.organization_id || req.user.organizationId,
+          sentByUserId: req.user.id,
+          senderEmail: req.user.email,
+          senderName: req.user.name || req.user.username,
+          recipientEmail: recipient.email,
+          recipientName: recipient.name || recipient.username,
+          subject: title,
+          status: "failed",
+          errorMessage: emailError,
+          emailType: "app_message",
+        }).catch(() => {});
         console.error("App message email failed", {
           recipientUserId: recipient.id,
           recipientEmail: recipient.email,

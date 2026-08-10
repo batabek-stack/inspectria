@@ -9,6 +9,7 @@ import {
   BillingCycle,
   BillingSummary,
   Checklist,
+  EmailLog,
   Organization,
   Report,
   ManagerSummaryResponse,
@@ -65,6 +66,7 @@ import {
 } from "../services/organizationService";
 import {
   emailReport,
+  getEmailLogs,
   getReportEmailRecipients,
   ReportEmailRecipient,
 } from "../services/emailService";
@@ -822,6 +824,29 @@ function formatDateTime(value?: string | null) {
   }
 }
 
+function formatEmailLogType(value?: string) {
+  switch (value) {
+    case "report":
+      return "Report";
+    case "app_message":
+      return "Message";
+    case "action_plan":
+      return "Action Plan";
+    case "warning":
+      return "Warning";
+    case "template_share":
+      return "Template Share";
+    case "welcome":
+      return "Welcome";
+    case "support":
+      return "Support";
+    case "contact":
+      return "Contact";
+    default:
+      return "Other";
+  }
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "-";
   try {
@@ -1092,6 +1117,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [communityTemplates, setCommunityTemplates] = useState<Checklist[]>([]);
   const [messages, setMessages] = useState<AppMessage[]>([]);
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
+  const [messageSubPage, setMessageSubPage] = useState<"inbox" | "emailLog">("inbox");
   const unreadMessageCount = messages.filter((candidate) => !candidate.readAt).length;
   const [expandedMessageIds, setExpandedMessageIds] = useState<Record<number, boolean>>({});
   const [composeMessageTitle, setComposeMessageTitle] = useState("");
@@ -1868,6 +1895,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         w,
         billingSummary,
         inbox,
+        emailLogResponse,
         emailRecipients,
         unreadReports,
       ] = await Promise.all([
@@ -1881,6 +1909,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
         getWalkthroughs(),
         getBillingSummary(),
         getMessages(),
+        isPlatformAdmin ? getEmailLogs().catch(() => ({ logs: [] })) : Promise.resolve({ logs: [] }),
         getReportEmailRecipients().catch(() => []),
         getUnreadReportCount().catch(() => ({ count: 0 })),
       ]);
@@ -1890,6 +1919,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       setChecklists(c);
       setCommunityTemplates(community);
       setMessages(inbox.messages);
+      setEmailLogs(emailLogResponse.logs);
       setAssignments(a);
       setActionPlans(actionPlanRows);
       setReports(r);
@@ -3125,6 +3155,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       setSelectedMessageRecipientIds([]);
       const inbox = await getMessages();
       setMessages(inbox.messages);
+      if (isPlatformAdmin) {
+        const emailLogResponse = await getEmailLogs().catch(() => ({ logs: [] }));
+        setEmailLogs(emailLogResponse.logs);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Message could not be sent");
     } finally {
@@ -3192,6 +3226,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
       setMessage("Report email sent.");
       setReportEmailTarget(null);
+      if (isPlatformAdmin) {
+        const emailLogResponse = await getEmailLogs().catch(() => ({ logs: [] }));
+        setEmailLogs(emailLogResponse.logs);
+      }
     } catch (err) {
       setMessage("");
       setError(err instanceof Error ? err.message : "Report email could not be sent.");
@@ -3226,6 +3264,10 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
       setMessage("Walkthrough email sent.");
       setReportEmailTarget(null);
+      if (isPlatformAdmin) {
+        const emailLogResponse = await getEmailLogs().catch(() => ({ logs: [] }));
+        setEmailLogs(emailLogResponse.logs);
+      }
     } catch (err) {
       setMessage("");
       setError(err instanceof Error ? err.message : "Walkthrough email could not be sent.");
@@ -5032,6 +5074,27 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 </div>
               </div>
 
+              {isPlatformAdmin ? (
+                <div className="message-subpage-tabs" aria-label="Message subpages">
+                  <button
+                    type="button"
+                    className={messageSubPage === "inbox" ? "message-subpage-tab-active" : ""}
+                    onClick={() => setMessageSubPage("inbox")}
+                  >
+                    Inbox
+                  </button>
+                  <button
+                    type="button"
+                    className={messageSubPage === "emailLog" ? "message-subpage-tab-active" : ""}
+                    onClick={() => setMessageSubPage("emailLog")}
+                  >
+                    Email Log
+                  </button>
+                </div>
+              ) : null}
+
+              {messageSubPage === "inbox" ? (
+                <>
               <div className="message-composer">
                 <div>
                   <h4>New Message</h4>
@@ -5188,6 +5251,49 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                       </div>
                     );
                   })}
+                </div>
+              )}
+                </>
+              ) : (
+                <div className="email-log-panel">
+                  {emailLogs.length === 0 ? (
+                    <div style={styles.small}>No email logs found.</div>
+                  ) : (
+                    <div className="email-log-grid" aria-label="Email log list">
+                      <div className="email-log-row email-log-header">
+                        <span>Time</span>
+                        <span>Type</span>
+                        <span>From</span>
+                        <span>To</span>
+                        <span>Subject</span>
+                        <span>Status</span>
+                      </div>
+                      {emailLogs.map((log) => {
+                        const sender =
+                          [log.senderName, log.senderEmail].filter(Boolean).join(" | ") ||
+                          "System";
+                        const recipient =
+                          [log.recipientName, log.recipientEmail].filter(Boolean).join(" | ") ||
+                          "-";
+
+                        return (
+                          <div key={log.id} className="email-log-row">
+                            <span title={formatDateTime(log.sentAt)}>{formatDateTime(log.sentAt)}</span>
+                            <span>{formatEmailLogType(log.emailType)}</span>
+                            <span title={sender}>{sender}</span>
+                            <span title={recipient}>{recipient}</span>
+                            <span title={log.subject}>{log.subject || "-"}</span>
+                            <span
+                              className={`email-log-status email-log-status-${log.status}`}
+                              title={log.errorMessage || log.status}
+                            >
+                              {log.status}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
