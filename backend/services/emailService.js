@@ -8,6 +8,22 @@ function getPublicAppUrl() {
   return (process.env.PUBLIC_APP_URL || "https://inspectria.com").replace(/\/+$/, "");
 }
 
+function getBillingAppUrl() {
+  const configured = (
+    process.env.BILLING_APP_URL ||
+    process.env.FRONTEND_URL ||
+    process.env.PUBLIC_APP_URL ||
+    ""
+  ).trim();
+  const appUrl = configured || "https://inspectria.com";
+
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(appUrl)) {
+    return "https://inspectria.com";
+  }
+
+  return appUrl.replace(/\/+$/, "");
+}
+
 function isEmailConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
@@ -547,7 +563,7 @@ async function sendBillingTrialReminderEmail({
   renewsAt,
   daysBefore,
 }) {
-  const billingUrl = `${getPublicAppUrl()}/#login?admin=billing`;
+  const billingUrl = `${getBillingAppUrl()}/#login?admin=billing`;
   const safeBillingUrl = escapeHtml(billingUrl);
   const safeOrganizationName = escapeHtml(organizationName || "your organization");
   const safePlanName = escapeHtml(planName || "your plan");

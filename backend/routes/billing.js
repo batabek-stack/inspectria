@@ -147,6 +147,15 @@ function frontendBaseUrl(req) {
   return publicBaseUrl(req);
 }
 
+function isLocalUrl(value) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(String(value || "").trim());
+}
+
+function shouldRunBillingTrialReminders() {
+  const configuredAppUrl = process.env.BILLING_APP_URL || process.env.FRONTEND_URL || process.env.PUBLIC_APP_URL || "";
+  return !isLocalUrl(configuredAppUrl);
+}
+
 async function createSubscriptionForOrganization({
   organizationId,
   planId,
@@ -708,6 +717,8 @@ router.post("/subscriptions/:id/cancel", authRequired, platformAdminOnly, async 
 });
 
 async function runBillingTrialReminders() {
+  if (!shouldRunBillingTrialReminders()) return;
+
   const reminders = await db.many(`
     SELECT
       s.id AS "subscriptionId",
@@ -735,6 +746,18 @@ async function runBillingTrialReminders() {
 
   for (const reminder of reminders) {
     try {
+      const claim = await db.one(
+        `
+        INSERT INTO billing_trial_reminders (subscription_id, days_before)
+        VALUES ($1, $2)
+        ON CONFLICT (subscription_id, days_before) DO NOTHING
+        RETURNING id
+      `,
+        [reminder.subscriptionId, reminder.daysBefore]
+      );
+
+      if (!claim) continue;
+
       await sendBillingTrialReminderEmail({
         to: reminder.email,
         organizationName: reminder.organizationName,
@@ -742,15 +765,6 @@ async function runBillingTrialReminders() {
         renewsAt: reminder.renewsAt,
         daysBefore: reminder.daysBefore,
       });
-
-      await db.query(
-        `
-        INSERT INTO billing_trial_reminders (subscription_id, days_before)
-        VALUES ($1, $2)
-        ON CONFLICT (subscription_id, days_before) DO NOTHING
-      `,
-        [reminder.subscriptionId, reminder.daysBefore]
-      );
     } catch (error) {
       console.error("Billing trial reminder email failed", error);
     }
