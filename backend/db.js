@@ -146,6 +146,140 @@ async function ensureForeignKeyCascade(tableName, constraintName, columnName, re
   `);
 }
 
+async function backfillSystemEmailLogs() {
+  await query(`
+    INSERT INTO email_logs
+      (organization_id, sent_by_user_id, sender_email, sender_name, recipient_email, recipient_name, subject, status, email_type, sent_at)
+    SELECT
+      api.organization_id,
+      api.created_by_user_id,
+      COALESCE(creator.email, ''),
+      COALESCE(creator.name, creator.username, ''),
+      rp.email,
+      COALESCE(responsible.name, responsible.username, ''),
+      CONCAT('Inspectria Action Plan - ', o.name),
+      'sent',
+      'action_plan',
+      api.created_at
+    FROM action_plan_items api
+    JOIN organizations o ON o.id = api.organization_id
+    JOIN action_plan_responsible_parties rp ON rp.action_plan_item_id = api.id
+    LEFT JOIN users creator ON creator.id = api.created_by_user_id
+    LEFT JOIN users responsible ON responsible.id = rp.user_id
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM email_logs existing
+      WHERE existing.email_type = 'action_plan'
+        AND existing.organization_id = api.organization_id
+        AND LOWER(existing.recipient_email) = LOWER(rp.email)
+        AND existing.subject = CONCAT('Inspectria Action Plan - ', o.name)
+        AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - api.created_at))) < 120
+    );
+
+    INSERT INTO email_logs
+      (organization_id, recipient_email, recipient_name, subject, status, email_type, sent_at)
+    SELECT
+      api.organization_id,
+      rp.email,
+      COALESCE(responsible.name, responsible.username, ''),
+      'Inspectria Action Plan reminder',
+      'sent',
+      'warning',
+      api.reminder_sent_at
+    FROM action_plan_items api
+    JOIN action_plan_responsible_parties rp ON rp.action_plan_item_id = api.id
+    LEFT JOIN users responsible ON responsible.id = rp.user_id
+    WHERE api.reminder_sent_at IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM email_logs existing
+        WHERE existing.email_type = 'warning'
+          AND existing.organization_id = api.organization_id
+          AND LOWER(existing.recipient_email) = LOWER(rp.email)
+          AND existing.subject = 'Inspectria Action Plan reminder'
+          AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - api.reminder_sent_at))) < 120
+      );
+
+    INSERT INTO email_logs
+      (organization_id, recipient_email, recipient_name, subject, status, email_type, sent_at)
+    SELECT
+      api.organization_id,
+      rp.email,
+      COALESCE(responsible.name, responsible.username, ''),
+      'Overdue Inspectria Action Plan item(s)',
+      'sent',
+      'warning',
+      rp.overdue_sent_at
+    FROM action_plan_responsible_parties rp
+    JOIN action_plan_items api ON api.id = rp.action_plan_item_id
+    LEFT JOIN users responsible ON responsible.id = rp.user_id
+    WHERE rp.overdue_sent_at IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM email_logs existing
+        WHERE existing.email_type = 'warning'
+          AND existing.organization_id = api.organization_id
+          AND LOWER(existing.recipient_email) = LOWER(rp.email)
+          AND existing.subject = 'Overdue Inspectria Action Plan item(s)'
+          AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - rp.overdue_sent_at))) < 120
+      );
+
+    INSERT INTO email_logs
+      (organization_id, recipient_email, recipient_name, subject, status, email_type, sent_at)
+    SELECT
+      api.organization_id,
+      admin.email,
+      COALESCE(admin.name, admin.username, ''),
+      CONCAT('Overdue Inspectria Action Plan item(s) - ', o.name),
+      'sent',
+      'warning',
+      api.overdue_admin_sent_at
+    FROM action_plan_items api
+    JOIN organizations o ON o.id = api.organization_id
+    JOIN users admin ON admin.organization_id = api.organization_id
+    WHERE api.overdue_admin_sent_at IS NOT NULL
+      AND admin.role = 'admin'
+      AND admin.active = TRUE
+      AND admin.email <> ''
+      AND NOT EXISTS (
+        SELECT 1
+        FROM email_logs existing
+        WHERE existing.email_type = 'warning'
+          AND existing.organization_id = api.organization_id
+          AND LOWER(existing.recipient_email) = LOWER(admin.email)
+          AND existing.subject = CONCAT('Overdue Inspectria Action Plan item(s) - ', o.name)
+          AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - api.overdue_admin_sent_at))) < 120
+      );
+
+    INSERT INTO email_logs
+      (organization_id, recipient_email, recipient_name, subject, status, email_type, sent_at)
+    SELECT
+      s.organization_id,
+      admin.email,
+      COALESCE(admin.name, admin.username, ''),
+      CONCAT('Inspectria trial ends in ', btr.days_before, ' day', CASE WHEN btr.days_before = 1 THEN '' ELSE 's' END),
+      'sent',
+      'billing',
+      btr.sent_at
+    FROM billing_trial_reminders btr
+    JOIN subscriptions s ON s.id = btr.subscription_id
+    JOIN users admin ON admin.organization_id = s.organization_id
+    WHERE admin.role = 'admin'
+      AND admin.active = TRUE
+      AND admin.approval_status = 'approved'
+      AND admin.email <> ''
+      AND NOT EXISTS (
+        SELECT 1
+        FROM email_logs existing
+        WHERE existing.email_type = 'billing'
+          AND existing.organization_id = s.organization_id
+          AND LOWER(existing.recipient_email) = LOWER(admin.email)
+          AND existing.subject = CONCAT('Inspectria trial ends in ', btr.days_before, ' day', CASE WHEN btr.days_before = 1 THEN '' ELSE 's' END)
+          AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - btr.sent_at))) < 120
+      );
+  `);
+}
+
 async function initDb() {
   await query(`
     CREATE TABLE IF NOT EXISTS organizations (
@@ -748,6 +882,7 @@ async function initDb() {
   await query("UPDATE draft_reports SET organization_id = $1 WHERE organization_id IS NULL", [
     org.id,
   ]);
+  await backfillSystemEmailLogs();
 
   const userCount = Number((await one("SELECT COUNT(*)::int AS count FROM users")).count);
   if (userCount === 0) {
