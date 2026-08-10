@@ -326,34 +326,221 @@ router.get("/logs", authRequired, async (req, res, next) => {
     const scopeIds = await db.getManagedOrganizationIds(req.user);
     const params = [];
     const scopeFilter = scopeIds.length
-      ? `WHERE (el.organization_id IS NULL OR el.organization_id = ANY($1::int[]))`
-      : "";
+      ? `(organization_id IS NULL OR organization_id = ANY($1::int[]))`
+      : "TRUE";
     if (scopeIds.length) params.push(scopeIds);
 
     const rows = await db.many(
       `
+      WITH combined_logs AS (
+        SELECT
+          el.id,
+          el.organization_id,
+          el.email_type,
+          el.report_type,
+          el.report_id,
+          el.sender_email,
+          el.sender_name,
+          COALESCE(sender.email, '') AS sent_by_email,
+          COALESCE(sender.name, sender.username, '') AS sent_by_name,
+          el.recipient_email,
+          el.recipient_name,
+          el.cc_email,
+          el.subject,
+          el.status,
+          el.error_message,
+          el.sent_at
+        FROM email_logs el
+        LEFT JOIN users sender ON sender.id = el.sent_by_user_id
+
+        UNION ALL
+
+        SELECT
+          (-100000000 - (api.id * 10) - rp.id)::int AS id,
+          api.organization_id,
+          'action_plan' AS email_type,
+          NULL AS report_type,
+          NULL AS report_id,
+          COALESCE(creator.email, '') AS sender_email,
+          COALESCE(creator.name, creator.username, '') AS sender_name,
+          COALESCE(creator.email, '') AS sent_by_email,
+          COALESCE(creator.name, creator.username, '') AS sent_by_name,
+          rp.email AS recipient_email,
+          COALESCE(responsible.name, responsible.username, '') AS recipient_name,
+          '' AS cc_email,
+          CONCAT('Inspectria Action Plan - ', o.name) AS subject,
+          'sent' AS status,
+          '' AS error_message,
+          api.created_at AS sent_at
+        FROM action_plan_items api
+        JOIN organizations o ON o.id = api.organization_id
+        JOIN action_plan_responsible_parties rp ON rp.action_plan_item_id = api.id
+        LEFT JOIN users creator ON creator.id = api.created_by_user_id
+        LEFT JOIN users responsible ON responsible.id = rp.user_id
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM email_logs existing
+          WHERE existing.email_type = 'action_plan'
+            AND LOWER(existing.recipient_email) = LOWER(rp.email)
+            AND existing.subject = CONCAT('Inspectria Action Plan - ', o.name)
+            AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - api.created_at))) < 120
+        )
+
+        UNION ALL
+
+        SELECT
+          (-200000000 - api.id)::int AS id,
+          api.organization_id,
+          'warning' AS email_type,
+          NULL AS report_type,
+          NULL AS report_id,
+          '' AS sender_email,
+          '' AS sender_name,
+          '' AS sent_by_email,
+          '' AS sent_by_name,
+          rp.email AS recipient_email,
+          COALESCE(responsible.name, responsible.username, '') AS recipient_name,
+          '' AS cc_email,
+          'Inspectria Action Plan reminder' AS subject,
+          'sent' AS status,
+          '' AS error_message,
+          api.reminder_sent_at AS sent_at
+        FROM action_plan_items api
+        JOIN action_plan_responsible_parties rp ON rp.action_plan_item_id = api.id
+        LEFT JOIN users responsible ON responsible.id = rp.user_id
+        WHERE api.reminder_sent_at IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM email_logs existing
+            WHERE existing.email_type = 'warning'
+              AND LOWER(existing.recipient_email) = LOWER(rp.email)
+              AND existing.subject = 'Inspectria Action Plan reminder'
+              AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - api.reminder_sent_at))) < 120
+          )
+
+        UNION ALL
+
+        SELECT
+          (-300000000 - rp.id)::int AS id,
+          api.organization_id,
+          'warning' AS email_type,
+          NULL AS report_type,
+          NULL AS report_id,
+          '' AS sender_email,
+          '' AS sender_name,
+          '' AS sent_by_email,
+          '' AS sent_by_name,
+          rp.email AS recipient_email,
+          COALESCE(responsible.name, responsible.username, '') AS recipient_name,
+          '' AS cc_email,
+          'Overdue Inspectria Action Plan item(s)' AS subject,
+          'sent' AS status,
+          '' AS error_message,
+          rp.overdue_sent_at AS sent_at
+        FROM action_plan_responsible_parties rp
+        JOIN action_plan_items api ON api.id = rp.action_plan_item_id
+        LEFT JOIN users responsible ON responsible.id = rp.user_id
+        WHERE rp.overdue_sent_at IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM email_logs existing
+            WHERE existing.email_type = 'warning'
+              AND LOWER(existing.recipient_email) = LOWER(rp.email)
+              AND existing.subject = 'Overdue Inspectria Action Plan item(s)'
+              AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - rp.overdue_sent_at))) < 120
+          )
+
+        UNION ALL
+
+        SELECT
+          (-400000000 - (api.id * 1000) - admin.id)::int AS id,
+          api.organization_id,
+          'warning' AS email_type,
+          NULL AS report_type,
+          NULL AS report_id,
+          '' AS sender_email,
+          '' AS sender_name,
+          '' AS sent_by_email,
+          '' AS sent_by_name,
+          admin.email AS recipient_email,
+          COALESCE(admin.name, admin.username, '') AS recipient_name,
+          '' AS cc_email,
+          CONCAT('Overdue Inspectria Action Plan item(s) - ', o.name) AS subject,
+          'sent' AS status,
+          '' AS error_message,
+          api.overdue_admin_sent_at AS sent_at
+        FROM action_plan_items api
+        JOIN organizations o ON o.id = api.organization_id
+        JOIN users admin ON admin.organization_id = api.organization_id
+        WHERE api.overdue_admin_sent_at IS NOT NULL
+          AND admin.role = 'admin'
+          AND admin.active = TRUE
+          AND admin.email <> ''
+          AND NOT EXISTS (
+            SELECT 1
+            FROM email_logs existing
+            WHERE existing.email_type = 'warning'
+              AND LOWER(existing.recipient_email) = LOWER(admin.email)
+              AND existing.subject = CONCAT('Overdue Inspectria Action Plan item(s) - ', o.name)
+              AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - api.overdue_admin_sent_at))) < 120
+          )
+
+        UNION ALL
+
+        SELECT
+          (-500000000 - btr.id)::int AS id,
+          s.organization_id,
+          'billing' AS email_type,
+          NULL AS report_type,
+          NULL AS report_id,
+          '' AS sender_email,
+          '' AS sender_name,
+          '' AS sent_by_email,
+          '' AS sent_by_name,
+          admin.email AS recipient_email,
+          COALESCE(admin.name, admin.username, '') AS recipient_name,
+          '' AS cc_email,
+          CONCAT('Inspectria trial ends in ', btr.days_before, ' day', CASE WHEN btr.days_before = 1 THEN '' ELSE 's' END) AS subject,
+          'sent' AS status,
+          '' AS error_message,
+          btr.sent_at AS sent_at
+        FROM billing_trial_reminders btr
+        JOIN subscriptions s ON s.id = btr.subscription_id
+        JOIN users admin ON admin.organization_id = s.organization_id
+        WHERE admin.role = 'admin'
+          AND admin.active = TRUE
+          AND admin.approval_status = 'approved'
+          AND admin.email <> ''
+          AND NOT EXISTS (
+            SELECT 1
+            FROM email_logs existing
+            WHERE existing.email_type = 'billing'
+              AND LOWER(existing.recipient_email) = LOWER(admin.email)
+              AND existing.subject = CONCAT('Inspectria trial ends in ', btr.days_before, ' day', CASE WHEN btr.days_before = 1 THEN '' ELSE 's' END)
+              AND ABS(EXTRACT(EPOCH FROM (existing.sent_at - btr.sent_at))) < 120
+          )
+      )
       SELECT
-        el.id,
-        el.email_type AS "emailType",
-        el.report_type AS "reportType",
-        el.report_id AS "reportId",
-        el.sender_email AS "senderEmail",
-        el.sender_name AS "senderName",
-        COALESCE(sender.email, '') AS "sentByEmail",
-        COALESCE(sender.name, sender.username, '') AS "sentByName",
-        el.recipient_email AS "recipientEmail",
-        el.recipient_name AS "recipientName",
-        el.cc_email AS "ccEmail",
-        el.subject,
-        el.status,
-        el.error_message AS "errorMessage",
-        el.sent_at AS "sentAt",
+        cl.id,
+        cl.email_type AS "emailType",
+        cl.report_type AS "reportType",
+        cl.report_id AS "reportId",
+        cl.sender_email AS "senderEmail",
+        cl.sender_name AS "senderName",
+        cl.sent_by_email AS "sentByEmail",
+        cl.sent_by_name AS "sentByName",
+        cl.recipient_email AS "recipientEmail",
+        cl.recipient_name AS "recipientName",
+        cl.cc_email AS "ccEmail",
+        cl.subject,
+        cl.status,
+        cl.error_message AS "errorMessage",
+        cl.sent_at AS "sentAt",
         o.name AS "organizationName"
-      FROM email_logs el
-      LEFT JOIN users sender ON sender.id = el.sent_by_user_id
-      LEFT JOIN organizations o ON o.id = el.organization_id
-      ${scopeFilter}
-      ORDER BY el.sent_at DESC
+      FROM combined_logs cl
+      LEFT JOIN organizations o ON o.id = cl.organization_id
+      WHERE ${scopeFilter}
+      ORDER BY cl.sent_at DESC
       LIMIT 300
     `,
       params
