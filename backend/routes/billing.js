@@ -7,6 +7,7 @@ const {
   retrieveSubscriptionCheckout,
 } = require("../services/iyzicoService");
 const { sendBillingTrialReminderEmail } = require("../services/emailService");
+const { logEmailEvent } = require("../services/emailLogService");
 
 const router = express.Router();
 
@@ -722,10 +723,13 @@ async function runBillingTrialReminders() {
   const reminders = await db.many(`
     SELECT
       s.id AS "subscriptionId",
+      s.organization_id AS "organizationId",
       s.renews_at AS "renewsAt",
       p.name AS "planName",
       o.name AS "organizationName",
       u.email,
+      u.name,
+      u.username,
       CEIL(EXTRACT(EPOCH FROM (s.renews_at - NOW())) / 86400)::int AS "daysBefore"
     FROM subscriptions s
     JOIN billing_plans p ON p.id = s.billing_plan_id
@@ -765,7 +769,24 @@ async function runBillingTrialReminders() {
         renewsAt: reminder.renewsAt,
         daysBefore: reminder.daysBefore,
       });
+      await logEmailEvent({
+        organizationId: reminder.organizationId,
+        recipientEmail: reminder.email,
+        recipientName: reminder.name || reminder.username,
+        subject: `Inspectria trial ends in ${reminder.daysBefore} day${Number(reminder.daysBefore) === 1 ? "" : "s"}`,
+        status: "sent",
+        emailType: "billing",
+      }).catch(() => {});
     } catch (error) {
+      await logEmailEvent({
+        organizationId: reminder.organizationId,
+        recipientEmail: reminder.email,
+        recipientName: reminder.name || reminder.username,
+        subject: `Inspectria trial ends in ${reminder.daysBefore} day${Number(reminder.daysBefore) === 1 ? "" : "s"}`,
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message : "Billing trial reminder email failed",
+        emailType: "billing",
+      }).catch(() => {});
       console.error("Billing trial reminder email failed", error);
     }
   }

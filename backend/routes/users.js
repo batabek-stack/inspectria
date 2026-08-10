@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
 const { sendWelcomeEmail } = require("../services/emailService");
+const { logEmailEvent } = require("../services/emailLogService");
 
 const router = express.Router();
 
@@ -165,9 +166,32 @@ router.post("/", authRequired, adminOnly, async (req, res, next) => {
         isEnterprise: planCode === "enterprise",
       });
       welcomeEmailSent = true;
+      await logEmailEvent({
+        organizationId: result.organizationId,
+        sentByUserId: req.user.id,
+        senderEmail: req.user.email,
+        senderName: req.user.name || req.user.username,
+        recipientEmail: result.email,
+        recipientName: String(name).trim(),
+        subject: "Welcome to Inspectria",
+        status: "sent",
+        emailType: "welcome",
+      }).catch(() => {});
     } catch (error) {
       welcomeEmailError =
         error instanceof Error ? error.message : "Welcome email could not be sent";
+      await logEmailEvent({
+        organizationId: result.organizationId,
+        sentByUserId: req.user.id,
+        senderEmail: req.user.email,
+        senderName: req.user.name || req.user.username,
+        recipientEmail: result.email,
+        recipientName: String(name).trim(),
+        subject: "Welcome to Inspectria",
+        status: "failed",
+        errorMessage: welcomeEmailError,
+        emailType: "welcome",
+      }).catch(() => {});
       console.error("Welcome email failed for newly created user", {
         userId: result.id,
         email: result.email,
@@ -352,8 +376,31 @@ router.put("/:id", authRequired, adminOnly, async (req, res, next) => {
           isEnterprise: planCode === "enterprise",
         });
         welcomeEmailSent = true;
+        await logEmailEvent({
+          organizationId: updatedUser.organizationId,
+          sentByUserId: req.user.id,
+          senderEmail: req.user.email,
+          senderName: req.user.name || req.user.username,
+          recipientEmail: updatedUser.email,
+          recipientName: updatedUser.name,
+          subject: "Welcome to Inspectria",
+          status: "sent",
+          emailType: "welcome",
+        }).catch(() => {});
       } catch (error) {
         welcomeEmailError = error instanceof Error ? error.message : "Welcome email could not be sent";
+        await logEmailEvent({
+          organizationId: updatedUser.organizationId,
+          sentByUserId: req.user.id,
+          senderEmail: req.user.email,
+          senderName: req.user.name || req.user.username,
+          recipientEmail: updatedUser.email,
+          recipientName: updatedUser.name,
+          subject: "Welcome to Inspectria",
+          status: "failed",
+          errorMessage: welcomeEmailError,
+          emailType: "welcome",
+        }).catch(() => {});
         console.error("Welcome email failed", {
           userId: updatedUser.id,
           email: updatedUser.email,

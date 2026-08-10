@@ -398,7 +398,7 @@ async function initDb() {
       sender_name TEXT NOT NULL DEFAULT '',
       recipient_name TEXT NOT NULL DEFAULT '',
       email_type TEXT NOT NULL DEFAULT 'report'
-        CHECK (email_type IN ('report', 'app_message', 'template_share', 'action_plan', 'warning', 'welcome', 'support', 'contact', 'other')),
+        CHECK (email_type IN ('report', 'app_message', 'template_share', 'action_plan', 'warning', 'billing', 'welcome', 'registration', 'password_reset', 'support', 'contact', 'other')),
       report_type TEXT CHECK (report_type IS NULL OR report_type IN ('checklist', 'walkthrough')),
       report_id INTEGER,
       recipient_email TEXT NOT NULL,
@@ -722,7 +722,7 @@ async function initDb() {
 
     ALTER TABLE email_logs
       ADD CONSTRAINT email_logs_email_type_check
-      CHECK (email_type IN ('report', 'app_message', 'template_share', 'action_plan', 'warning', 'welcome', 'support', 'contact', 'other'));
+      CHECK (email_type IN ('report', 'app_message', 'template_share', 'action_plan', 'warning', 'billing', 'welcome', 'registration', 'password_reset', 'support', 'contact', 'other'));
   `);
 
   const defaultOrgName = process.env.DEFAULT_ORGANIZATION_NAME || "Inspectria Demo";

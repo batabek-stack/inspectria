@@ -8,6 +8,7 @@ const {
   sendUserRegistrationRequestEmail,
   sendWelcomeEmail,
 } = require("../services/emailService");
+const { logEmailEvent } = require("../services/emailLogService");
 
 const router = express.Router();
 
@@ -59,6 +60,7 @@ async function findPasswordResetUser(username, email) {
     `
     SELECT
       u.id,
+      u.organization_id AS "organizationId",
       u.email,
       u.username
     FROM users u
@@ -580,7 +582,30 @@ router.post("/register", async (req, res, next) => {
           requesterUsername: cleanUsername,
           requesterEmail: cleanEmail,
           loginUrl: userManagementLoginUrl(),
-        }).catch((emailError) => {
+        }).then(() =>
+          logEmailEvent({
+            organizationId: registration.organizationId,
+            senderEmail: cleanEmail,
+            senderName: cleanName,
+            recipientEmail: recipients.join(", "),
+            subject: `New Inspectria user registration request - ${registration.organizationName}`,
+            status: "sent",
+            emailType: "registration",
+          }).catch(() => {})
+        ).catch((emailError) => {
+          logEmailEvent({
+            organizationId: registration.organizationId,
+            senderEmail: cleanEmail,
+            senderName: cleanName,
+            recipientEmail: recipients.join(", "),
+            subject: `New Inspectria user registration request - ${registration.organizationName}`,
+            status: "failed",
+            errorMessage:
+              emailError instanceof Error
+                ? emailError.message
+                : "User registration notification email failed.",
+            emailType: "registration",
+          }).catch(() => {});
           console.error("User registration notification email failed.", emailError);
         });
       }
@@ -591,7 +616,26 @@ router.post("/register", async (req, res, next) => {
         to: cleanEmail,
         role: registration.role,
         isEnterprise: false,
-      }).catch((emailError) => {
+      }).then(() =>
+        logEmailEvent({
+          organizationId: registration.organizationId,
+          recipientEmail: cleanEmail,
+          recipientName: cleanName,
+          subject: "Welcome to Inspectria",
+          status: "sent",
+          emailType: "welcome",
+        }).catch(() => {})
+      ).catch((emailError) => {
+        logEmailEvent({
+          organizationId: registration.organizationId,
+          recipientEmail: cleanEmail,
+          recipientName: cleanName,
+          subject: "Welcome to Inspectria",
+          status: "failed",
+          errorMessage:
+            emailError instanceof Error ? emailError.message : "Trial welcome email failed.",
+          emailType: "welcome",
+        }).catch(() => {});
         console.error("Trial welcome email failed.", emailError);
       });
     }
@@ -681,7 +725,27 @@ router.post("/password-reset/request-code", async (req, res, next) => {
         username: user.username,
         code,
       });
+      await logEmailEvent({
+        organizationId: user.organizationId,
+        recipientEmail: user.email,
+        recipientName: user.username,
+        subject: "Inspectria password reset code",
+        status: "sent",
+        emailType: "password_reset",
+      }).catch(() => {});
     } catch (emailError) {
+      await logEmailEvent({
+        organizationId: user.organizationId,
+        recipientEmail: user.email,
+        recipientName: user.username,
+        subject: "Inspectria password reset code",
+        status: "failed",
+        errorMessage:
+          emailError instanceof Error
+            ? emailError.message
+            : "Password reset email could not be sent.",
+        emailType: "password_reset",
+      }).catch(() => {});
       await db.query(
         `
         UPDATE password_reset_tokens

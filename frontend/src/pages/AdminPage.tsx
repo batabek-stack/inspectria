@@ -834,10 +834,16 @@ function formatEmailLogType(value?: string) {
       return "Action Plan";
     case "warning":
       return "Warning";
+    case "billing":
+      return "Billing";
     case "template_share":
       return "Template Share";
     case "welcome":
       return "Welcome";
+    case "registration":
+      return "Registration";
+    case "password_reset":
+      return "Password Reset";
     case "support":
       return "Support";
     case "contact":

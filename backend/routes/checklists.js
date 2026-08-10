@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const db = require("../db");
 const { authRequired, adminOnly } = require("../middleware/auth");
 const { sendTemplateShareEmail } = require("../services/emailService");
+const { logEmailEvent } = require("../services/emailLogService");
 
 const router = express.Router();
 
@@ -908,9 +909,30 @@ router.post("/:id/share", authRequired, adminOnly, async (req, res, next) => {
         templateTitle: checklist.title,
         importUrl,
       });
+      await logEmailEvent({
+        organizationId: checklist.organization_id,
+        sentByUserId: req.user.id,
+        senderEmail: req.user.email,
+        senderName: req.user.name || req.user.username,
+        recipientEmail,
+        subject: `Template shared: ${checklist.title}`,
+        status: "sent",
+        emailType: "template_share",
+      }).catch(() => {});
     } catch (error) {
       emailSent = false;
       emailError = error instanceof Error ? error.message : "Email could not be sent";
+      await logEmailEvent({
+        organizationId: checklist.organization_id,
+        sentByUserId: req.user.id,
+        senderEmail: req.user.email,
+        senderName: req.user.name || req.user.username,
+        recipientEmail,
+        subject: `Template shared: ${checklist.title}`,
+        status: "failed",
+        errorMessage: emailError,
+        emailType: "template_share",
+      }).catch(() => {});
     }
 
     if (!emailSent && recipients.length === 0) {
