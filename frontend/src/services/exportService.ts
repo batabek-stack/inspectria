@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
-import { AiActionPlan, Report } from "../types";
+import { ActionPlanItem, AiActionPlan, Report } from "../types";
+import { resolveFileUrl } from "./api";
 
 export function exportReportsToExcel(reports: Report[]) {
   const rows = reports.flatMap((report) =>
@@ -39,6 +40,47 @@ export function exportReportsToExcel(reports: Report[]) {
 export function exportActionPlansToExcel(actionPlans: AiActionPlan[], report: Report) {
   const { workbook, fileName } = buildActionPlanWorkbook(actionPlans, report);
   XLSX.writeFile(workbook, fileName);
+}
+
+export function exportAssignedActionPlanItemsToExcel(
+  actionPlans: ActionPlanItem[],
+  filePrefix = "Inspectria_Action_Plan_Items"
+) {
+  const rows = actionPlans.map((plan) => ({
+    "Organization": plan.organizationName || "",
+    "Item": plan.item,
+    "Action": plan.action,
+    "Remarks": plan.remarks || "",
+    "Responsible Parties": plan.responsibleParties
+      .map((party) => [party.name, party.email].filter(Boolean).join(" <"))
+      .map((value) => (value.includes("<") ? `${value}>` : value))
+      .join(", "),
+    "Due Date": plan.dueDate,
+    "Status": plan.status,
+    "Photo Count": plan.photos?.length || 0,
+    "Photo Links": (plan.photos || []).map(resolveFileUrl).join("\n"),
+    "Created At": plan.createdAt,
+    "Updated At": plan.updatedAt,
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  worksheet["!cols"] = [
+    { wch: 24 },
+    { wch: 34 },
+    { wch: 44 },
+    { wch: 44 },
+    { wch: 42 },
+    { wch: 14 },
+    { wch: 16 },
+    { wch: 12 },
+    { wch: 56 },
+    { wch: 22 },
+    { wch: 22 },
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Action Plan Items");
+  XLSX.writeFile(workbook, `${filePrefix}_${Date.now()}.xlsx`);
 }
 
 export function createActionPlanExcelBlob(actionPlans: AiActionPlan[], report: Report) {

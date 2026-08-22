@@ -84,6 +84,7 @@ import {
   getReportFailedItems,
   getReportManagerSummaryItems,
 } from "../services/aiActionPlanService";
+import { exportAssignedActionPlanItemsToExcel } from "../services/exportService";
 import {
   apiPost,
   createServerDownload,
@@ -7568,14 +7569,29 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                 <div className="admin-main-panel">
                   <div className="action-plan-list-heading">
                     <strong>Current Action Plan Items</strong>
-                    <button
-                      type="button"
-                      style={styles.secondaryButton}
-                      onClick={removeAllActionPlans}
-                      disabled={actionPlans.length === 0}
-                    >
-                      Delete All
-                    </button>
+                    <div className="action-plan-list-actions">
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={() =>
+                          exportAssignedActionPlanItemsToExcel(
+                            actionPlans,
+                            "Inspectria_Admin_Action_Plan_Items"
+                          )
+                        }
+                        disabled={actionPlans.length === 0}
+                      >
+                        Download Excel
+                      </button>
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={removeAllActionPlans}
+                        disabled={actionPlans.length === 0}
+                      >
+                        Delete All
+                      </button>
+                    </div>
                   </div>
                   {actionPlans.length === 0 ? (
                     <div style={styles.small}>No Action Plan items yet.</div>

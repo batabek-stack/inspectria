@@ -1015,6 +1015,13 @@ textarea {
   margin-bottom: 10px;
 }
 
+.action-plan-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .action-plan-item-card {
   grid-template-columns: minmax(0, 1fr);
   border-left-width: 6px;
@@ -2965,8 +2972,13 @@ textarea {
   }
 
   .action-plan-builder-actions button,
-  .action-plan-list-heading button {
+  .action-plan-list-heading button,
+  .action-plan-list-actions {
     width: 100%;
+  }
+
+  .action-plan-list-actions {
+    justify-content: stretch;
   }
 
   .action-plan-list-heading {

@@ -59,6 +59,7 @@ import {
   getReportFailedItems,
   getReportManagerSummaryItems,
 } from "../services/aiActionPlanService";
+import { exportAssignedActionPlanItemsToExcel } from "../services/exportService";
 import { generateChecklistPdf } from "../utils/generateChecklistPdf";
 import {
   createDownloadFromUrl,
@@ -1704,7 +1705,22 @@ export default function UserPage({ user, onLogout }: Props) {
 
           {activeUserPage === "actionPlans" ? (
             <div style={styles.section}>
-              <h3 style={styles.title}>Action Plan</h3>
+              <div className="action-plan-list-heading">
+                <h3 style={{ ...styles.title, marginBottom: 0 }}>Action Plan</h3>
+                <button
+                  type="button"
+                  style={styles.secondaryButton}
+                  onClick={() =>
+                    exportAssignedActionPlanItemsToExcel(
+                      actionPlans,
+                      "Inspectria_My_Action_Plan_Items"
+                    )
+                  }
+                  disabled={actionPlans.length === 0}
+                >
+                  Download Excel
+                </button>
+              </div>
               <div style={{ ...styles.small, marginBottom: 12 }}>
                 Items assigned to your email appear here. Update Remarks and choose Done from Status when completed.
               </div>
