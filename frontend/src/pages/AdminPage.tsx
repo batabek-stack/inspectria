@@ -135,6 +135,11 @@ type Props = {
   initialSection?: AdminSectionKey;
 };
 
+type WalkthroughCameraTarget = {
+  sectionIndex: number;
+  itemIndex: number;
+};
+
 type ReportEmailTarget =
   | { type: "checklist"; report: Report }
   | { type: "walkthrough"; walkthrough: Walkthrough };
@@ -1199,6 +1204,8 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const [form, setForm] = useState<Record<number, FillItem>>({});
   const [uploadingItemId, setUploadingItemId] = useState<number | null>(null);
   const [cameraCaptureItemId, setCameraCaptureItemId] = useState<number | null>(null);
+  const [walkthroughCameraTarget, setWalkthroughCameraTarget] =
+    useState<WalkthroughCameraTarget | null>(null);
   const [cameraError, setCameraError] = useState("");
   const [isRestoringDraft, setIsRestoringDraft] = useState(false);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
@@ -2022,7 +2029,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   }, []);
 
   useEffect(() => {
-    if (cameraCaptureItemId === null) return;
+    if (cameraCaptureItemId === null && walkthroughCameraTarget === null) return;
 
     let stream: MediaStream | null = null;
     let active = true;
@@ -2055,7 +2062,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
       active = false;
       stream?.getTracks().forEach((track) => track.stop());
     };
-  }, [cameraCaptureItemId]);
+  }, [cameraCaptureItemId, walkthroughCameraTarget]);
 
   useEffect(() => {
     return () => {
@@ -2380,12 +2387,20 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
 
   const closeChecklistCamera = () => {
     setCameraCaptureItemId(null);
+    setWalkthroughCameraTarget(null);
     setCameraError("");
   };
 
   const captureChecklistPhoto = async () => {
     const video = cameraVideoRef.current;
-    if (!video || cameraCaptureItemId === null || !video.videoWidth || !video.videoHeight) return;
+    if (
+      !video ||
+      (cameraCaptureItemId === null && walkthroughCameraTarget === null) ||
+      !video.videoWidth ||
+      !video.videoHeight
+    ) {
+      return;
+    }
 
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth;
@@ -2404,8 +2419,17 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
     }
 
     const itemId = cameraCaptureItemId;
+    const walkthroughTarget = walkthroughCameraTarget;
     closeChecklistCamera();
-    await handleAddPhotos(itemId, [photo]);
+    if (walkthroughTarget) {
+      await handleWalkthroughPhotos(
+        walkthroughTarget.sectionIndex,
+        walkthroughTarget.itemIndex,
+        [photo]
+      );
+    } else if (itemId !== null) {
+      await handleAddPhotos(itemId, [photo]);
+    }
   };
 
   const removePhoto = (itemId: number, photoIndex: number) => {
@@ -4229,7 +4253,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
   const handleWalkthroughPhotos = async (
     sectionIndex: number,
     itemIndex: number,
-    files: FileList | null
+    files: FileList | File[] | null
   ) => {
     if (!files || files.length === 0) return;
 
@@ -8384,18 +8408,31 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
                             <label style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>
                               Add Photos
                             </label>
-                            <label className="file-upload-button">
-                              <span>Choose File</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                multiple
-                                onChange={(e) => {
-                                  handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
-                                  e.currentTarget.value = "";
+                            {isAndroidDevice ? (
+                              <button
+                                type="button"
+                                className="file-upload-button"
+                                onClick={() => {
+                                  setCameraError("");
+                                  setWalkthroughCameraTarget({ sectionIndex, itemIndex });
                                 }}
-                              />
-                            </label>
+                              >
+                                Choose File
+                              </button>
+                            ) : (
+                              <label className="file-upload-button">
+                                <span>Choose File</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  onChange={(e) => {
+                                    handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
+                                    e.currentTarget.value = "";
+                                  }}
+                                />
+                              </label>
+                            )}
                             {walkthroughUploadingKey === uploadKey ? (
                               <div style={{ marginTop: 8, color: "#0f766e", fontSize: 13 }}>
                                 Uploading photos...
@@ -8727,7 +8764,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           </div>
         </>
       )}
-      {cameraCaptureItemId !== null ? (
+      {cameraCaptureItemId !== null || walkthroughCameraTarget !== null ? (
         <div className="app-modal-backdrop" role="dialog" aria-modal="true" aria-label="Take photo">
           <div className="app-modal camera-capture-modal">
             <div className="app-modal-heading">
