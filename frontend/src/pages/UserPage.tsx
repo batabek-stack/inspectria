@@ -396,6 +396,8 @@ function ShowMoreButton({
 
 export default function UserPage({ user, onLogout }: Props) {
   const localDraftKey = `mod_draft_${user.id}`;
+  const isAndroidDevice =
+    typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
@@ -2061,7 +2063,8 @@ export default function UserPage({ user, onLogout }: Props) {
                               <input
                                 type="file"
                                 accept="image/*"
-                                multiple
+                                capture={isAndroidDevice ? "environment" : undefined}
+                                multiple={!isAndroidDevice}
                                 onChange={(e) => {
                                   handleWalkthroughPhotos(sectionIndex, itemIndex, e.target.files);
                                   e.currentTarget.value = "";
@@ -2684,7 +2687,8 @@ export default function UserPage({ user, onLogout }: Props) {
                           id={`photo-upload-${item.id}`}
                           type="file"
                           accept="image/*"
-                          multiple
+                          capture={isAndroidDevice ? "environment" : undefined}
+                          multiple={!isAndroidDevice}
                           onChange={(e) => {
                             handleAddPhotos(item.id, e.target.files);
                             e.currentTarget.value = "";
