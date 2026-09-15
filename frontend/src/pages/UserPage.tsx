@@ -423,6 +423,8 @@ export default function UserPage({ user, onLogout }: Props) {
     summary: ManagerSummaryResponse;
   } | null>(null);
   const [uploadingItemId, setUploadingItemId] = useState<number | null>(null);
+  const [cameraCaptureItemId, setCameraCaptureItemId] = useState<number | null>(null);
+  const [cameraError, setCameraError] = useState("");
   const [isRestoringDraft, setIsRestoringDraft] = useState(false);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const [accountPassword, setAccountPassword] = useState("");
@@ -444,6 +446,7 @@ export default function UserPage({ user, onLogout }: Props) {
   const saveTimeoutRef = useRef<number | null>(null);
   const slowDataLoadTimerRef = useRef<number | null>(null);
   const questionRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const [resumeItemId, setResumeItemId] = useState<number | null>(null);
   const getVisibleListCount = (listKey: string) =>
     visibleListCounts[listKey] ?? LIST_PAGE_SIZE;
@@ -505,6 +508,42 @@ export default function UserPage({ user, onLogout }: Props) {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (cameraCaptureItemId === null) return;
+
+    let stream: MediaStream | null = null;
+    let active = true;
+
+    const startCamera = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+
+        if (!active) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        if (cameraVideoRef.current) {
+          cameraVideoRef.current.srcObject = stream;
+          await cameraVideoRef.current.play();
+        }
+      } catch (error) {
+        console.error(error);
+        setCameraError("Camera could not be opened. Please allow camera access and try again.");
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      active = false;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, [cameraCaptureItemId]);
 
   const saveActionPlanProgress = async (
     plan: ActionPlanItem,
@@ -807,7 +846,7 @@ export default function UserPage({ user, onLogout }: Props) {
     }
   };
 
-  const handleAddPhotos = async (itemId: number, files: FileList | null) => {
+  const handleAddPhotos = async (itemId: number, files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
 
     try {
@@ -835,6 +874,36 @@ export default function UserPage({ user, onLogout }: Props) {
     } finally {
       setUploadingItemId(null);
     }
+  };
+
+  const closeChecklistCamera = () => {
+    setCameraCaptureItemId(null);
+    setCameraError("");
+  };
+
+  const captureChecklistPhoto = async () => {
+    const video = cameraVideoRef.current;
+    if (!video || cameraCaptureItemId === null || !video.videoWidth || !video.videoHeight) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const photo = await new Promise<File | null>((resolve) => {
+      canvas.toBlob((blob) => {
+        resolve(blob ? new File([blob], `checklist-photo-${Date.now()}.jpg`, { type: "image/jpeg" }) : null);
+      }, "image/jpeg", 0.9);
+    });
+
+    if (!photo) {
+      setCameraError("Photo could not be captured. Please try again.");
+      return;
+    }
+
+    const itemId = cameraCaptureItemId;
+    closeChecklistCamera();
+    await handleAddPhotos(itemId, [photo]);
   };
 
   const removePhoto = (itemId: number, photoIndex: number) => {
@@ -2681,20 +2750,32 @@ export default function UserPage({ user, onLogout }: Props) {
                           }}
                         />
                       </label>
-                      <label className="file-upload-button" htmlFor={`photo-upload-${item.id}`}>
-                        <span>Choose File</span>
-                        <input
-                          id={`photo-upload-${item.id}`}
-                          type="file"
-                          accept="image/*"
-                          capture={isAndroidDevice ? "environment" : undefined}
-                          multiple={!isAndroidDevice}
-                          onChange={(e) => {
-                            handleAddPhotos(item.id, e.target.files);
-                            e.currentTarget.value = "";
+                      {isAndroidDevice ? (
+                        <button
+                          type="button"
+                          className="file-upload-button"
+                          onClick={() => {
+                            setCameraError("");
+                            setCameraCaptureItemId(item.id);
                           }}
-                        />
-                      </label>
+                        >
+                          Choose File
+                        </button>
+                      ) : (
+                        <label className="file-upload-button" htmlFor={`photo-upload-${item.id}`}>
+                          <span>Choose File</span>
+                          <input
+                            id={`photo-upload-${item.id}`}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={(e) => {
+                              handleAddPhotos(item.id, e.target.files);
+                              e.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+                      )}
                     </div>
                     {uploadingItemId === item.id ? (
                       <div style={{ marginTop: 8, color: "#0f766e", fontSize: 13 }}>
@@ -2807,6 +2888,27 @@ export default function UserPage({ user, onLogout }: Props) {
           </div>
         </div>
       )}
+      {cameraCaptureItemId !== null ? (
+        <div className="app-modal-backdrop" role="dialog" aria-modal="true" aria-label="Take photo">
+          <div className="app-modal camera-capture-modal">
+            <div className="app-modal-heading">
+              <h3>Take Photo</h3>
+            </div>
+            <div className="app-modal-body">
+              {cameraError ? <p className="camera-capture-error">{cameraError}</p> : null}
+              <video ref={cameraVideoRef} className="camera-capture-preview" autoPlay playsInline muted />
+            </div>
+            <div className="app-modal-actions">
+              <button type="button" style={styles.secondaryButton} onClick={closeChecklistCamera}>
+                Cancel
+              </button>
+              <button type="button" style={styles.button} onClick={captureChecklistPhoto} disabled={Boolean(cameraError)}>
+                Capture
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </DashboardShell>
   );
 }

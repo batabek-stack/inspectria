@@ -186,7 +186,7 @@ export async function createServerDownload(
   }
 }
 
-export async function uploadPhotos(files: FileList | null): Promise<string[]> {
+export async function uploadPhotos(files: FileList | File[] | null): Promise<string[]> {
   if (!files || files.length === 0) return [];
 
   const formData = new FormData();

@@ -280,6 +280,24 @@ textarea {
   border-top: 1px solid #d7e6e4;
 }
 
+.camera-capture-modal {
+  width: min(100%, 720px);
+}
+
+.camera-capture-preview {
+  display: block;
+  width: 100%;
+  max-height: 62vh;
+  border-radius: 6px;
+  background: #06232f;
+  object-fit: cover;
+}
+
+.camera-capture-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
 .report-email-dialog {
   display: grid;
   gap: 14px;
