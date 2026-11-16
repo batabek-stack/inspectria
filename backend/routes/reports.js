@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const db = require("../db");
 const { authRequired } = require("../middleware/auth");
+const { reportPeriodWhere, archivePagination } = require("../reportRetention");
 
 const router = express.Router();
 const uploadRoot = path.join(__dirname, "..", "uploads");
@@ -137,6 +138,10 @@ router.get("/photo-data", authRequired, async (req, res, next) => {
 router.get("/", authRequired, async (req, res, next) => {
   try {
     const params = [];
+    const archived = req.query.archived === "true";
+    const accessWhere = reportAccessWhere(req.user, params);
+    const where = `${accessWhere || 'WHERE TRUE'} AND ${reportPeriodWhere('r', archived)}`;
+    const pagination = archived ? archivePagination(req.query, params) : "";
     const reports = await db.many(
       `
       SELECT
@@ -156,8 +161,9 @@ router.get("/", authRequired, async (req, res, next) => {
       JOIN users u1 ON r.completed_by_user_id = u1.id
       JOIN users u2 ON a.assigned_to_user_id = u2.id
       JOIN users u3 ON a.assigned_by_user_id = u3.id
-      ${reportAccessWhere(req.user, params)}
+      ${where}
       ORDER BY r.id DESC
+      ${pagination}
     `,
       params
     );
@@ -235,9 +241,11 @@ router.get("/unread-count", authRequired, async (req, res, next) => {
     const result = await db.one(
       `
       SELECT COUNT(*)::int AS count
-      FROM report_notifications
-      WHERE recipient_user_id = $1
-        AND read_at IS NULL
+      FROM report_notifications rn
+      JOIN reports r ON r.id = rn.report_id
+      WHERE rn.recipient_user_id = $1
+        AND rn.read_at IS NULL
+        AND ${reportPeriodWhere('r', false)}
     `,
       [req.user.id]
     );

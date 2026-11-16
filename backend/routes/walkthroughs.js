@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const db = require("../db");
 const { authRequired } = require("../middleware/auth");
+const { walkthroughPeriodWhere, archivePagination } = require("../reportRetention");
 
 const router = express.Router();
 const uploadRoot = path.join(__dirname, "..", "uploads");
@@ -252,7 +253,8 @@ router.get("/photo-data", authRequired, async (req, res, next) => {
 router.get("/", authRequired, async (req, res, next) => {
   try {
     const params = [];
-    const where = [];
+    const archived = req.query.archived === "true";
+    const where = [walkthroughPeriodWhere('w', archived)];
 
     if (!db.isPlatformAdmin(req.user)) {
       params.push(req.user.organizationId);
@@ -264,6 +266,7 @@ router.get("/", authRequired, async (req, res, next) => {
       where.push(`w.created_by_user_id = $${params.length}`);
     }
 
+    const pagination = archived ? archivePagination(req.query, params) : "";
     const rows = await db.many(
       `
       SELECT
@@ -275,6 +278,7 @@ router.get("/", authRequired, async (req, res, next) => {
       LEFT JOIN organizations o ON o.id = w.organization_id
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY w.updated_at DESC, w.id DESC
+      ${pagination}
     `,
       params
     );

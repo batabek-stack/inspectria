@@ -5,6 +5,10 @@ export async function getReports(): Promise<Report[]> {
   return apiGet("/reports");
 }
 
+export function getArchivedReports(offset = 0, limit = 20): Promise<Report[]> {
+  return apiGet(`/reports?archived=true&offset=${offset}&limit=${limit}`);
+}
+
 export async function deleteReport(reportId: number) {
   return apiDelete(`/reports/${reportId}`);
 }

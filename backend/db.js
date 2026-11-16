@@ -649,6 +649,11 @@ async function initDb() {
       WHERE read_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_assignments_organization_id ON assignments(organization_id);
     CREATE INDEX IF NOT EXISTS idx_reports_organization_id ON reports(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_reports_org_completed_at
+      ON reports(organization_id, completed_at);
+    CREATE INDEX IF NOT EXISTS idx_reports_completed_at ON reports(completed_at);
+    CREATE INDEX IF NOT EXISTS idx_report_items_report_id ON report_items(report_id);
+    CREATE INDEX IF NOT EXISTS idx_report_photos_report_item_id ON report_photos(report_item_id);
     CREATE INDEX IF NOT EXISTS idx_report_notifications_recipient_unread
       ON report_notifications(recipient_user_id, created_at DESC)
       WHERE read_at IS NULL;
@@ -662,6 +667,9 @@ async function initDb() {
       ON walkthroughs(organization_id);
     CREATE INDEX IF NOT EXISTS idx_walkthroughs_created_by_user_id
       ON walkthroughs(created_by_user_id);
+    CREATE INDEX IF NOT EXISTS idx_walkthroughs_org_completed_at
+      ON walkthroughs(organization_id, (COALESCE(completed_at, updated_at, created_at)))
+      WHERE status = 'completed';
     CREATE INDEX IF NOT EXISTS idx_walkthrough_sections_walkthrough_id
       ON walkthrough_sections(walkthrough_id);
     CREATE INDEX IF NOT EXISTS idx_walkthrough_items_section_id

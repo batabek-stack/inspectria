@@ -12,6 +12,10 @@ export function getWalkthroughs() {
   return apiGet<Walkthrough[]>("/walkthroughs");
 }
 
+export function getArchivedWalkthroughs(offset = 0, limit = 20) {
+  return apiGet<Walkthrough[]>(`/walkthroughs?archived=true&offset=${offset}&limit=${limit}`);
+}
+
 export function createWalkthrough(payload: WalkthroughPayload) {
   return apiPost<{ success: boolean; walkthrough: Walkthrough }>("/walkthroughs", payload);
 }

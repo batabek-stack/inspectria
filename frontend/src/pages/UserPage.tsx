@@ -17,6 +17,7 @@ import DashboardShell from "../components/DashboardShell";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import PasswordInput from "../components/PasswordInput";
 import ReportDetail from "../components/ReportDetail";
+import ReportArchive from "../components/ReportArchive";
 import ReportEmailDialog from "../components/ReportEmailDialog";
 import WalkthroughDetail from "../components/WalkthroughDetail";
 import SlowDataLoadDialog from "../components/SlowDataLoadDialog";
@@ -2316,6 +2317,7 @@ export default function UserPage({ user, onLogout }: Props) {
           {activeUserPage === "reports" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>My Reports</h3>
+            <ReportArchive onReport={setSelectedReport} onWalkthrough={setSelectedWalkthrough} />
 
             {reports.length === 0 ? (
               <div style={styles.small}>No reports yet.</div>

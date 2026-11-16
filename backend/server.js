@@ -31,7 +31,11 @@ app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: false, limit: "25mb" }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-app.get("/api/health", (_, res) => res.json({ ok: true, app: "Inspectria" }));
+app.get("/api/health", (_, res) => res.json({
+  ok: true,
+  app: "Inspectria",
+  revision: process.env.RENDER_GIT_COMMIT || null,
+}));
 app.use("/api/auth", authRoutes);
 app.use("/api/organizations", organizationRoutes);
 app.use("/api/users", userRoutes);

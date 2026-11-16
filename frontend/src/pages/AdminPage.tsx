@@ -21,6 +21,7 @@ import { styles } from "../styles/appStyles";
 import DashboardShell from "../components/DashboardShell";
 import PasswordInput from "../components/PasswordInput";
 import ReportDetail from "../components/ReportDetail";
+import ReportArchive from "../components/ReportArchive";
 import ReportEmailDialog from "../components/ReportEmailDialog";
 import ManagerSummaryPanel from "../components/ManagerSummaryPanel";
 import WalkthroughDetail from "../components/WalkthroughDetail";
@@ -8588,6 +8589,7 @@ export default function AdminPage({ user, onLogout, initialSection }: Props) {
           {activeAdminPage === "reports" ? (
           <div style={styles.section}>
             <h3 style={styles.title}>Completed Reports</h3>
+            <ReportArchive onReport={setSelectedReport} onWalkthrough={setSelectedWalkthrough} />
 
             <div style={{ ...styles.section, background: "#fff" }}>
               <h3 style={styles.title}>Walkthrough Reports</h3>

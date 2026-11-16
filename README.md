@@ -8,6 +8,25 @@ Included features:
 - Multi-organization SaaS data isolation
 - PostgreSQL backend storage
 
+## Report archive
+
+Completed checklist and walkthrough reports older than 90 days automatically
+leave the active lists and dashboard totals. The cutoff uses the completion time;
+exactly 90-day-old reports remain active. Walkthrough drafts remain active
+regardless of age. Legacy completed walkthroughs without a completion timestamp
+use their last update time (or creation time).
+
+Reports and photos are preserved in the database. Open **Archive** on the
+Completed Reports / My Reports screen to browse older reports, 20 at a time,
+and open their details for the usual export and email actions. The archive is
+loaded only when opened, with the same organization and user access rules as
+active reports. No scheduled job or permanent deletion is required.
+
+The backend list APIs accept `archived=true`, `offset` (default 0), and `limit`
+(default 20, maximum 50) for archive requests. Normal list requests return only
+active reports. Restart the backend to apply this behavior and its database
+indexes, and rebuild the frontend for the archive controls.
+
 ## SaaS user model
 - `platform_admin`: manages the whole platform and can approve new organization admins.
 - `admin`: manages only their own organization's users, checklists, assignments, and reports.
